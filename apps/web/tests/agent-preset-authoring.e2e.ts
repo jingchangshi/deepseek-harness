@@ -8,7 +8,7 @@
 //
 // Zero model calls: no replay fixture mounts, so a stray stream fails loud.
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -38,6 +38,7 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
   let userRoot: string
+  let linkedPresetRoot: string | undefined
 
   /** The settings dialog, opened on the Agent-presets section. */
   function settingsDialog(): Locator {
@@ -65,7 +66,17 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
   afterAll(async () => {
     await browser?.close()
     await scaffold?.close()
+    if (linkedPresetRoot !== undefined) {
+      try {
+        await unlink(join(userRoot, 'linked-preset'))
+      } catch (error) {
+        // The test may already have removed the link; every other cleanup
+        // failure must remain visible instead of risking recursive traversal.
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+    }
     await rm(userRoot, { recursive: true, force: true })
+    if (linkedPresetRoot !== undefined) await rm(linkedPresetRoot, { recursive: true, force: true })
   })
 
   it('offers the roster with copy as the only way to create', async () => {
@@ -228,6 +239,38 @@ describe('web e2e: agent-preset authoring is a host-side copy', () => {
     await cleanup.getByRole('button', { name: '删除', exact: true }).click()
     await cleanup.waitFor({ state: 'detached', timeout: 10_000 })
     await rm(join(userRoot, 'broken-yaml'), { recursive: true, force: true })
+  }, 60_000)
+
+  it('lists a preset reached through a symlink like a rooted custom row', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-preset-authoring-linked'))
+    // Planted after every golden capture: the committed goldens keep
+    // describing the rooted roster, while this case proves the assembled
+    // surface — discovery, the host roster RPC, and the rendered section —
+    // treats a linked directory as an ordinary custom row.
+    linkedPresetRoot = await mkdtemp(join(tmpdir(), 'dsh-web-e2e-presets-external-'))
+    await mkdir(join(linkedPresetRoot, 'linked-preset'), { recursive: true })
+    await writeFile(join(linkedPresetRoot, 'linked-preset', 'agent.cordis.yml'), '[]\n')
+    await writeFile(
+      join(linkedPresetRoot, 'linked-preset', 'preset.yml'),
+      'name: 链接模式\ndescription: 真实目录在版本控制的检出里，经由符号链接发现。\n',
+    )
+    await symlink(
+      join(linkedPresetRoot, 'linked-preset'), join(userRoot, 'linked-preset'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    )
+
+    // The section reads the roster when it mounts; hop away and back.
+    const dialog = settingsDialog()
+    await dialog.getByRole('button', { name: '通用设置' }).click()
+    await dialog.getByRole('button', { name: 'Agent 预设' }).click()
+    await dialog.getByText('链接模式').first().waitFor({ timeout: 10_000 })
+    // Display metadata arrives through the link, and a custom row keeps its
+    // affordances: duplicate, delete, and the card as set-default.
+    expect(await dialog.getByRole('button', { name: '复制: 链接模式' }).isEnabled()).toBe(true)
+    expect(await dialog.getByRole('button', { name: '删除: 链接模式' }).count()).toBe(1)
+    expect(await dialog.getByRole('button', { name: '设为默认: 链接模式' }).count()).toBe(1)
+    // Viewing belongs to the shipped set; a custom preset edits in its files.
+    expect(await dialog.getByRole('button', { name: '查看: 链接模式' }).count()).toBe(0)
   }, 60_000)
 
   it('starts a creator-mode session from the section', async () => {

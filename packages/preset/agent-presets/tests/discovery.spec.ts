@@ -148,6 +148,64 @@ describe('preset discovery', () => {
     expect(found.map(preset => preset.id)).toEqual(['real'])
   })
 
+  it('discovers a preset directory reached through a symlink', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-presets-link-'))
+    const external = await mkdtemp(join(tmpdir(), 'dsh-presets-external-'))
+    roots.push(root, external)
+    await mkdir(join(external, 'linked-preset'))
+    await writeFile(join(external, 'linked-preset', COMPOSITION_FILE), '[]\n')
+    await symlink(join(external, 'linked-preset'), join(root, 'linked-preset'), process.platform === 'win32' ? 'junction' : 'dir')
+
+    const found = await scanRoot({ path: root, trust: 'user' }, HARNESS)
+
+    // The row is addressed through the root — path, trust, and health read
+    // through the link like any directory's — so a preset can be developed
+    // in a checkout elsewhere on disk, under version control.
+    expect(found).toEqual([{
+      id: 'linked-preset',
+      trust: 'user',
+      path: join(root, 'linked-preset', COMPOSITION_FILE),
+    }])
+  })
+
+  it('reports a symlinked preset whose target holds no composition as broken', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-presets-link-ghost-'))
+    const external = await mkdtemp(join(tmpdir(), 'dsh-presets-external-'))
+    roots.push(root, external)
+    await mkdir(join(external, 'empty'))
+    await symlink(join(external, 'empty'), join(root, 'empty-preset'), process.platform === 'win32' ? 'junction' : 'dir')
+
+    const found = await scanRoot({ path: root, trust: 'user' }, HARNESS)
+
+    // Health reads through the link too: the row still occupies its id, so
+    // the broken reason is what shows the way out.
+    expect(found).toHaveLength(1)
+    expect(found[0]?.id).toBe('empty-preset')
+    expect(found[0]?.broken).toMatch(/agent\.cordis\.yml is missing/)
+  })
+
+  it('skips a symlink that does not resolve to a directory', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-presets-link-other-'))
+    roots.push(root)
+    await writeFile(join(root, 'plain.txt'), 'not a preset\n')
+    await symlink(join(root, 'no-such-target'), join(root, 'dangling-link'), process.platform === 'win32' ? 'junction' : 'dir')
+    try {
+      await symlink(join(root, 'plain.txt'), join(root, 'file-link'))
+    } catch {
+      // Windows denies unprivileged file symlinks; the file-link entry only
+      // feeds the POSIX lanes' coverage of the symlink-to-file arm, and the
+      // assertion below expects it to be absent either way.
+    }
+    await mkdir(join(root, 'usable'))
+    await writeFile(join(root, 'usable', COMPOSITION_FILE), '[]\n')
+
+    const found = await scanRoot({ path: root, trust: 'user' }, HARNESS)
+
+    // A link to a file, or a dangling one, presents no directory — the same
+    // answer a plain file of that name gets.
+    expect(found.map(preset => preset.id)).toEqual(['usable'])
+  })
+
   it('reports a root it cannot read rather than treating it as empty', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-presets-'))
     roots.push(root)

@@ -1,9 +1,10 @@
 /**
- * Filesystem discovery of agent presets. A preset is a directory holding
- * {@link COMPOSITION_FILE}, optionally beside a {@link METADATA_FILE} carrying
- * its display text; the directory name is the preset id. Discovery
- * re-reads the roots on every call so a preset authored while the process is
- * running is visible without a restart.
+ * Filesystem discovery of agent presets. A preset is a directory — a real one
+ * or one reached through a symlink — holding {@link COMPOSITION_FILE},
+ * optionally beside a {@link METADATA_FILE} carrying its display text; the
+ * directory name is the preset id. Discovery re-reads the roots on every call
+ * so a preset authored while the process is running is visible without a
+ * restart.
  *
  * Discovery also owns preset HEALTH: a directory whose composition is
  * missing or unloadable is reported as a broken roster row rather than
@@ -273,6 +274,21 @@ async function isFile(path: string): Promise<boolean> {
 }
 
 /**
+ * Whether `path` names an existing directory, dereferencing a final symlink.
+ * @param path - absolute path to test.
+ * @returns true when the path resolves to a directory.
+ */
+async function isDirectory(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory()
+  } catch {
+    // A dangling link fails stat like an absent path and means the same
+    // thing here: the entry presents no directory, which is not an error.
+    return false
+  }
+}
+
+/**
  * Scan one root for preset directories.
  *
  * An absent root yields no presets rather than throwing: the user root does
@@ -280,10 +296,13 @@ async function isFile(path: string): Promise<boolean> {
  * that no root supplies already fails loud at resolution.
  *
  * Every directory whose name is a usable preset id is a roster row — broken
- * when its composition is missing or unloadable. A directory named outside
- * {@link PRESET_ID} is skipped instead: no copy could ever claim that name,
- * so it blocks nothing, and reporting `.DS_Store`-grade residue as broken
- * presets would teach users to ignore the marker.
+ * when its composition is missing or unloadable. A symlinked entry is
+ * dereferenced once: a link whose target is a directory is a row like that
+ * directory (its `path` stays under the root), while a link to a file, or a
+ * dangling one, is skipped exactly like a plain file of that name. A
+ * directory named outside {@link PRESET_ID} is skipped instead: no copy could
+ * ever claim that name, so it blocks nothing, and reporting `.DS_Store`-grade
+ * residue as broken presets would teach users to ignore the marker.
  * @param root - the directory and the trust its presets inherit.
  * @param harnessBase - base URL a row's package name resolves against; the
  * caller's own `ctx.baseUrl`, which is where the installed harness lives.
@@ -300,7 +319,13 @@ export async function scanRoot(root: PresetRoot, harnessBase: string): Promise<A
   }
   const found: AgentPreset[] = []
   for (const child of children) {
-    if (!child.isDirectory() || !PRESET_ID.test(child.name)) continue
+    if (!PRESET_ID.test(child.name)) continue
+    // Dirent kinds carry lstat semantics: a symlinked preset directory
+    // reports `isSymbolicLink`, never `isDirectory`. A link is dereferenced
+    // once and classified by its target, so a preset may live outside the
+    // root — a checkout under version control, for instance — while its
+    // path, trust, and health read through the link like any directory's.
+    if (!child.isDirectory() && !(child.isSymbolicLink() && await isDirectory(join(dir, child.name)))) continue
     const directory = join(dir, child.name)
     const path = join(directory, COMPOSITION_FILE)
     const broken = await isFile(path)
