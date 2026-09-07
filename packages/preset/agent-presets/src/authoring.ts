@@ -12,7 +12,7 @@
  * @module @deepseek-ai/dsh-agent-presets/authoring
  */
 
-import { chmod, cp, readdir, readFile, rm, stat } from 'node:fs/promises'
+import { chmod, cp, lstat, readdir, readFile, rm, stat, unlink } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { expandHomePath } from '@deepseek-ai/dsh-home-paths'
@@ -186,6 +186,21 @@ export async function deleteComposition(
   // the one the writable root owns, whatever discovery reported.
   if (!isAbsolute(preset.path) || !preset.path.startsWith(dir)) {
     throw notWritable(preset.id, 'it does not live under the writable preset root')
+  }
+  let linked = false
+  try {
+    linked = (await lstat(dir)).isSymbolicLink()
+  } catch (error) {
+    // A preset removed between roster resolution and deletion already has
+    // the requested result; every other lstat failure remains actionable.
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw error
+  }
+  if (linked) {
+    // Windows junctions and POSIX symlinks must be unlinked explicitly:
+    // recursive removal is reserved for the real directories this root owns.
+    await unlink(dir)
+    return
   }
   await rm(dir, { recursive: true, force: true })
 }

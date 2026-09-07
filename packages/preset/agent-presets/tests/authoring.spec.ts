@@ -6,7 +6,7 @@
  * stays read-only.
  */
 
-import { chmod, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, mkdir, readFile, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -15,10 +15,32 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentPresets, {
-  COMPOSITION_FILE, copyComposition, METADATA_FILE, type Config,
+  COMPOSITION_FILE, copyComposition, deleteComposition, METADATA_FILE, type Config,
 } from '@deepseek-ai/dsh-agent-presets'
+
+const fsHarness = vi.hoisted(() => ({
+  nextLstatError: undefined as NodeJS.ErrnoException | undefined,
+}))
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    lstat: (async (path: Parameters<typeof actual.lstat>[0], ...rest: never[]) => {
+      const error = fsHarness.nextLstatError
+      if (error !== undefined) {
+        fsHarness.nextLstatError = undefined
+        throw error
+      }
+      const realLstat = actual.lstat as (
+        path: Parameters<typeof actual.lstat>[0], ...args: never[]
+      ) => ReturnType<typeof actual.lstat>
+      return await realLstat(path, ...rest)
+    }) as typeof actual.lstat,
+  }
+})
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const VALID = '- id: tool-alpha\n  name: ../../plugins/contribute.js\n  config:\n    tool: alpha\n'
@@ -54,6 +76,7 @@ async function seedPreset(
 }
 
 beforeEach(async () => {
+  fsHarness.nextLstatError = undefined
   userRoot = await mkdtemp(join(tmpdir(), 'dsh-preset-authoring-'))
   roots.push(userRoot)
   ctx = new Context()
@@ -198,6 +221,47 @@ describe('deleting a preset', () => {
   it('refuses to delete a shipped one', async () => {
     await expect(ctx.agentPresets.remove('standard'))
       .rejects.toThrow(/ships with the deployment/)
+  })
+
+  it('deletes a symlinked preset by removing the link, never its target', async () => {
+    const external = await mkdtemp(join(tmpdir(), 'dsh-preset-external-'))
+    roots.push(external)
+    await seedPreset(external, 'checked-out', { composition: '[]\n' })
+    const link = join(userRoot, 'checked-out')
+    await symlink(join(external, 'checked-out'), link, process.platform === 'win32' ? 'junction' : 'dir')
+    try {
+      expect((await ctx.agentPresets.list()).find(preset => preset.id === 'checked-out')?.broken).toBeUndefined()
+
+      await ctx.agentPresets.remove('checked-out')
+
+      expect(existsSync(link)).toBe(false)
+      expect(existsSync(join(external, 'checked-out', COMPOSITION_FILE))).toBe(true)
+    } finally {
+      try {
+        await unlink(link)
+      } catch (error) {
+        // Successful deletion and an assertion before link creation both
+        // leave no entry for cleanup; other unlink failures must fail the test.
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+    }
+  })
+
+  it('accepts a preset that disappears after roster resolution', async () => {
+    await expect(deleteComposition(
+      [{ path: userRoot, trust: 'user' }],
+      { id: 'vanished', trust: 'user', path: join(userRoot, 'vanished', COMPOSITION_FILE) },
+    )).resolves.toBeUndefined()
+  })
+
+  it('reports a filesystem failure while classifying the deletion target', async () => {
+    const failure = Object.assign(new Error('EACCES: injected lstat failure'), { code: 'EACCES' })
+    fsHarness.nextLstatError = failure
+
+    await expect(deleteComposition(
+      [{ path: userRoot, trust: 'user' }],
+      { id: 'sealed', trust: 'user', path: join(userRoot, 'sealed', COMPOSITION_FILE) },
+    )).rejects.toBe(failure)
   })
 
   it('reports an unknown id rather than silently succeeding', async () => {
