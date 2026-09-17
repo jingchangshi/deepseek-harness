@@ -11,7 +11,7 @@ English | [中文](README.zh.md)
 
 Use [Browser Harness](https://github.com/browser-use/browser-harness) to operate a Chrome or Chromium browser that is already running on the machine, with its existing tabs, cookies, and login state. The provider initializes a Session's MCP connection before creation or resume completes and retains it across turns.
 
-One Browser Harness local daemon drives one shared browser and keeps a mutable current tab, so this provider reserves that browser for **one live Session at a time** and works with an externally installed Browser Harness runtime. This published experimental package activates only when explicitly mounted.
+One Browser Harness local daemon drives one shared browser and keeps a mutable current tab, so this provider reserves that browser for **one live Session at a time** and works with an externally installed Browser Harness runtime. Screenshots return as real image content on image-capable routes, and Browser Harness' own workflow guidance is published through the DSH skill registry. This published experimental package activates only when explicitly mounted.
 
 ## Table of Contents
 
@@ -104,15 +104,17 @@ Enable **Allow remote debugging for this browser instance**, then restart that b
 
 This works without a Browser Use Cloud account: `auth login` is only for cloud browsers.
 
-### Register the operating skill
+### The operating skill is registered automatically
 
-The MCP tool descriptions do not carry Browser Harness' full workflow guidance. Export its skill text into a [user skill directory](../../../docs/subsystems/skills.md) so the model can load it:
+Browser Harness ships its own workflow guidance. The provider runs `browser-harness skill` and publishes the returned document through the DSH [skill registry](../../../docs/subsystems/skills.md), so the model discovers `browser-harness` alongside every other skill and loads the body on demand.
+
+Nothing to export by hand: the text comes from the installed version, and it disappears from the catalog when the package is uninstalled. To inspect it yourself, run the same command:
 
 ```powershell
-browser-harness skill > "$env:USERPROFILE\.dsh\skills\browser-harness\SKILL.md"
+browser-harness skill
 ```
 
-This keeps the guidance in step with the installed version instead of copying a bundled copy that drifts.
+If your composition mounts no skill registry, the browser tools still work — only the skill is absent.
 
 -----
 
@@ -126,7 +128,9 @@ The provider maps its configuration onto Browser Harness environment variables a
 
 The provider passes `exclusive: true`, so the shared runtime admits one live Session at a time. Because a daemon keeps mutable current-tab state, two Sessions sharing it would interleave `switch_tab` and act on each other's tab; serializing individual calls cannot fix that, since a multi-step workflow must be atomic as a whole.
 
-Cleanup disposes only the DSH-side connection. The Browser Harness daemon and the browser it drives stay running, and a later activation can attach again.
+Because upstream writes screenshots to disk and returns their path as text, the provider supplies a result projection to the MCP client. On a route that declares image input, the PNG is read and stored as a durable attachment, so the model receives real image content; on any other route, or if the file cannot be read, the result stays a text diagnostic that still names the path. The projection runs after the standard one and never turns a completed browser action into a failed tool result.
+
+Cleanup disposes only the DSH-side connection and skill registration. The Browser Harness daemon and the browser it drives stay running, and a later activation can attach again.
 
 </details>
 
@@ -138,7 +142,7 @@ Cleanup disposes only the DSH-side connection. The Browser Harness daemon and th
 - [Browser use](../../../docs/subsystems/browser-use.md) — provider selection and Session ownership.
 - [Browser-use service](../../browser-use/browser-use/README.md) — exclusive provider registration.
 - [Browser Harness](https://github.com/browser-use/browser-harness) — upstream installation, helpers, and daemon behavior.
-- [Screenshot projection decision](../../../.agents/notes/implemented/architecture/2026-09-17-browser-use-browser-harness-mcp-provider.md) — why screenshots stay paths in V1.
+- [Result projection decision](../../../.agents/notes/implemented/architecture/2026-09-17-browser-use-browser-harness-mcp-provider.md) — why screenshots become image content on capable routes.
 
 -----
 
@@ -151,13 +155,15 @@ Cleanup disposes only the DSH-side connection. The Browser Harness daemon and th
 
 Tools retain upstream descriptions and JSON schemas under `mcp__browser-harness__<tool>` names, including `browser_new_tab`, `browser_goto`, `browser_page_info`, `browser_click`, `browser_type`, `browser_fill`, `browser_screenshot`, `browser_list_tabs`, `browser_switch_tab`, `browser_js`, and `browser_cdp`. `browser_click` takes viewport `x`/`y` coordinates, while `browser_fill` and `browser_upload_file` take CSS selectors.
 
-`browser_screenshot` returns `{"path", "width", "height", "size_bytes"}` as text. It does not return an MCP image block, so **the model receives a local file path and no image**, even on an image-capable route. Reading the image requires a separate step, such as `browser_js` or an external viewer.
+`browser_screenshot` returns `{"path", "width", "height", "size_bytes"}` as text. On a route whose model declares image input, the provider reads that PNG and stores it as a durable attachment, so **the model receives the image itself**. On any other route the model receives a text diagnostic naming the path instead. A file that cannot be read, exceeds 32 MiB, or is refused by image admission also falls back to that path diagnostic.
+
+A `browser-harness` skill is also in the catalog. Load it for the upstream workflow guidance — when a browser is warranted, how to drive the harness, and which helper to reach for.
 
 Upstream reports every helper failure as ordinary text `{"error": "..."}` rather than an MCP error, so a failed call reaches the model as a JSON result instead of a failed tool result.
 
 #### Token effect
 
-The catalog adds tool definitions; calls add arguments and text results to Session history. Returning a screenshot path rather than inline image bytes keeps image data out of history.
+The catalog adds tool definitions plus one skill summary; calls add arguments and text results to Session history. A screenshot on an image-capable route adds image content, while the path text remains in history.
 
 #### KV Cache effect
 
@@ -168,7 +174,8 @@ An unchanged catalog preserves its tool-definition prefix. Results append to his
 <a id="known-limitations-and-deferred-work"></a>
 
 - **One Session per local browser.** A second live Session receives no Browser Harness tools while the first holds the browser. Its other DSH tools keep working, it fails no Session creation, and a later created or resumed activation can acquire the browser after release. Concurrent browser use needs the deferred cloud mode where each Session owns a separate browser.
-- **Screenshots are paths, not images.** DSH's MCP client stores an image only when a result contains an MCP image block. Projecting a local path into the attachment store is deferred; it would require a shared MCP-client capability that does not exist today. Modifying upstream's return type is not an option, because DSH does not fork Browser Harness.
+- **Screenshots depend on the model route.** They become image content only when the calling Agent's model declares image input; any other route, or a file that cannot be read, keeps the path as text.
+- **A missing skill registry drops only the skill.** The browser tools still activate; the upstream guidance simply is not in the catalog.
 - **Upstream errors look like successes.** A failed helper returns text `{"error": "..."}` with no MCP error flag, so failures are not surfaced as failed tool calls.
 - **External executable required.** The provider starts an installed `browser-harness-mcp` and DSH vendors no Python package; a missing executable rejects Session creation. A missing `uv` or Python runtime is a Browser Harness installation problem reported by `browser-harness --doctor`.
 - **Remote debugging permission is manual.** Chrome must have remote debugging allowed for that instance, and it typically cannot be granted from DSH. Attaching to a browser without it reports `DevToolsActivePort not found`.

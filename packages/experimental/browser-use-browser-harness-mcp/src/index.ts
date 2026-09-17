@@ -3,6 +3,14 @@
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import { mountSessionMcp } from '@deepseek-ai/dsh-experimental-browser-use-runtime/mcp'
+import { createScreenshotProjection } from './screenshot.ts'
+import { registerBrowserHarnessSkill } from './skill.ts'
+// Side-effect type imports: `attachments` and `llm` are optional services read
+// through `ctx.get()` for screenshot admission, never required injections.
+import type {} from '@deepseek-ai/dsh-attachment'
+import type {} from '@deepseek-ai/dsh-llm'
+// Side-effect type import: `skills` is optional, registered only when present.
+import type {} from '@deepseek-ai/dsh-skill'
 
 /** Cordis identity for the Browser Harness MCP browser provider. */
 export const name = 'experimental-browser-use-browser-harness-mcp'
@@ -142,9 +150,36 @@ export function apply(ctx: Context, config: Config): void {
     exclusive: true,
     command: config.command,
     args: config.args,
+    // `browser_screenshot` writes a PNG and returns its path; this projects that
+    // path into durable model-visible content for image-capable routes.
+    projectResult: createScreenshotProjection(ctx),
     ...Object.keys(environment).length === 0 ? {} : { env: environment },
     ...config.toolCallTimeoutMs === undefined ? {} : { toolCallTimeoutMs: config.toolCallTimeoutMs },
   })
+  // The skill registry is optional: without it the browser tools still work,
+  // so its absence must not fail activation.
+  if (ctx.get('skills') !== undefined) {
+    ctx.effect(
+      () => registerBrowserHarnessSkill(ctx, { command: resolveSkillCommand(config.command), env: environment }),
+      'browser-harness.skill',
+    )
+  }
+}
+
+/**
+ * Locate the executable that prints the Browser Harness usage skill.
+ *
+ * `browser-harness-mcp` ships beside `browser-harness`, and the task configures
+ * only the MCP executable, so the skill command is derived from it instead of
+ * widening the config surface with a second path the user must keep in sync.
+ *
+ * @param command - configured MCP server executable.
+ * @returns the sibling CLI path, or the configured command when it is not the MCP server.
+ */
+export function resolveSkillCommand(command: string): string {
+  // uv installs both as `.exe` on Windows, so the suffix is matched before the
+  // extension rather than at the very end of the string.
+  return command.replace(/browser-harness-mcp(?=\.exe$|$)/u, 'browser-harness')
 }
 
 /** Upstream variables this provider owns, exported for documentation checks. */

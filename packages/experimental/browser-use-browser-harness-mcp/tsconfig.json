@@ -13,6 +13,18 @@
     },
     {
       "path": "../browser-use-runtime"
+    },
+    {
+      "path": "../../skill/skill"
+    },
+    {
+      "path": "../../attachment/attachment"
+    },
+    {
+      "path": "../../llm/llm"
+    },
+    {
+      "path": "../../mcp/mcp-client"
     }
   ]
 }

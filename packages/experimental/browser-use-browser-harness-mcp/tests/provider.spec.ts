@@ -1,4 +1,5 @@
 import { Context } from '@deepseek-ai/cordis'
+import SkillRegistry from '@deepseek-ai/dsh-skill'
 import { afterEach, expect, it, vi } from 'vitest'
 import { mountSessionMcp } from '@deepseek-ai/dsh-experimental-browser-use-runtime/mcp'
 import * as Provider from '../src/index.ts'
@@ -23,6 +24,28 @@ it('defaults to the installed Browser Harness server and reserves one browser la
   expect('env' in options).toBe(false)
   expect('toolCallTimeoutMs' in options).toBe(false)
   expect('default' in Provider).toBe(false)
+})
+
+it('attaches the screenshot projection so a returned PNG path becomes model-visible', () => {
+  Provider.apply(new Context(), Provider.Config({}))
+  // Without this hook the model receives only a local path: upstream returns
+  // `{path,...}` as text, and the shared bridge stores images only for indexed
+  // `image` blocks.
+  expect(typeof mounted().projectResult).toBe('function')
+})
+
+it('registers the upstream usage skill when a skill registry is mounted', async () => {
+  const ctx = new Context()
+  await ctx.plugin(SkillRegistry)
+  // The stand-in CLI prints a real upstream document so registration completes.
+  Provider.apply(ctx, Provider.Config({ command: process.execPath }))
+  expect(vi.mocked(mountSessionMcp)).toHaveBeenCalledOnce()
+})
+
+it('activates without a skill registry, leaving the browser tools working', () => {
+  // A bare context has no `skills` service; the browser provider must still attach.
+  Provider.apply(new Context(), Provider.Config({}))
+  expect(mounted()).toMatchObject({ name: 'browser-harness', exclusive: true })
 })
 
 it('passes a configured command and timeout through to the MCP client', () => {
@@ -108,4 +131,17 @@ it('declares the only upstream variables this provider may set', () => {
   ])
   expect(Provider.inject).toEqual(['browserUse', 'agents', 'tools', 'systemPrompt'])
   expect(Provider.name).toBe('experimental-browser-use-browser-harness-mcp')
+})
+
+it.each([
+  ['an absolute Windows uv path', 'C:\\Users\\me\\.local\\bin\\browser-harness-mcp.exe', 'C:\\Users\\me\\.local\\bin\\browser-harness.exe'],
+  ['a bare command name', 'browser-harness-mcp', 'browser-harness'],
+  ['a bare command name with an extension', 'browser-harness-mcp.exe', 'browser-harness.exe'],
+  ['a POSIX path', '/usr/local/bin/browser-harness-mcp', '/usr/local/bin/browser-harness'],
+])('derives the skill CLI from %s', (_label, command, expected) => {
+  expect(Provider.resolveSkillCommand(command)).toBe(expected)
+})
+
+it('leaves an unrelated command untouched', () => {
+  expect(Provider.resolveSkillCommand('/opt/custom/server')).toBe('/opt/custom/server')
 })

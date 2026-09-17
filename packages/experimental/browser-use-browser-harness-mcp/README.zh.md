@@ -11,7 +11,7 @@ kind: "package-reference"
 
 使用 [Browser Harness](https://github.com/browser-use/browser-harness) 操作本机**已经在运行**的 Chrome 或 Chromium 浏览器，复用其现有标签页、Cookie 和登录状态。提供方在 Session 创建或恢复完成前初始化其 MCP 连接，并跨轮次保留连接。
 
-Browser Harness 的本地 daemon 驱动同一个共享浏览器，并维护可变的当前标签页，因此本提供方将该浏览器保留给**同一时间的一个活动 Session**，并依赖外部安装的 Browser Harness 运行时。本包以实验状态发布，仅在显式挂载后启用。
+Browser Harness 的本地 daemon 驱动同一个共享浏览器，并维护可变的当前标签页，因此本提供方将该浏览器保留给**同一时间的一个活动 Session**，并依赖外部安装的 Browser Harness 运行时。在支持图像的路由上截图会作为真实图像内容返回，Browser Harness 自身的工作流指引也会通过 DSH 技能注册表发布。本包以实验状态发布，仅在显式挂载后启用。
 
 ## 目录
 
@@ -104,15 +104,17 @@ chrome://inspect/#remote-debugging
 
 本地 Chrome 无需 Browser Use Cloud 账号即可使用：`auth login` 仅用于云端浏览器。
 
-### 注册操作技能
+### 操作技能会自动注册
 
-MCP 工具描述并不包含 Browser Harness 的完整工作流指引。将其技能文本导出到[用户技能目录](../../../docs/subsystems/skills.zh.md)，模型即可加载：
+Browser Harness 自带工作流指引。提供方会运行 `browser-harness skill`，并把返回的文档发布到 DSH [技能注册表](../../../docs/subsystems/skills.zh.md)，因此模型会像发现其他技能一样发现 `browser-harness`，并按需加载正文。
+
+无需手工导出：文本来自已安装的版本；卸载该包后它会自动从目录中消失。如需自行查看，运行同一条命令：
 
 ```powershell
-browser-harness skill > "$env:USERPROFILE\.dsh\skills\browser-harness\SKILL.md"
+browser-harness skill
 ```
 
-这样指引会与已安装版本保持一致，而不是复制一份会逐渐过期的内置副本。
+如果你的组合没有挂载技能注册表，浏览器工具仍然可用——只是缺少该技能。
 
 -----
 
@@ -126,7 +128,9 @@ browser-harness skill > "$env:USERPROFILE\.dsh\skills\browser-harness\SKILL.md"
 
 提供方传入 `exclusive: true`，因此共享运行时同一时间只接纳一个活动 Session。由于 daemon 维护可变的当前标签页状态，两个 Session 共享它会交错执行 `switch_tab` 并操作对方的标签页；仅串行化单次调用无法解决该问题，因为多步工作流必须整体保持原子性。
 
-清理只释放 DSH 侧的连接。Browser Harness daemon 及其驱动的浏览器继续运行，之后的激活可以再次附加。
+由于上游把截图写入磁盘并以文本返回其路径，提供方会向 MCP 客户端提供一个结果投影。在声明支持图像输入的路由上，PNG 会被读取并存为持久附件，模型因此收到真正的图像内容；在其他路由上，或文件无法读取时，结果仍是带路径的文本诊断。该投影在标准投影之后运行，绝不会把已完成的浏览器操作变成失败的工具结果。
+
+清理只释放 DSH 侧的连接与技能注册。Browser Harness daemon 及其驱动的浏览器继续运行，之后的激活可以再次附加。
 
 </details>
 
@@ -138,7 +142,7 @@ browser-harness skill > "$env:USERPROFILE\.dsh\skills\browser-harness\SKILL.md"
 - [浏览器使用](../../../docs/subsystems/browser-use.zh.md) — 提供方选择与 Session 所有权。
 - [browser-use 服务](../../browser-use/browser-use/README.zh.md) — 独占的提供方注册。
 - [Browser Harness](https://github.com/browser-use/browser-harness) — 上游安装、helper 与 daemon 行为。
-- [截图投影决策](../../../.agents/notes/implemented/architecture/2026-09-17-browser-use-browser-harness-mcp-provider.zh.md) — 为何 V1 的截图仍以路径形式返回。
+- [结果投影决策](../../../.agents/notes/implemented/architecture/2026-09-17-browser-use-browser-harness-mcp-provider.zh.md) — 为何截图在支持的路由上会成为图像内容。
 
 -----
 
@@ -151,13 +155,15 @@ browser-harness skill > "$env:USERPROFILE\.dsh\skills\browser-harness\SKILL.md"
 
 工具保留上游描述与 JSON schema，名称形如 `mcp__browser-harness__<tool>`，包括 `browser_new_tab`、`browser_goto`、`browser_page_info`、`browser_click`、`browser_type`、`browser_fill`、`browser_screenshot`、`browser_list_tabs`、`browser_switch_tab`、`browser_js` 和 `browser_cdp`。`browser_click` 接收视口 `x`/`y` 坐标，而 `browser_fill` 与 `browser_upload_file` 接收 CSS 选择器。
 
-`browser_screenshot` 以文本形式返回 `{"path", "width", "height", "size_bytes"}`，并不返回 MCP 图像块，因此**模型拿到的是本地文件路径，而不是图像**，即使当前模型支持图像输入。要读取该图像需要额外步骤，例如 `browser_js` 或外部查看器。
+`browser_screenshot` 以文本形式返回 `{"path", "width", "height", "size_bytes"}`。在模型声明支持图像输入的路由上，提供方会读取该 PNG 并存为持久附件，因此**模型收到的是图像本身**。在其他路由上，模型收到的则是带路径的文本诊断。文件无法读取、超过 32 MiB，或被图像准入拒绝时，也会回退到该路径诊断。
+
+目录中还会出现 `browser-harness` 技能。加载它即可获得上游的工作流指引——何时该用浏览器、如何驱动该 harness，以及该选择哪个 helper。
 
 上游将所有 helper 失败都报告为普通文本 `{"error": "..."}`，而不是 MCP 错误，因此失败的调用会作为 JSON 结果返回给模型，而不会表现为失败的工具结果。
 
 #### Token 影响
 
-工具目录会增加工具定义；调用会把参数和文本结果追加到 Session 历史。截图返回路径而非内联图像字节，使图像数据不进入历史。
+工具目录会增加工具定义以及一条技能摘要；调用会把参数和文本结果追加到 Session 历史。在支持图像的路由上截图会加入图像内容，而路径文本仍保留在历史中。
 
 #### KV Cache 影响
 
@@ -168,7 +174,8 @@ browser-harness skill > "$env:USERPROFILE\.dsh\skills\browser-harness\SKILL.md"
 <a id="known-limitations-and-deferred-work"></a>
 
 - **每个本地浏览器仅限一个 Session。** 当第一个 Session 持有浏览器时，第二个活动 Session 不会获得 Browser Harness 工具。它的其他 DSH 工具继续可用，不会导致 Session 创建失败，且在释放后新创建或恢复的激活可以获取该浏览器。真正的并发浏览器使用需要待实现的云端模式，让每个 Session 拥有独立浏览器。
-- **截图是路径，而不是图像。** DSH 的 MCP 客户端仅在结果包含 MCP 图像块时才保存图像。将本地路径投影到附件存储的工作被推迟；这需要当前并不存在的共享 MCP 客户端能力。修改上游返回类型不可行，因为 DSH 不会 fork Browser Harness。
+- **截图取决于模型路由。** 只有当调用 Agent 的模型声明支持图像输入时，截图才会成为图像内容；其他路由，或文件无法读取时，都以文本保留路径。
+- **缺少技能注册表只会丢失技能。** 浏览器工具仍会激活，只是上游指引不在目录中。
 - **上游错误看上去像成功。** 失败的 helper 会返回文本 `{"error": "..."}`，且没有 MCP 错误标志，因此失败不会表现为失败的工具调用。
 - **依赖外部可执行文件。** 提供方启动已安装的 `browser-harness-mcp`，DSH 不分发任何 Python 包；可执行文件缺失会导致 Session 创建失败。缺少 `uv` 或 Python 运行时属于 Browser Harness 安装问题，由 `browser-harness --doctor` 报告。
 - **远程调试授权需要人工完成。** 必须为浏览器实例允许远程调试，且通常无法从 DSH 内部授权。对未授权的浏览器附加会报告 `DevToolsActivePort not found`。
