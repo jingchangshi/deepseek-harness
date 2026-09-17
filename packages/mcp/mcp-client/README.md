@@ -109,6 +109,7 @@ This section explains the design decisions behind the bridge and points at the c
 - **The raw name is the only wire name.** `tools/call` always receives the raw name; the public name is never sent to the server and never parsed to recover the raw name.
 - **Full generation or none.** Syncs swap generations atomically: a fetch failure keeps the previous generation, and a registration conflict rolls back the entire attempted generation.
 - **One canonical value, one projection.** The executor returns the protocol-complete canonical `McpResult`; a separate ordered projection prepares Native content, and `finalizeContent` installs it only when the registry's post-execute result is unchanged, so policy blocks and value replacements stay authoritative.
+- **A composing plugin can enrich one result.** `projectResult` is an optional, programmatic-only hook that appends content after the standard projection. It exists because some servers return a durable resource by reference — a screenshot file path — which no protocol rule turns into model-visible content; the provider that knows the convention supplies the hook, and this client stays ignorant of any particular server. The hook never receives a failed result and its own failure degrades to a diagnostic, so enrichment cannot turn a completed call into an error.
 
 ### Source map
 
@@ -121,7 +122,7 @@ This section explains the design decisions behind the bridge and points at the c
 | [`src/transport.ts`](src/transport.ts) | Transport factory: stdio spawn with scrubbed env, Streamable HTTP |
 | — | No runtime invariant companion is published; MCP generations contribute through the tool registry, but the bridge exposes no independent server-to-tool snapshot after an asynchronous resync. |
 
-The exported `createMcpToolDefinition(ctx, options)` adapts an upstream tool schema and raw-result callback to the same canonical values, errors, and durable image projection. Each callback receives the exact `ToolExecution`, including its Agent and cancellation signal; SDK spec-type validation checks its result before projection. Callers own registration, cancellation deadlines, and provider teardown. The native Cua Driver provider uses this adapter without opening an MCP transport.
+The exported `createMcpToolDefinition(ctx, options)` adapts an upstream tool schema and raw-result callback to the same canonical values, errors, and durable image projection. Each callback receives the exact `ToolExecution`, including its Agent and cancellation signal; SDK spec-type validation checks its result before projection. Callers own registration, cancellation deadlines, and provider teardown. The native Cua Driver provider uses this adapter without opening an MCP transport. Passing `projectResult` additionally appends caller-supplied content to each successful result; see [Understand the implementation](#understand-the-implementation) for when that is appropriate.
 
 ### Lifecycle and sync
 

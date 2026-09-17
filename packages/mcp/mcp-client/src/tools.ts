@@ -30,14 +30,46 @@ export interface ToolBridgeOptions {
   registrationFailure: 'contain' | 'throw'
   serverName: string
   toolCallTimeoutMs: number
+  /** Optional caller-supplied result projection applied after the standard one. */
+  projectResult?: McpResultProjector
 }
+
+/**
+ * Caller-supplied enrichment of one successful MCP result.
+ *
+ * A server may return a durable resource by reference instead of embedding it —
+ * an image file path, for example — which no protocol-level rule can turn into
+ * model-visible content. The owning provider knows that convention, so it
+ * supplies this hook rather than teaching the shared client about one server.
+ */
+export interface McpResultProjectionContext {
+  /** Upstream tool name that produced the result, for diagnostics and matching. */
+  readonly rawName: string
+  /** Canonical result the standard projection produced. */
+  readonly result: McpProjectionResult
+  /** Exact tool execution, carrying the Agent whose route governs image admission. */
+  readonly execution: ToolExecution
+}
+
+/** Canonical result shape handed to a {@link McpResultProjector}, free of type parameters. */
+export interface McpProjectionResult {
+  /** Ordered protocol blocks the server returned, preserved verbatim. */
+  readonly content: JsonValue[]
+  /** Advertised structured output, when the tool declared and returned one. */
+  readonly structuredContent?: JsonValue
+}
+
+/** Caller-supplied extra content blocks for one result, appended after the standard ones. */
+export type McpResultProjector = (context: McpResultProjectionContext) => Promise<ContentBlock[]>
 
 /** State for one sync generation: the current set of disposers keyed by public name. */
 export type ToolDisposers = Map<string, () => void>
 
 /** Canonical MCP result exposed to PTC mode without discarding protocol blocks. */
 export type McpResult<Structured extends JsonValue = JsonValue> = {
+  /** Ordered protocol blocks the server returned, preserved verbatim. */
   content: JsonValue[]
+  /** Advertised structured output, when the tool declares and returns one. */
   structuredContent?: Structured
 }
 
@@ -135,6 +167,7 @@ export async function syncTools(
       inputSchema: tool.inputSchema,
       outputSchema: tool.outputSchema,
       taskRequired: tool.execution?.taskSupport === 'required',
+      ...opts.projectResult === undefined ? {} : { projectResult: opts.projectResult },
       call: (args, execution) => client.callTool(
         { name: tool.name, arguments: args },
         { signal: execution.signal, timeout: opts.toolCallTimeoutMs, toolDefinition: tool },
@@ -206,6 +239,8 @@ export interface McpToolDefinitionOptions {
   outputSchema?: unknown
   /** Whether the upstream tool requires the unsupported task execution extension. */
   taskRequired?: boolean
+  /** Optional caller-supplied projection appended to the standard result content. */
+  projectResult?: McpResultProjector
   /**
    * Obtain one raw MCP result from the provider.
    * @param args - model arguments admitted by the ToolRuntime.
@@ -304,12 +339,43 @@ function createExecutor(
         ? { structuredContent: result.structuredContent as JsonValue }
         : {},
     }
-    if (containsImage(content)) {
-      const fallback: ContentBlock[] = [{ type: 'text', text: extractText(content, rawName) }]
-      const projected = await prepareImageProjection(ctx, exec, content, rawName)
+    const fallback: ContentBlock[] = [{ type: 'text', text }]
+    const standard = containsImage(content)
+      ? await prepareImageProjection(ctx, exec, content, rawName)
+      : fallback
+    const projected = options.projectResult === undefined
+      ? standard
+      : [...standard, ...await projectCallerContent(options.projectResult, exec, rawName, value)]
+    if (projected.length !== fallback.length || candidatesDiffer(projected, fallback)) {
       projections.set(exec, { value, fallback, content: projected })
     }
     return value
+  }
+}
+
+/** Whether an ordered content list differs from the plain-text fallback it must replace. */
+function candidatesDiffer(projected: ContentBlock[], fallback: ContentBlock[]): boolean {
+  return projected.some((block, index) => !isDeepStrictEqual(block, fallback[index]))
+}
+
+/**
+ * Run the caller's projection without letting it fail the tool call.
+ *
+ * A projection enriches an already-successful result, so a provider bug or an
+ * unreadable referenced file must degrade to a diagnostic rather than turn a
+ * completed browser action into a failed tool result.
+ */
+async function projectCallerContent(
+  projectResult: McpResultProjector,
+  exec: ToolExecution,
+  rawName: string,
+  result: McpResult,
+): Promise<ContentBlock[]> {
+  try {
+    return await projectResult({ rawName, result, execution: exec })
+  } catch (error: unknown) {
+    const reason = error instanceof Error ? error.message : String(error)
+    return [{ type: 'text', text: `[projection unavailable: ${rawName}; ${reason}]` }]
   }
 }
 

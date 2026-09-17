@@ -19,12 +19,18 @@ import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { DEFAULT_MAX_INSTRUCTION_BYTES, RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
 import type { ReconnectConfig } from './connection.ts'
+import type { McpResultProjector } from './tools.ts'
 import { registerServerContext } from './server-context.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
 
 export { createMcpToolDefinition } from './tools.ts'
-export type { McpResult, McpToolDefinitionOptions } from './tools.ts'
+export type {
+  McpResult,
+  McpResultProjectionContext,
+  McpResultProjector,
+  McpToolDefinitionOptions,
+} from './tools.ts'
 export type { ReconnectConfig, ResolvedReconnectPolicy } from './connection.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
@@ -74,6 +80,12 @@ export interface StdioConfig {
   maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
+  /**
+   * Programmatic-only result projection for servers that return durable
+   * resources by reference. Never configurable from `cordis.yml`: a function
+   * cannot be schema-validated, so only a composing plugin supplies it.
+   */
+  projectResult?: McpResultProjector
 }
 
 /** Config for connecting to an MCP server over Streamable HTTP (SSE). */
@@ -98,6 +110,12 @@ export interface StreamableHttpConfig {
   maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
+  /**
+   * Programmatic-only result projection for servers that return durable
+   * resources by reference. Never configurable from `cordis.yml`: a function
+   * cannot be schema-validated, so only a composing plugin supplies it.
+   */
+  projectResult?: McpResultProjector
 }
 
 /** Configuration for one stdio or Streamable HTTP MCP server. */
