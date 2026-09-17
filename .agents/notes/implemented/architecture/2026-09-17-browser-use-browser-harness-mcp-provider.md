@@ -210,3 +210,16 @@ throwing projector does not fail the call, and that omitting one changes nothing
 Regression runs cover `browser-use-runtime`, `mcp-client`, and both existing
 providers. A real-Chrome E2E is opt-in behind `DSH_BROWSER_HARNESS_E2E=1` so CI
 needs neither Chrome nor a Browser Harness installation.
+
+That E2E has been run against the real stack and passes: Browser Harness 0.1.13
+with Chrome 153 on Windows 11, driving a local fixture page through tab
+creation, navigation, page state, and JavaScript evaluation, then capturing a
+screenshot and asserting the stored attachment holds the exact PNG bytes the
+browser produced. Two findings from that run are worth keeping. The screenshot
+projection was silently inert until the test's Agent carried a resolvable model
+route, because the projection refuses to store an image on an unverifiable
+route — the failure surfaced as a path diagnostic, never as a broken tool call.
+And `browser_screenshot` intermittently never answers over MCP although the same
+capture returns in about 0.1 s through the harness CLI, so the suite retries it
+and reports a persistent stall explicitly rather than attributing it to the
+projection.

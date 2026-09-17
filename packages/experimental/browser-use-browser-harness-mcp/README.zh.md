@@ -177,6 +177,7 @@ browser-harness skill
 - **截图取决于模型路由。** 只有当调用 Agent 的模型声明支持图像输入时，截图才会成为图像内容；其他路由，或文件无法读取时，都以文本保留路径。
 - **缺少技能注册表只会丢失技能。** 浏览器工具仍会激活，只是上游指引不在目录中。
 - **上游错误看上去像成功。** 失败的 helper 会返回文本 `{"error": "..."}`，且没有 MCP 错误标志，因此失败不会表现为失败的工具调用。
+- **`browser_screenshot` 经 MCP 调用时可能挂起。** 针对 Browser Harness 0.1.13 的实测：同一次截图经 `browser-harness` 命令行约 0.1 秒返回，而 MCP 封装有时始终不返回，直到触发工具超时。它是间歇性的而非必然发生，因此重试该调用是可行的规避方式。这是上游 MCP 层的缺陷，而非投影的问题：只要该调用返回，截图就会按上文所述存为图像。
 - **依赖外部可执行文件。** 提供方启动已安装的 `browser-harness-mcp`，DSH 不分发任何 Python 包；可执行文件缺失会导致 Session 创建失败。缺少 `uv` 或 Python 运行时属于 Browser Harness 安装问题，由 `browser-harness --doctor` 报告。
 - **远程调试授权需要人工完成。** 必须为浏览器实例允许远程调试，且通常无法从 DSH 内部授权。对未授权的浏览器附加会报告 `DevToolsActivePort not found`。
 - **陈旧 daemon 会跨 DSH 会话存留。** daemon 的生命周期长于 DSH；`browser-harness --reload` 可停止它，使下次调用加载新代码。
