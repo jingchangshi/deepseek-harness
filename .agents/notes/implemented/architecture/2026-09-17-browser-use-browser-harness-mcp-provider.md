@@ -74,6 +74,55 @@ command is spawned directly without a shell, defaulting to the installed
 `browser-harness-mcp` executable; DSH vendors no Python package and requires no
 Browser Use Cloud account for local Chrome.
 
+### Screenshot projection through a shared-client seam
+
+`browser_screenshot` returns `{"path", "width", "height", "size_bytes"}` as
+**text**, because upstream writes a PNG to disk instead of returning MCP
+`ImageContent`. DSH's bridge saves an image only for a result that already
+contains a `type: "image"` block (`containsImage()` gates
+`prepareImageProjection()`), so the model received a path and no picture.
+
+The fix belongs at the seam, not in one provider. `dsh-mcp-client` now accepts an
+optional `projectResult` hook on its tool-definition options, applied **after**
+the standard projection and only to successful results:
+
+```ts
+projectResult?: (context: {
+  rawName: string
+  result: McpResult
+  execution: ToolExecution
+}) => Promise<ContentBlock[]>
+```
+
+It is programmatic-only — a function cannot be schema-validated, so `cordis.yml`
+can never supply it; only a composing plugin can. The hook's output flows through
+the existing `finalizeContent` path, so it rides the same model-visibility rules
+as any other content. A hook that throws degrades to a diagnostic text block
+rather than failing a tool call that already succeeded upstream, because
+enrichment must never turn a completed action into an error.
+
+This provider supplies the hook: it recognizes the screenshot payload, resolves
+the calling Agent's route and proves the model declares `image` input (mirroring
+the shared admission rule), reads the PNG, and stores it as a durable attachment.
+Every failure path — no store, no route, unreadable file, oversized file, refused
+admission — returns text that still names the path, so the model never loses the
+result entirely. Screenshots therefore reach an image-capable model as real image
+content and remain a path for every other route.
+
+### Skill integration through the existing registry
+
+`browser-harness skill` already prints a complete `SKILL.md`. Rather than ship a
+copy that drifts, the provider runs that command and publishes the document
+through `ctx.skills.registerProvider()` — the same registry, ranking, and loader
+every filesystem and bundled skill uses. There is no second skill loader.
+
+The body is upstream text verbatim; DSH parses only the frontmatter. The skill
+ranks below bundled providers so a user's own skill of the same name still wins,
+and it is registered only when a `skills` service is present, so a composition
+without one keeps working browser tools. The skill CLI is derived from the
+configured command (`browser-harness-mcp` → `browser-harness`) instead of adding
+a second path to the config surface.
+
 ## Upstream contract
 
 Verified by reading the installed `browser_harness` sources (0.1.13) and by
@@ -110,7 +159,17 @@ helpers and daemon entirely.
 
 **Forking Browser Harness to return MCP `ImageContent` from
 `browser_screenshot`.** Rejected: it makes DSH responsible for tracking upstream
-releases to fix one return type. The limitation is documented instead.
+releases to fix one return type, and the reference is DSH-side information the
+existing seam can already carry.
+
+**Teaching `dsh-mcp-client` about Browser Harness' screenshot shape.** Rejected:
+the shared client would encode one server's file convention, and every future
+"returns a reference" server would add another branch. The seam takes a callback
+and stays ignorant of any particular upstream.
+
+**Registering the skill by copying `SKILL.md` into a skills directory.** Rejected:
+a copy drifts from the installed version, and it bypasses provider ranking and
+invalidation. Running the installed command keeps one source of truth.
 
 ## Consequences
 
@@ -123,14 +182,11 @@ owned. The cost is that one local daemon serves one DSH Session at a time —
 concurrent Sessions must wait for release, and true browser parallelism requires
 the deferred cloud mode where each Session gets its own browser.
 
-`browser_screenshot` returns a local path, not an image, and DSH's MCP bridge
-saves an image into the AttachmentStore **only** for a content block with
-`type: "image"` (`containsImage()` gates `prepareImageProjection()`). So the
-model receives text containing a path and **no image content block**, even when
-it is multimodal. DSH has no generic "local image path → AttachmentStore"
-capability, `mountSessionMcp` deliberately adds no model-visible content, and
-adding a projection hook to the shared MCP client would change every provider —
-so this is recorded as a P1 follow-up rather than changed here.
+`browser_screenshot` returns a local path rather than an image; the provider's
+`projectResult` hook now converts it into durable image content for routes that
+declare image input, and into a path-bearing text diagnostic otherwise. The cost
+is one extra file read per screenshot and a projection that depends on the
+upstream payload keeping its `path` field.
 
 ## Testing
 
@@ -139,7 +195,18 @@ Unit coverage asserts the provider defaults (`name: browser-harness`,
 passthrough, every environment mapping including the `record: undefined` case
 that must not emit `BH_RECORD`, `cdpUrl`/`cdpWs` mutual exclusion, and rejection
 of an empty command or an invalid timeout. `exclusive: true` is proven against
-the value handed to `mountSessionMcp`, not asserted in prose. Regression runs
-cover `browser-use-runtime` and both existing providers. A real-Chrome E2E is
-opt-in behind `DSH_BROWSER_HARNESS_E2E=1` so CI needs neither Chrome nor a
-Browser Harness installation.
+the value handed to `mountSessionMcp`, not asserted in prose.
+
+The screenshot projection is covered against a real PNG and the real
+`LocalAttachmentStore`: an image-capable route stores the exact bytes and returns
+an `image` block, a text-only route keeps a path diagnostic, and a missing store,
+missing file, upstream error text, non-screenshot tool, and non-JSON payload each
+degrade to text instead of failing. The skill bridge is covered against a real
+child process and the real `ctx.skills` registry, including publishing, loading
+the body, disposal, and the missing/failing/silent/unusable-command cases. The
+shared seam has its own suite proving a projector appends content, that a
+throwing projector does not fail the call, and that omitting one changes nothing.
+
+Regression runs cover `browser-use-runtime`, `mcp-client`, and both existing
+providers. A real-Chrome E2E is opt-in behind `DSH_BROWSER_HARNESS_E2E=1` so CI
+needs neither Chrome nor a Browser Harness installation.

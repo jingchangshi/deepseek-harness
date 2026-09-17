@@ -23,6 +23,8 @@ A launched browser belongs to the exact live Agent and Session that uses it. Cal
 
 An attached browser remains externally owned. The provider reserves it for one Session within that provider instance, preserves its existing browser state, and rejects simultaneous attachment by another Session. Teardown disconnects and leaves the external browser running. Separate DSH processes and other clients remain outside this reservation. Browser Harness attachment is always exclusive in this way, because its local daemon drives one shared browser with a mutable current tab.
 
+Because that upstream returns a screenshot as a file path rather than image content, its provider supplies a result projection to the [MCP client](../../packages/mcp/mcp-client/README.md): on a route whose model declares image input, the file is stored as a durable attachment and reaches the model as an image; on any other route it stays a text diagnostic naming the path. The same provider publishes Browser Harness' own usage guidance through the [skill registry](skills.md) rather than exporting it by hand.
+
 Provider shutdown stops tool admission and waits for owned work and resource cleanup before releasing the shared provider registration. Cancellation cannot undo a browser action already delivered.
 
 ## MCP initialization

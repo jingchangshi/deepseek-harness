@@ -598,7 +598,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/experimental/browser-use-browser-harness-mcp/src/index.ts:14`](../packages/experimental/browser-use-browser-harness-mcp/src/index.ts)
+Source: [`packages/experimental/browser-use-browser-harness-mcp/src/index.ts:22`](../packages/experimental/browser-use-browser-harness-mcp/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-browser-use-chrome-devtools-mcp"></a>
 
@@ -1667,6 +1667,12 @@ export interface StdioConfig {
   maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
+  /**
+   * Programmatic-only result projection for servers that return durable
+   * resources by reference. Never configurable from `cordis.yml`: a function
+   * cannot be schema-validated, so only a composing plugin supplies it.
+   */
+  projectResult?: McpResultProjector
 }
 
 /** Config for connecting to an MCP server over Streamable HTTP (SSE). */
@@ -1691,6 +1697,12 @@ export interface StreamableHttpConfig {
   maxInstructionBytes?: number
   /** Automatic reconnect policy after a lost connection; omission uses the defaults. */
   reconnect?: ReconnectConfig
+  /**
+   * Programmatic-only result projection for servers that return durable
+   * resources by reference. Never configurable from `cordis.yml`: a function
+   * cannot be schema-validated, so only a composing plugin supplies it.
+   */
+  projectResult?: McpResultProjector
 }
 
 /** Automatic reconnect policy for one MCP server connection. */
@@ -1704,9 +1716,39 @@ export interface ReconnectConfig {
   /** Consecutive failed attempts per outage before giving up for good (default 10). */
   maxAttempts?: number
 }
+
+/** Caller-supplied extra content blocks for one result, appended after the standard ones. */
+export type McpResultProjector = (context: McpResultProjectionContext) => Promise<ContentBlock[]>
+
+/**
+ * Caller-supplied enrichment of one successful MCP result.
+ *
+ * A server may return a durable resource by reference instead of embedding it —
+ * an image file path, for example — which no protocol-level rule can turn into
+ * model-visible content. The owning provider knows that convention, so it
+ * supplies this hook rather than teaching the shared client about one server.
+ */
+export interface McpResultProjectionContext {
+  /** Upstream tool name that produced the result, for diagnostics and matching. */
+  readonly rawName: string
+  /** Canonical result the standard projection produced. */
+  readonly result: McpProjectionResult
+  /** Exact tool execution, carrying the Agent whose route governs image admission. */
+  readonly execution: ToolExecution
+}
+
+/** Canonical result shape handed to a {@link McpResultProjector}, free of type parameters. */
+export interface McpProjectionResult {
+  /** Ordered protocol blocks the server returned, preserved verbatim. */
+  readonly content: JsonValue[]
+  /** Advertised structured output, when the tool declared and returned one. */
+  readonly structuredContent?: JsonValue
+}
 ```
 
-Source: [`packages/mcp/mcp-client/src/index.ts:104`](../packages/mcp/mcp-client/src/index.ts)
+Depends on: [`ContentBlock`](subsystems/llm-streaming.md) · [`JsonValue`](../packages/util/values/src/index.ts) · [`ToolExecution`](subsystems/tools.md)
+
+Source: [`packages/mcp/mcp-client/src/index.ts:122`](../packages/mcp/mcp-client/src/index.ts)
 
 <a id="deepseek-aidsh-message-feedback"></a>
 

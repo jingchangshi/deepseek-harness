@@ -39,6 +39,30 @@ Session A: browser_click(...)     # acts on B's tab
 
 提供方只暴露受控字段——绝不接受任意的 `env: Record<string, string>`——并将其映射到上游变量：`BH_HOME`、`BU_NAME`、`BH_REQUIRE_EXISTING_DAEMON`、`BH_RECORD`、`BH_TAB_MARKER`、`BU_CDP_URL`、`BU_CDP_WS`。**未设置**的选项不会写入任何变量，因此 Browser Harness 会保留自己已保存的录制与标签页标记偏好；`record: undefined` 特意不产生 `BH_RECORD`。`cdpUrl` 与 `cdpWs` 互斥，且都必须能解析为 URL。命令直接启动而不经过 shell，默认使用已安装的 `browser-harness-mcp` 可执行文件；DSH 不分发任何 Python 包，本地 Chrome 也不需要 Browser Use Cloud 账号。
 
+### 通过共享客户端接缝实现截图投影
+
+`browser_screenshot` 以**文本**返回 `{"path", "width", "height", "size_bytes"}`，因为上游把 PNG 写到磁盘，而不是返回 MCP `ImageContent`。DSH 桥接仅在结果已经包含 `type: "image"` 内容块时才保存图像（`containsImage()` 决定是否进入 `prepareImageProjection()`），因此模型只拿到路径，拿不到图片。
+
+修复应落在接缝处，而不是某一个提供方内部。`dsh-mcp-client` 现在在工具定义选项中接受可选的 `projectResult` 钩子，它在标准投影**之后**应用，且只作用于成功的结果：
+
+```ts
+projectResult?: (context: {
+  rawName: string
+  result: McpResult
+  execution: ToolExecution
+}) => Promise<ContentBlock[]>
+```
+
+该钩子仅供程序化使用——函数无法通过 schema 校验，因此 `cordis.yml` 永远无法提供它，只有组合插件可以。钩子的输出走既有的 `finalizeContent` 路径，因而与任何其他内容遵循相同的模型可见性规则。钩子抛出异常时会降级为诊断文本块，而不会让上游已经成功的工具调用失败，因为增强绝不能把已完成的动作变成错误。
+
+本提供方提供该钩子：它识别截图载荷，解析调用 Agent 的路由并证明该模型声明了 `image` 输入（与共享准入规则一致），读取 PNG，并将其存为持久附件。所有失败路径——没有存储、没有路由、文件不可读、文件超大、准入被拒——都返回仍带路径的文本，因此模型绝不会完全丢失该结果。截图于是对支持图像输入的模型成为真正的图像内容，对其他路由则保持为路径。
+
+### 通过现有注册表集成技能
+
+`browser-harness skill` 已经会打印完整的 `SKILL.md`。本提供方不另行分发副本，而是运行该命令并通过 `ctx.skills.registerProvider()` 发布该文档——与所有文件系统和内置技能使用的是同一个注册表、排名与加载器。不存在第二个技能加载器。
+
+正文是上游原文；DSH 只解析 frontmatter。该技能排名低于内置提供方，因此用户同名的自建技能仍然优先；且只有在存在 `skills` 服务时才注册，因此没有该服务的组合仍可使用浏览器工具。技能 CLI 由已配置的命令派生（`browser-harness-mcp` → `browser-harness`），而不是在配置面上再加一个需要同步的路径。
+
 ## Upstream contract
 
 通过阅读已安装的 `browser_harness` 源码（0.1.13），并向 `browser-harness-mcp` 发出真实的 `tools/list` JSON-RPC 调用加以验证，而不仅仅依据文档：
@@ -55,14 +79,22 @@ Session A: browser_click(...)     # acts on B's tab
 
 **在 DSH 中重新实现 CDP，或经由 Playwright 中转。** 否决：前者会制造架构明令禁止的平行浏览器子系统；后者插入 Browser Harness 并不使用的控制层，并会完全绕过其 helper 与 daemon。
 
-**Fork Browser Harness 让 `browser_screenshot` 返回 MCP `ImageContent`。** 否决：这会让 DSH 为了修正一个返回类型而承担跟踪上游发布的责任。此处改为记录该限制。
+**Fork Browser Harness 让 `browser_screenshot` 返回 MCP `ImageContent`。** 否决：这会让 DSH 为了修正一个返回类型而承担跟踪上游发布的责任，而该引用本身是 DSH 侧信息，既有接缝已经能够承载。
+
+**让 `dsh-mcp-client` 认识 Browser Harness 的截图结构。** 否决：共享客户端会因此写死某一个服务器的文件约定，此后每个“返回引用”的服务器都会再增加一个分支。接缝接收回调，从而对任何特定上游保持无知。
+
+**把 `SKILL.md` 复制到技能目录来注册技能。** 否决：副本会与已安装版本产生偏差，并且会绕过提供方排名与失效机制。运行已安装的命令可以保持单一事实来源。
 
 ## Consequences
 
 附加到用户真实浏览器意味着 DSH 会操作它并不拥有的实时状态：`BU_NAME` 选择的 daemon 所对应的浏览器可能已在各处登录，且 `browser_cdp` 可以发出任意 CDP 方法。清理只会释放 DSH 侧的 MCP 客户端与 scope；daemon 和用户的 Chrome 继续运行，符合运行时“附加浏览器仍归外部所有”的规则。代价是一个本地 daemon 同一时间只服务一个 DSH Session——并发 Session 必须等待释放，而真正的浏览器并行需要被推迟的云端模式，让每个 Session 拥有独立浏览器。
 
-`browser_screenshot` 返回本地路径而不是图像，而 DSH 的 MCP 桥接**仅**在结果包含 `type: "image"` 的内容块时才将图像保存到 AttachmentStore（`containsImage()` 决定是否进入 `prepareImageProjection()`）。因此即使模型支持图像输入，它收到的也只是包含路径的文本，**不会产生图像内容块**。DSH 目前没有通用的“本地图像路径 → AttachmentStore”能力，`mountSessionMcp` 刻意不添加任何模型可见内容，而在共享 MCP 客户端中加入投影钩子会改变所有提供方的行为——因此这里将其记为 P1 后续工作，而不在本次改动。
+`browser_screenshot` 返回本地路径而不是图像；提供方的 `projectResult` 钩子现在会为声明图像输入的路由把它转换为持久图像内容，对其他路由则转换为带路径的文本诊断。代价是每次截图多一次文件读取，且该投影依赖上游载荷保留其 `path` 字段。
 
 ## Testing
 
-单元测试断言提供方默认值（`name: browser-harness`、`exclusive: true`、`command: browser-harness-mcp`、空参数）、超时透传、每一项环境变量映射（包括**不得**产生 `BH_RECORD` 的 `record: undefined` 情形）、`cdpUrl`/`cdpWs` 互斥，以及拒绝空命令或非法超时。`exclusive: true` 是针对交给 `mountSessionMcp` 的实际取值加以证明，而不是在文档中断言。回归运行覆盖 `browser-use-runtime` 与两个现有提供方。真实 Chrome 的端到端测试通过 `DSH_BROWSER_HARNESS_E2E=1` 显式启用，因此 CI 既不需要 Chrome 也不需要 Browser Harness 安装。
+单元测试断言提供方默认值（`name: browser-harness`、`exclusive: true`、`command: browser-harness-mcp`、空参数）、超时透传、每一项环境变量映射（包括**不得**产生 `BH_RECORD` 的 `record: undefined` 情形）、`cdpUrl`/`cdpWs` 互斥，以及拒绝空命令或非法超时。`exclusive: true` 是针对交给 `mountSessionMcp` 的实际取值加以证明，而不是在文档中断言。
+
+截图投影使用真实 PNG 与真实 `LocalAttachmentStore` 覆盖：支持图像的路由会存入完全一致的字节并返回 `image` 块，纯文本路由保留路径诊断，而缺少存储、文件缺失、上游错误文本、非截图工具以及非 JSON 载荷都会降级为文本，而不是失败。技能桥接使用真实子进程与真实 `ctx.skills` 注册表覆盖，包括发布、加载正文、注销，以及命令缺失/失败/无输出/文档不可用等情形。共享接缝有自己的测试套件，证明投影器会追加内容、抛出异常的投影器不会让调用失败，以及省略投影器时行为不变。
+
+回归运行覆盖 `browser-use-runtime`、`mcp-client` 与两个现有提供方。真实 Chrome 的端到端测试通过 `DSH_BROWSER_HARNESS_E2E=1` 显式启用，因此 CI 既不需要 Chrome 也不需要 Browser Harness 安装。
