@@ -94,15 +94,50 @@ browser-harness --doctor
 
 ### 授权远程调试
 
-Browser Harness 通过 CDP 附加到浏览器，而 Chrome 默认关闭该功能。在需要被控制的浏览器中打开：
+<a id="authorize-remote-debugging"></a>
 
-```text
-chrome://inspect/#remote-debugging
+Browser Harness 通过 CDP 附加到浏览器，而 Chrome 默认不暴露该端口。可靠的做法是启动**一个专用浏览器实例并使用独立配置文件**，这样日常使用的浏览器不会被改动，两者也不会争抢同一个配置文件锁。
+
+**要识别的失败现象。** 对一个已在运行的 Chrome，或对默认配置文件执行下面这条命令，会静默地什么都不做：
+
+```powershell
+# Does NOT enable CDP on the default profile.
+chrome.exe --remote-debugging-port=9222
 ```
 
-启用 **Allow remote debugging for this browser instance**，如果浏览器要求则重启该浏览器。这是针对单个浏览器实例的授权，首次可能需要人工点击；在授权前，`browser-harness --doctor` 会报告 `DevToolsActivePort not found`。Chrome 还可能显示调试通知，并且受策略锁定的配置文件会拒绝远程调试。
+Chrome 会在命令行中接受该参数，但 CDP 端口始终不会打开，因为已被占用的配置文件会把请求转交给既有进程，而默认配置文件不会因该参数而暴露远程调试。此时 `Get-NetTCPConnection -LocalPort 9222` 显示没有任何监听——这正是该错误的特征，而不是安装损坏的特征。
 
-本地 Chrome 无需 Browser Use Cloud 账号即可使用：`auth login` 仅用于云端浏览器。
+**可用的配置方式。** 先关闭所有 Chrome 进程，确保真正启动的是这个新实例：
+
+```powershell
+taskkill /F /IM chrome.exe
+$profile = "$env:LOCALAPPDATA\ChromeAgentProfile"
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" `
+    --remote-debugging-port=9222 `
+    --user-data-dir="$profile" `
+    --no-first-run `
+    --no-default-browser-check
+```
+
+随后验证端口，这是唯一真正重要的检查：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:9222/json/version
+```
+
+可用的实例会返回 `Browser`、`Protocol-Version` 与 `webSocketDebuggerUrl`。再确认 daemon 看到的状况一致：
+
+```powershell
+browser-harness --doctor
+```
+
+`chrome running`、`daemon alive` 与 `active browser connections` 都应报告 `ok`。剩下的 `Browser Use cloud auth` 一行是可选项，与之无关；`auth login` 仅用于云端浏览器。
+
+**为什么 `--user-data-dir` 是必需的。** 不提供它时 Chrome 会解析到默认配置文件，而这正是失败所在。独立目录还能把 agent 的 Cookie 与登录态同日常浏览隔开，并允许你直接删除整个 agent 配置文件来重置它。
+
+**工作正常的标志。** daemon 日志 `%USERPROFILE%\.config\browser-harness\tmp\bu-default.log` 会记录 `attached <target> (about:blank)`。如果它显示的是 `handshake-wait: if Chrome shows an 'Allow remote debugging?' popup, click Allow`，说明浏览器正在等待人工授权；按上述方式启动的专用实例不会弹出该提示。
+
+两个相关注意事项。`DevToolsActivePort` 只会为默认配置文件写入，因此专用实例需要显式设置 `BU_CDP_URL=http://127.0.0.1:9222`，端到端测试套件也正是通过它指向该实例。另外，在由组织管理的 Chrome 上，远程调试可能被策略直接封禁；此时请检查 `chrome://management` 与 `chrome://policy`。
 
 ### 操作技能会自动注册
 
@@ -177,9 +212,9 @@ browser-harness skill
 - **截图取决于模型路由。** 只有当调用 Agent 的模型声明支持图像输入时，截图才会成为图像内容；其他路由，或文件无法读取时，都以文本保留路径。
 - **缺少技能注册表只会丢失技能。** 浏览器工具仍会激活，只是上游指引不在目录中。
 - **上游错误看上去像成功。** 失败的 helper 会返回文本 `{"error": "..."}`，且没有 MCP 错误标志，因此失败不会表现为失败的工具调用。
-- **`browser_screenshot` 经 MCP 调用时可能挂起。** 针对 Browser Harness 0.1.13 的实测：同一次截图经 `browser-harness` 命令行约 0.1 秒返回，而 MCP 封装有时始终不返回，直到触发工具超时。它是间歇性的而非必然发生，因此重试该调用是可行的规避方式。这是上游 MCP 层的缺陷，而非投影的问题：只要该调用返回，截图就会按上文所述存为图像。
+- **`browser_screenshot` 经 MCP 调用时可能挂起。** 针对 Browser Harness 0.1.13 的实测：同一次截图经 `browser-harness` 命令行约 0.1 秒返回，而 MCP 封装会间歇性地始终不返回，直到触发工具超时。该现象在单条连接上反复调用即可复现（`110 ms、85 ms、超时、88 ms、超时`），在新建连接上同样复现，且在多个 Chrome 配置文件上均出现，因此这是上游 MCP 路径中的竞态，而不是配置故障或投影故障。重试该调用是可行的规避方式；只要它返回，截图就会按上文所述存为图像。
 - **依赖外部可执行文件。** 提供方启动已安装的 `browser-harness-mcp`，DSH 不分发任何 Python 包；可执行文件缺失会导致 Session 创建失败。缺少 `uv` 或 Python 运行时属于 Browser Harness 安装问题，由 `browser-harness --doctor` 报告。
-- **远程调试授权需要人工完成。** 必须为浏览器实例允许远程调试，且通常无法从 DSH 内部授权。对未授权的浏览器附加会报告 `DevToolsActivePort not found`。
+- **浏览器必须带远程调试并使用独立配置文件启动。** 参见[授权远程调试](#authorize-remote-debugging)；未以此方式启动的浏览器只有在用户批准浏览器内提示后才能被 daemon 访问。
 - **陈旧 daemon 会跨 DSH 会话存留。** daemon 的生命周期长于 DSH；`browser-harness --reload` 可停止它，使下次调用加载新代码。
 - **不会自动重试。** 启动失败、浏览器不可用或工具超时都不会在该次激活内重试；排除原因后新建 Session，或卸载后恢复。
 - **取消不会撤销已送达的操作。** 已经发送给浏览器的点击、导航或 `browser_cdp` 调用仍然生效。

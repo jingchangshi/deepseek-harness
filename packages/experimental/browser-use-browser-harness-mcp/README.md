@@ -94,15 +94,50 @@ browser-harness --doctor
 
 ### Authorize remote debugging
 
-Browser Harness attaches to the browser over CDP, which Chrome disables by default. In the browser that should be controlled, open:
+<a id="authorize-remote-debugging"></a>
 
-```text
-chrome://inspect/#remote-debugging
+Browser Harness attaches to the browser over CDP, which Chrome does not expose by default. The reliable setup is a **dedicated browser instance with its own profile**, so the browser you use every day is never altered and the two never fight over the same profile lock.
+
+**The failure to recognize.** Running this against an already-running Chrome, or against the default profile, silently does nothing:
+
+```powershell
+# Does NOT enable CDP on the default profile.
+chrome.exe --remote-debugging-port=9222
 ```
 
-Enable **Allow remote debugging for this browser instance**, then restart that browser if it asks. This is a per-instance consent that may require a manual click the first time; `browser-harness --doctor` reports `DevToolsActivePort not found` until it is granted. Chrome may also show a debugging notification, and the browser refuses remote debugging on profiles that a policy locks down.
+Chrome accepts the flag on its command line, but the CDP port never opens, because a profile that is already in use hands the request to the existing process and the default profile does not expose remote debugging to this flag. `Get-NetTCPConnection -LocalPort 9222` then shows nothing listening, which is the signature of this mistake rather than of a broken install.
 
-This works without a Browser Use Cloud account: `auth login` is only for cloud browsers.
+**The working setup.** Close every Chrome process first, so the new instance is the one that actually starts:
+
+```powershell
+taskkill /F /IM chrome.exe
+$profile = "$env:LOCALAPPDATA\ChromeAgentProfile"
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" `
+    --remote-debugging-port=9222 `
+    --user-data-dir="$profile" `
+    --no-first-run `
+    --no-default-browser-check
+```
+
+Then verify the port, which is the only check that matters:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:9222/json/version
+```
+
+A working instance returns `Browser`, `Protocol-Version`, and a `webSocketDebuggerUrl`. Confirm the daemon shares that view:
+
+```powershell
+browser-harness --doctor
+```
+
+`chrome running`, `daemon alive`, and `active browser connections` should all report `ok`. The remaining `Browser Use cloud auth` line is optional and unrelated; `auth login` is only for cloud browsers.
+
+**Why `--user-data-dir` is required.** Without it Chrome resolves to the default profile, which is where this fails. A dedicated directory also keeps the agent's cookies and logins separate from your daily browsing, and lets you delete the whole agent profile to reset it.
+
+**Signs it is working.** The daemon log at `%USERPROFILE%\.config\browser-harness\tmp\bu-default.log` records `attached <target> (about:blank)`. If it instead shows `handshake-wait: if Chrome shows an 'Allow remote debugging?' popup, click Allow`, the browser is waiting for interactive consent; a dedicated instance started as above does not prompt.
+
+Two related caveats. `DevToolsActivePort` is written only for the default profile, so a dedicated instance needs `BU_CDP_URL=http://127.0.0.1:9222` set explicitly, which is also how the E2E suite is pointed at it. And on a Chrome that an organization manages, remote debugging can be blocked outright by policy; check `chrome://management` and `chrome://policy` in that case.
 
 ### The operating skill is registered automatically
 
@@ -177,9 +212,9 @@ An unchanged catalog preserves its tool-definition prefix. Results append to his
 - **Screenshots depend on the model route.** They become image content only when the calling Agent's model declares image input; any other route, or a file that cannot be read, keeps the path as text.
 - **A missing skill registry drops only the skill.** The browser tools still activate; the upstream guidance simply is not in the catalog.
 - **Upstream errors look like successes.** A failed helper returns text `{"error": "..."}` with no MCP error flag, so failures are not surfaced as failed tool calls.
-- **`browser_screenshot` can stall over MCP.** Measured against Browser Harness 0.1.13: the identical capture returns in about 0.1 s through the `browser-harness` CLI, while the MCP wrapper sometimes never answers and the call reaches its tool timeout. It is intermittent rather than constant, so retrying the call is the practical workaround. This is an upstream defect in the MCP layer, not in the projection: when the call does answer, the screenshot is stored as an image exactly as described above.
+- **`browser_screenshot` can stall over MCP.** Measured against Browser Harness 0.1.13: the identical capture returns in about 0.1 s through the `browser-harness` CLI, while the MCP wrapper intermittently never answers and the call reaches its tool timeout. Reproduced across repeated calls on one connection (`110 ms, 85 ms, timeout, 88 ms, timeout`) and on fresh connections, on more than one Chrome profile, so it is a race in the upstream MCP path rather than a configuration fault or a projection fault. Retrying the call is the practical workaround; when it answers, the screenshot is stored as an image exactly as described above.
 - **External executable required.** The provider starts an installed `browser-harness-mcp` and DSH vendors no Python package; a missing executable rejects Session creation. A missing `uv` or Python runtime is a Browser Harness installation problem reported by `browser-harness --doctor`.
-- **Remote debugging permission is manual.** Chrome must have remote debugging allowed for that instance, and it typically cannot be granted from DSH. Attaching to a browser without it reports `DevToolsActivePort not found`.
+- **The browser must be started with remote debugging and a dedicated profile.** See [Authorize remote debugging](#authorize-remote-debugging); a browser started without it is reachable by the daemon only after the user approves the in-browser prompt.
 - **A stale daemon persists across DSH sessions.** The daemon outlives DSH; `browser-harness --reload` stops it so the next call picks up new code.
 - **No automatic retry.** Startup failure, an unavailable browser, or a tool timeout is not retried within that activation; create a new Session or unload and resume after fixing the cause.
 - **Cancellation does not undo delivered actions.** A click, navigation, or `browser_cdp` call already sent to the browser still takes effect.

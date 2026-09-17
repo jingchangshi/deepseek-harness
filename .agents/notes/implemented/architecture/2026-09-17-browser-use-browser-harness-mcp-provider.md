@@ -215,11 +215,24 @@ That E2E has been run against the real stack and passes: Browser Harness 0.1.13
 with Chrome 153 on Windows 11, driving a local fixture page through tab
 creation, navigation, page state, and JavaScript evaluation, then capturing a
 screenshot and asserting the stored attachment holds the exact PNG bytes the
-browser produced. Two findings from that run are worth keeping. The screenshot
-projection was silently inert until the test's Agent carried a resolvable model
-route, because the projection refuses to store an image on an unverifiable
-route — the failure surfaced as a path diagnostic, never as a broken tool call.
-And `browser_screenshot` intermittently never answers over MCP although the same
-capture returns in about 0.1 s through the harness CLI, so the suite retries it
-and reports a persistent stall explicitly rather than attributing it to the
-projection.
+browser produced. Three findings from that run are worth keeping.
+
+The screenshot projection was silently inert until the test's Agent carried a
+resolvable model route, because the projection refuses to store an image on an
+unverifiable route — the failure surfaced as a path diagnostic, never as a broken
+tool call.
+
+`browser_screenshot` intermittently never answers over MCP although the same
+capture returns in about 0.1 s through the harness CLI. Repeated calls on one
+connection (`110 ms, 85 ms, timeout, 88 ms, timeout`), fresh connections, and
+more than one Chrome profile all reproduce it, so it is a race in the upstream
+MCP path rather than a configuration or projection fault. The suite retries it
+and reports a persistent stall explicitly instead of attributing it elsewhere.
+
+Reaching a real browser at all required a dedicated Chrome instance started with
+`--remote-debugging-port` *and* `--user-data-dir`. Without the second flag Chrome
+resolves to the default profile and opens no CDP port while still accepting the
+flag on its command line, which reads as a broken installation rather than as the
+wrong launch. The dedicated instance is also what keeps the agent's profile
+separate from the user's daily browsing, and it needs `BU_CDP_URL` set explicitly
+because `DevToolsActivePort` is written only for the default profile.
