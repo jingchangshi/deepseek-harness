@@ -12,6 +12,7 @@
 |---|---|
 | [Playwright MCP](../../packages/experimental/browser-use-playwright-mcp/README.zh.md) | Playwright 的浏览器控制 MCP 工具 |
 | [Chrome DevTools MCP](../../packages/experimental/browser-use-chrome-devtools-mcp/README.zh.md) | 通过 MCP 进行 Chrome DevTools 检查与控制 |
+| [Browser Harness MCP](../../packages/experimental/browser-use-browser-harness-mcp/README.zh.md) | 通过 MCP 使用 Browser Harness 操作用户已在运行的 Chrome，同一时间仅限一个活动 Session |
 | [Stagehand](../../packages/experimental/browser-use-stagehand-native/README.zh.md) | 原生浏览器操作，支持 AI（人工智能）辅助的动作、观测与提取 |
 
 共享服务只注册名称，并拒绝任何第二次提供方注册，包括同名实例。它不包含通用浏览器操作方法、浏览器资源或模型控制的选择器。Profile 或 preset 中的提供方配置为此次激活选择启动或附加模式。
@@ -20,7 +21,7 @@
 
 启动的浏览器属于使用它的确切实时 Agent 与 Session。跨轮次的调用复用该浏览器。Session 运行时释放时关闭其启动的资源；重新加载或 fork Session 时创建全新浏览器状态。浏览器 profile 和登录状态不会从 Session 日志恢复。
 
-附加的浏览器仍归外部所有。提供方在该提供方实例内将浏览器保留给一个 Session，保留现有浏览器状态，并拒绝另一个 Session 同时附加。清理会断开连接并保持外部浏览器运行。独立 DSH 进程与其他客户端不受此保留约束。
+附加的浏览器仍归外部所有。提供方在该提供方实例内将浏览器保留给一个 Session，保留现有浏览器状态，并拒绝另一个 Session 同时附加。清理会断开连接并保持外部浏览器运行。独立 DSH 进程与其他客户端不受此保留约束。Browser Harness 附加始终采用这种独占方式，因为其本地 daemon 驱动同一个共享浏览器并维护可变的当前标签页。
 
 提供方关闭时先停止接收工具调用，并等待自有工作与资源清理完成，再释放共享提供方注册。取消无法撤销已交付的浏览器操作。
 

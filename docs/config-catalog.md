@@ -566,6 +566,40 @@ export interface Config {
 
 Source: [`packages/experimental/agent-team/src/types.ts:130`](../packages/experimental/agent-team/src/types.ts)
 
+<a id="deepseek-aidsh-experimental-browser-use-browser-harness-mcp"></a>
+
+## `@deepseek-ai/dsh-experimental-browser-use-browser-harness-mcp`
+
+Requires: `browserUse` · `agents` · `tools` · `systemPrompt`
+
+```ts config-catalog
+/** Browser Harness installation, daemon, and browser endpoint settings. */
+export interface Config {
+  /** MCP server executable, spawned directly without a shell. */
+  command: string
+  /** Arguments passed to that executable verbatim. */
+  args: string[]
+  /** Per-call timeout override in milliseconds; omission uses the MCP client default. */
+  toolCallTimeoutMs?: number
+  /** Browser Harness home directory; omission uses its own default. */
+  home?: string
+  /** Daemon name selecting one local daemon and its browser; omission uses `default`. */
+  daemonName?: string
+  /** Refuse to start a daemon, requiring an already running one. */
+  requireExistingDaemon?: boolean
+  /** Persist browser actions to local recordings; omission preserves the stored preference. */
+  record?: boolean
+  /** Mark the controlled tab in the browser UI; omission preserves the daemon default. */
+  tabMarker?: boolean
+  /** HTTP(S) debugging URL of the browser to drive; conflicts with `cdpWs`. */
+  cdpUrl?: string
+  /** WS(S) browser debugging endpoint to drive; conflicts with `cdpUrl`. */
+  cdpWs?: string
+}
+```
+
+Source: [`packages/experimental/browser-use-browser-harness-mcp/src/index.ts:14`](../packages/experimental/browser-use-browser-harness-mcp/src/index.ts)
+
 <a id="deepseek-aidsh-experimental-browser-use-chrome-devtools-mcp"></a>
 
 ## `@deepseek-ai/dsh-experimental-browser-use-chrome-devtools-mcp`
