@@ -31,6 +31,7 @@
       "@deepseek-ai/dsh-browser-use": ["./packages/browser-use/browser-use/src/index.ts"],
       "@deepseek-ai/dsh-browser-use/brand": ["./packages/browser-use/browser-use/src/brand.ts"],
       "@deepseek-ai/dsh-experimental-browser-use-runtime": ["./packages/experimental/browser-use-runtime/src/index.ts"],
+      "@deepseek-ai/dsh-experimental-browser-use-browser-harness-mcp": ["./packages/experimental/browser-use-browser-harness-mcp/src/index.ts"],
       "@deepseek-ai/dsh-experimental-browser-use-playwright-mcp": ["./packages/experimental/browser-use-playwright-mcp/src/index.ts"],
       "@deepseek-ai/dsh-experimental-browser-use-chrome-devtools-mcp": ["./packages/experimental/browser-use-chrome-devtools-mcp/src/index.ts"],
       "@deepseek-ai/dsh-experimental-browser-use-stagehand-native": ["./packages/experimental/browser-use-stagehand-native/src/index.ts"],
