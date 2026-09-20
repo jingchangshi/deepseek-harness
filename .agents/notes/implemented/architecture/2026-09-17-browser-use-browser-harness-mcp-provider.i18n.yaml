@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-17-browser-use-browser-harness-mcp-provider.md
-2026-09-17-browser-use-browser-harness-mcp-provider.md: 83050380a8a2dab203dbd8a9f3e7612205618a58
-2026-09-17-browser-use-browser-harness-mcp-provider.zh.md: 967e4a9e0ec0f0294cfb02614399e9a7fd87512b
+2026-09-17-browser-use-browser-harness-mcp-provider.md: 69905f426c7e2e6505f85e3c682986b930147516
+2026-09-17-browser-use-browser-harness-mcp-provider.zh.md: 8b212d679949ff7a8464c151a75b59fd834d6b49

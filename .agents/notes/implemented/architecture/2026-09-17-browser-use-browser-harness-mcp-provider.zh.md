@@ -59,7 +59,9 @@ projectResult?: (context: {
 
 ### 通过现有注册表集成技能
 
-`browser-harness skill` 已经会打印完整的 `SKILL.md`。本提供方不另行分发副本，而是运行该命令并通过 `ctx.skills.registerProvider()` 发布该文档——与所有文件系统和内置技能使用的是同一个注册表、排名与加载器。不存在第二个技能加载器。
+`browser-harness skill` 已经会打印完整的 `SKILL.md`。本提供方不另行分发副本，而是运行该命令并通过现有技能注册表发布该文档——与所有文件系统和内置技能使用的是同一个注册表、排名与加载器。不存在第二个技能加载器。
+
+这个可选注册表通过 `ctx.get('skills')` 解析后交给注册函数，因此激活过程绝不执行裸的 `ctx.skills` 读取：在提供方的 fiber 内，对未声明服务的该读取会抛出异常，这正是[激活与解析笔记](../bug-fix/2026-09-20-browser-harness-provider-activation-and-resolution.zh.md)存在的原因。
 
 正文是上游原文；DSH 只解析 frontmatter。该技能排名低于内置提供方，因此用户同名的自建技能仍然优先；且只有在存在 `skills` 服务时才注册，因此没有该服务的组合仍可使用浏览器工具。技能 CLI 由已配置的命令派生（`browser-harness-mcp` → `browser-harness`），而不是在配置面上再加一个需要同步的路径。
 
@@ -95,7 +97,7 @@ projectResult?: (context: {
 
 单元测试断言提供方默认值（`name: browser-harness`、`exclusive: true`、`command: browser-harness-mcp`、空参数）、超时透传、每一项环境变量映射（包括**不得**产生 `BH_RECORD` 的 `record: undefined` 情形）、`cdpUrl`/`cdpWs` 互斥，以及拒绝空命令或非法超时。`exclusive: true` 是针对交给 `mountSessionMcp` 的实际取值加以证明，而不是在文档中断言。
 
-截图投影使用真实 PNG 与真实 `LocalAttachmentStore` 覆盖：支持图像的路由会存入完全一致的字节并返回 `image` 块，纯文本路由保留路径诊断，而缺少存储、文件缺失、上游错误文本、非截图工具以及非 JSON 载荷都会降级为文本，而不是失败。技能桥接使用真实子进程与真实 `ctx.skills` 注册表覆盖，包括发布、加载正文、注销，以及命令缺失/失败/无输出/文档不可用等情形。共享接缝有自己的测试套件，证明投影器会追加内容、抛出异常的投影器不会让调用失败，以及省略投影器时行为不变。
+截图投影使用真实 PNG 与真实 `LocalAttachmentStore` 覆盖：支持图像的路由会存入完全一致的字节并返回 `image` 块，纯文本路由保留路径诊断，而缺少存储、文件缺失、上游错误文本、非截图工具以及非 JSON 载荷都会降级为文本，而不是失败。技能桥接使用真实子进程与真实技能注册表覆盖，包括发布、加载正文、注销，以及命令缺失/失败/无输出/文档不可用等情形。另有一个无密钥的真实 Loader 组合测试，在挂载与不挂载注册表两种情况下引导提供方，并钉住已发布的目录条目——正是它证明了激活能在真实插件 fiber 中存活。共享接缝有自己的测试套件，证明投影器会追加内容、抛出异常的投影器不会让调用失败，以及省略投影器时行为不变。
 
 回归运行覆盖 `browser-use-runtime`、`mcp-client` 与两个现有提供方。真实 Chrome 的端到端测试通过 `DSH_BROWSER_HARNESS_E2E=1` 显式启用，因此 CI 既不需要 Chrome 也不需要 Browser Harness 安装。
 

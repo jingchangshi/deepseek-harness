@@ -113,8 +113,10 @@ content and remain a path for every other route.
 
 `browser-harness skill` already prints a complete `SKILL.md`. Rather than ship a
 copy that drifts, the provider runs that command and publishes the document
-through `ctx.skills.registerProvider()` — the same registry, ranking, and loader
+through the existing skill registry — the same registry, ranking, and loader
 every filesystem and bundled skill uses. There is no second skill loader.
+
+The optional registry is resolved with `ctx.get('skills')` and handed to the registration, so activation never performs a bare `ctx.skills` read: inside the provider's fiber that read throws for an undeclared service, which is why [the activation and resolution note](../bug-fix/2026-09-20-browser-harness-provider-activation-and-resolution.md) exists.
 
 The body is upstream text verbatim; DSH parses only the frontmatter. The skill
 ranks below bundled providers so a user's own skill of the same name still wins,
@@ -197,15 +199,9 @@ that must not emit `BH_RECORD`, `cdpUrl`/`cdpWs` mutual exclusion, and rejection
 of an empty command or an invalid timeout. `exclusive: true` is proven against
 the value handed to `mountSessionMcp`, not asserted in prose.
 
-The screenshot projection is covered against a real PNG and the real
-`LocalAttachmentStore`: an image-capable route stores the exact bytes and returns
-an `image` block, a text-only route keeps a path diagnostic, and a missing store,
-missing file, upstream error text, non-screenshot tool, and non-JSON payload each
-degrade to text instead of failing. The skill bridge is covered against a real
-child process and the real `ctx.skills` registry, including publishing, loading
-the body, disposal, and the missing/failing/silent/unusable-command cases. The
-shared seam has its own suite proving a projector appends content, that a
-throwing projector does not fail the call, and that omitting one changes nothing.
+The screenshot projection is covered against a real PNG and the real `LocalAttachmentStore`: an image-capable route stores the exact bytes and returns an `image` block, a text-only route keeps a path diagnostic, and a missing store, missing file, upstream error text, non-screenshot tool, and non-JSON payload each degrade to text instead of failing. The skill bridge is covered against a real child process and the real skill registry, including publishing, loading the body, disposal, and the missing/failing/silent/unusable-command cases.
+
+One keyless real-Loader composition boots the provider both with and without a mounted registry and pins the published catalog entry, which is what proves activation survives a real plugin fiber. The shared seam has its own suite proving a projector appends content, that a throwing projector does not fail the call, and that omitting one changes nothing.
 
 Regression runs cover `browser-use-runtime`, `mcp-client`, and both existing
 providers. A real-Chrome E2E is opt-in behind `DSH_BROWSER_HARNESS_E2E=1` so CI

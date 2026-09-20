@@ -110,7 +110,7 @@ async function readUpstreamSkill(
  * The document is read once per catalog discovery and cached by the registry,
  * so the upstream executable runs at most once per catalog generation.
  *
- * @param ctx - context carrying the `skills` registry.
+ * @param skills - the registry to publish on; passed in because the service is optional for this provider.
  * @param options - the installed command and any environment overrides.
  * @returns a disposer releasing the registration.
  */
