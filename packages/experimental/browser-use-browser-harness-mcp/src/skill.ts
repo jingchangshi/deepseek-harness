@@ -3,9 +3,14 @@
  *
  * `browser-harness skill` prints a complete `SKILL.md` — YAML frontmatter plus
  * body — that teaches the model when a browser is warranted and how to drive the
- * harness. This module registers ONE skill with the existing `ctx.skills`
- * registry, so it reaches the model through the same catalog, ranking, and
- * loader as every filesystem or bundled skill. No second skill loader exists.
+ * harness. This module registers ONE skill with the existing DSH skill registry,
+ * so it reaches the model through the same catalog, ranking, and loader as every
+ * filesystem or bundled skill. No second skill loader exists.
+ *
+ * The registry is passed in rather than read from `ctx` because `skills` is
+ * optional for this provider: declaring it in `inject` would refuse activation
+ * whenever a composition omits the skill service, while a bare `ctx.skills`
+ * access is rejected for an undeclared service.
  *
  * The body is the upstream text verbatim. DSH parses the frontmatter and takes
  * the name, description, and optional metadata from it; rewriting the body would
@@ -16,9 +21,8 @@
 
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import type { Context } from '@deepseek-ai/cordis'
 import { parse as parseYaml } from 'yaml'
-import { isSkillName, type SkillCandidate, type SkillDefinition, type SkillLookupOptions } from '@deepseek-ai/dsh-skill'
+import { isSkillName, type SkillCandidate, type SkillDefinition, type SkillLookupOptions, type SkillRegistry } from '@deepseek-ai/dsh-skill'
 
 const run = promisify(execFile)
 
@@ -111,11 +115,11 @@ async function readUpstreamSkill(
  * @returns a disposer releasing the registration.
  */
 export function registerBrowserHarnessSkill(
-  ctx: Context,
+  skills: SkillRegistry,
   options: { command: string; args?: readonly string[]; env: Record<string, string> },
 ): () => void {
   const args = options.args ?? []
-  return ctx.skills.registerProvider((control) => {
+  return skills.registerProvider((control) => {
     /** Per-discovery cache; the registry may call `list` and `get` separately. */
     let cached: { candidate: SkillCandidate; body: string } | undefined
     let loaded = false

@@ -157,10 +157,16 @@ export function apply(ctx: Context, config: Config): void {
     ...config.toolCallTimeoutMs === undefined ? {} : { toolCallTimeoutMs: config.toolCallTimeoutMs },
   })
   // The skill registry is optional: without it the browser tools still work,
-  // so its absence must not fail activation.
-  if (ctx.get('skills') !== undefined) {
+  // so its absence must not fail activation. It is deliberately NOT part of
+  // `inject` — a required injection would refuse activation on any composition
+  // that omits the skill service. `ctx.get` returns the registry without
+  // requiring injection, and the registry is passed in explicitly so the skill
+  // module never performs a bare `ctx.skills` access, which Cordis rejects for
+  // an undeclared service.
+  const skills = ctx.get('skills')
+  if (skills !== undefined) {
     ctx.effect(
-      () => registerBrowserHarnessSkill(ctx, { command: resolveSkillCommand(config.command), env: environment }),
+      () => registerBrowserHarnessSkill(skills, { command: resolveSkillCommand(config.command), env: environment }),
       'browser-harness.skill',
     )
   }

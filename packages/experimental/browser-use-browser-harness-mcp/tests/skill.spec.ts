@@ -36,7 +36,7 @@ async function mountWith(env: Record<string, string>, command = process.execPath
   const ctx = new Context()
   mounted.push(ctx)
   await ctx.plugin(SkillRegistry)
-  registerBrowserHarnessSkill(ctx, { command, args: command === process.execPath ? [fixtureScript] : [], env })
+  registerBrowserHarnessSkill(ctx.skills, { command, args: command === process.execPath ? [fixtureScript] : [], env })
   return ctx
 }
 
@@ -117,7 +117,7 @@ describe('registerBrowserHarnessSkill', () => {
     const ctx = new Context()
     mounted.push(ctx)
     await ctx.plugin(SkillRegistry)
-    const dispose = registerBrowserHarnessSkill(ctx, {
+    const dispose = registerBrowserHarnessSkill(ctx.skills, {
       command: process.execPath,
       args: [fixtureScript],
       env: { BH_SKILL_FIXTURE: UPSTREAM },
