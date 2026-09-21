@@ -9,9 +9,9 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use [Browser Harness](https://github.com/browser-use/browser-harness) to operate a Chrome or Chromium browser that is already running on the machine, with its existing tabs, cookies, and login state. The provider initializes a Session's MCP connection before creation or resume completes and retains it across turns.
+Use [Browser Harness](https://github.com/browser-use/browser-harness) to operate a Chrome or Chromium browser already running on the machine, with its existing tabs, cookies, and login state. The provider initializes a Session's MCP connection before creation or resume completes and retains it across turns.
 
-One Browser Harness local daemon drives one shared browser and keeps a mutable current tab, so this provider reserves that browser for **one live Session at a time** and works with an externally installed Browser Harness runtime. Screenshots return as real image content on image-capable routes, and Browser Harness' own workflow guidance is published through the DSH skill registry. This published experimental package activates only when explicitly mounted.
+One local daemon drives one shared browser with a mutable current tab, so the browser is reserved for **one live Session at a time**. Screenshots return as real image content on image-capable routes, and the DSH skill registry publishes Browser Harness' workflow guidance. This published experimental package activates only when explicitly mounted.
 
 ## Table of Contents
 
@@ -188,13 +188,7 @@ Cleanup disposes only the DSH-side connection and skill registration. The Browse
 
 #### What the model sees
 
-Tools retain upstream descriptions and JSON schemas under `mcp__browser-harness__<tool>` names, including `browser_new_tab`, `browser_goto`, `browser_page_info`, `browser_click`, `browser_type`, `browser_fill`, `browser_screenshot`, `browser_list_tabs`, `browser_switch_tab`, `browser_js`, and `browser_cdp`. `browser_click` takes viewport `x`/`y` coordinates, while `browser_fill` and `browser_upload_file` take CSS selectors.
-
-`browser_screenshot` returns `{"path", "width", "height", "size_bytes"}` as text. On a route whose model declares image input, the provider reads that PNG and stores it as a durable attachment, so **the model receives the image itself**. On any other route the model receives a text diagnostic naming the path instead. A file that cannot be read, exceeds 32 MiB, or is refused by image admission also falls back to that path diagnostic.
-
-A `browser-harness` skill is also in the catalog. Load it for the upstream workflow guidance — when a browser is warranted, how to drive the harness, and which helper to reach for.
-
-Upstream reports every helper failure as ordinary text `{"error": "..."}` rather than an MCP error, so a failed call reaches the model as a JSON result instead of a failed tool result.
+Tools retain upstream descriptions and JSON schemas under `mcp__browser-harness__<tool>` names, including `browser_new_tab`, `browser_goto`, `browser_page_info`, `browser_click`, `browser_type`, `browser_fill`, `browser_screenshot`, `browser_list_tabs`, `browser_switch_tab`, `browser_js`, and `browser_cdp`; `browser_click` takes viewport `x`/`y` coordinates, while `browser_fill` and `browser_upload_file` take CSS selectors. `browser_screenshot` returns `{"path", "width", "height", "size_bytes"}` as text; on a route whose model declares image input, the provider reads that PNG and stores it as a durable attachment, so **the model receives the image itself**, while any other route receives a text diagnostic naming the path, as does a file that cannot be read, exceeds 32 MiB, or is refused by image admission. A `browser-harness` skill is also in the catalog; load it for the upstream workflow guidance — when a browser is warranted, how to drive the harness, and which helper to reach for. Upstream reports every helper failure as ordinary text `{"error": "..."}` rather than an MCP error, so a failed call reaches the model as a JSON result instead of a failed tool result.
 
 #### Token effect
 

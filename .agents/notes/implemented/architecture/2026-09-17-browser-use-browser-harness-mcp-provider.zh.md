@@ -46,11 +46,11 @@ Session A: browser_click(...)     # acts on B's tab
 修复应落在接缝处，而不是某一个提供方内部。`dsh-mcp-client` 现在在工具定义选项中接受可选的 `projectResult` 钩子，它在标准投影**之后**应用，且只作用于成功的结果：
 
 ```ts
-projectResult?: (context: {
-  rawName: string
-  result: McpResult
-  execution: ToolExecution
-}) => Promise<ContentBlock[]>
+import type { McpResultProjector } from '@deepseek-ai/dsh-mcp-client'
+
+interface ToolDefinitionOptions {
+  projectResult?: McpResultProjector
+}
 ```
 
 该钩子仅供程序化使用——函数无法通过 schema 校验，因此 `cordis.yml` 永远无法提供它，只有组合插件可以。钩子的输出走既有的 `finalizeContent` 路径，因而与任何其他内容遵循相同的模型可见性规则。钩子抛出异常时会降级为诊断文本块，而不会让上游已经成功的工具调用失败，因为增强绝不能把已完成的动作变成错误。

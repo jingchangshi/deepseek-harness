@@ -52,6 +52,7 @@ describe('release families', () => {
       '@deepseek-ai/dsh-experimental-agent-team-web-profile',
       '@deepseek-ai/dsh-experimental-agent-team',
       '@deepseek-ai/dsh-experimental-auto-review',
+      '@deepseek-ai/dsh-experimental-browser-use-browser-harness-mcp',
       '@deepseek-ai/dsh-experimental-browser-use-chrome-devtools-mcp',
       '@deepseek-ai/dsh-experimental-browser-use-playwright-mcp',
       '@deepseek-ai/dsh-experimental-browser-use-runtime',

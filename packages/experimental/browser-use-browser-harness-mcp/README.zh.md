@@ -9,9 +9,9 @@ kind: "package-reference"
 
 ## 概述
 
-使用 [Browser Harness](https://github.com/browser-use/browser-harness) 操作本机**已经在运行**的 Chrome 或 Chromium 浏览器，复用其现有标签页、Cookie 和登录状态。提供方在 Session 创建或恢复完成前初始化其 MCP 连接，并跨轮次保留连接。
+使用 [Browser Harness](https://github.com/browser-use/browser-harness) 操作本机已在运行的 Chrome 或 Chromium 浏览器，复用其现有标签页、Cookie 和登录状态。提供方在 Session 创建或恢复完成前初始化其 MCP 连接，并跨轮次保留连接。
 
-Browser Harness 的本地 daemon 驱动同一个共享浏览器，并维护可变的当前标签页，因此本提供方将该浏览器保留给**同一时间的一个活动 Session**，并依赖外部安装的 Browser Harness 运行时。在支持图像的路由上截图会作为真实图像内容返回，Browser Harness 自身的工作流指引也会通过 DSH 技能注册表发布。本包以实验状态发布，仅在显式挂载后启用。
+一个本地 daemon 驱动同一个共享浏览器并维护可变的当前标签页，因此该浏览器被保留给**同一时间的一个活动 Session**。在支持图像的路由上截图会作为真实图像内容返回，DSH 技能注册表会发布 Browser Harness 的工作流指引。本包以实验状态发布，仅在显式挂载后启用。
 
 ## 目录
 
@@ -188,13 +188,7 @@ browser-harness skill
 
 #### 模型看到的内容
 
-工具保留上游描述与 JSON schema，名称形如 `mcp__browser-harness__<tool>`，包括 `browser_new_tab`、`browser_goto`、`browser_page_info`、`browser_click`、`browser_type`、`browser_fill`、`browser_screenshot`、`browser_list_tabs`、`browser_switch_tab`、`browser_js` 和 `browser_cdp`。`browser_click` 接收视口 `x`/`y` 坐标，而 `browser_fill` 与 `browser_upload_file` 接收 CSS 选择器。
-
-`browser_screenshot` 以文本形式返回 `{"path", "width", "height", "size_bytes"}`。在模型声明支持图像输入的路由上，提供方会读取该 PNG 并存为持久附件，因此**模型收到的是图像本身**。在其他路由上，模型收到的则是带路径的文本诊断。文件无法读取、超过 32 MiB，或被图像准入拒绝时，也会回退到该路径诊断。
-
-目录中还会出现 `browser-harness` 技能。加载它即可获得上游的工作流指引——何时该用浏览器、如何驱动该 harness，以及该选择哪个 helper。
-
-上游将所有 helper 失败都报告为普通文本 `{"error": "..."}`，而不是 MCP 错误，因此失败的调用会作为 JSON 结果返回给模型，而不会表现为失败的工具结果。
+工具保留上游描述与 JSON schema，名称形如 `mcp__browser-harness__<tool>`，包括 `browser_new_tab`、`browser_goto`、`browser_page_info`、`browser_click`、`browser_type`、`browser_fill`、`browser_screenshot`、`browser_list_tabs`、`browser_switch_tab`、`browser_js` 和 `browser_cdp`；`browser_click` 接收视口 `x`/`y` 坐标，而 `browser_fill` 与 `browser_upload_file` 接收 CSS 选择器。`browser_screenshot` 以文本形式返回 `{"path", "width", "height", "size_bytes"}`；在模型声明支持图像输入的路由上，提供方会读取该 PNG 并存为持久附件，因此**模型收到的是图像本身**，其他路由收到的则是带路径的文本诊断，文件无法读取、超过 32 MiB，或被图像准入拒绝时同样如此。目录中还会出现 `browser-harness` 技能；加载它即可获得上游的工作流指引——何时该用浏览器、如何驱动该 harness，以及该选择哪个 helper。上游将所有 helper 失败都报告为普通文本 `{"error": "..."}`，而不是 MCP 错误，因此失败的调用会作为 JSON 结果返回给模型，而不会表现为失败的工具结果。
 
 #### Token 影响
 
