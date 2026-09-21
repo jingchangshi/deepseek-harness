@@ -544,6 +544,53 @@ export interface Config {
 
 来源：[`packages/credentials/credentials-local/src/index.ts:64`](../packages/credentials/credentials-local/src/index.ts)
 
+<a id="deepseek-aidsh-degenerate-output-guard"></a>
+
+## `@deepseek-ai/dsh-degenerate-output-guard`
+
+```ts config-catalog
+/**
+ * Plugin config. Every field is a validated `Config` entry: the schemastery
+ * schema supplies types, enums, and defaults, and `apply` re-checks ranges
+ * fail-loud (misconfiguration throws at load, never a silent fallback). The
+ * shipped base-bundle default is the conservative rollout rung: watch
+ * `reasoning` only, in `observe` mode.
+ */
+export interface Config {
+  /** Size in characters of the trailing window inspected per check (default 4000). */
+  windowChars?: number
+  /** Characters between evaluations, amortizing the scan (default 512). */
+  checkEveryChars?: number
+  /** Minimum non-empty trimmed lines before a window is judged (default 24). */
+  minWindowLines?: number
+  /** Windows whose distinct-line ratio exceeds this are healthy (default 0.20). */
+  distinctLineRatio?: number
+  /** Largest line period scanned for a cycle (default 12). */
+  cyclePeriodMax?: number
+  /** Period match fraction required to fire (default 0.90). */
+  cycleMatchRatio?: number
+  /** Intervention rung; `observe` records without touching the conversation (default `observe`). */
+  onDetect?: OnDetectMode
+  /**
+   * Corrective followups allowed per recovery chain — consecutive turns whose
+   * input was this guard's own notice — not per turn (default 1). A recovery
+   * turn that degenerates again may still be aborted, but no further automatic
+   * followup is queued, so the guard can never retry-loop itself.
+   */
+  maxRecoveryAttempts?: number
+  /** Block kinds watched; `reasoning` first, `text` calibrates separately (default `reasoning`). */
+  applyTo?: ApplyTo
+}
+
+/** What the guard does when a window is judged degenerate. */
+export type OnDetectMode = 'observe' | 'abort-only' | 'abort-and-continue'
+
+/** Which streamed block kinds the detector watches. */
+export type ApplyTo = 'reasoning' | 'text' | 'both'
+```
+
+来源：[`packages/guard/degenerate-output-guard/src/index.ts:38`](../packages/guard/degenerate-output-guard/src/index.ts)
+
 <a id="deepseek-aidsh-experimental-agent-team"></a>
 
 ## `@deepseek-ai/dsh-experimental-agent-team`

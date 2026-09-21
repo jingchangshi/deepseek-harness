@@ -437,6 +437,17 @@
         thresholds: [3, 5, 8]
         argumentsPreviewChars: 500
 
+    # Degenerate-output guard, Phase 1 rollout: observe-only on reasoning
+    # streams. Detection is recorded (structured telemetry, no raw text) but
+    # nothing is cancelled; switch `onDetect` to `abort-and-continue` in an
+    # overlay once confidence is earned, and optionally widen `applyTo` to
+    # `both`.
+    - id: degenerate-output-guard
+      name: '@deepseek-ai/dsh-degenerate-output-guard'
+      config:
+        onDetect: observe
+        applyTo: reasoning
+
     # The shared base enables the stable model-facing web_search and web_fetch
     # tools. The Web app disables this host row and composes both tools per agent
     # preset; products with a stricter network policy override tool-web. DeepSeek

@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-19-degenerate-output-guard.md
+2026-09-19-degenerate-output-guard.md: 9485f606b721f97425da7d36b6518c2d8f22ff14
+2026-09-19-degenerate-output-guard.zh.md: f9f89dd89c31ee78213019f2ba7b312039483d46
