@@ -76,6 +76,32 @@ if (Test-Path $patch) {
     Fail "profile patch not found: $patch" 'The web profile has no user patch layer.'
 }
 
+# --- 2. effective web composition -------------------------------------------
+# Raw profile patches are only one layer. Inspect the same composed tree used by
+# DSH so home-level and command-line overlays cannot silently change readiness.
+$dsh = Get-Command dsh -ErrorAction SilentlyContinue
+if ($dsh) {
+    try {
+        $dump = (& $dsh.Source --profile web --dump-config 2>&1 | Out-String)
+        $harnessRows = ([regex]::Matches($dump, 'browser-use-browser-harness-mcp')).Count
+        $browserUseRows = ([regex]::Matches($dump, 'id:[32;1m\s*browser-use')).Count
+        $playwrightRows = ([regex]::Matches($dump, 'browser-use-playwright|browser-use-browser-use')).Count
+        if ($harnessRows -eq 1 -and $browserUseRows -eq 1 -and $playwrightRows -eq 0) {
+            if ($dump -match [regex]::Escape("http://127.0.0.1:$Port")) {
+                Pass 'effective web composition has exactly one Browser Harness provider and matching CDP endpoint'
+            } else {
+                Fail 'effective Browser Harness provider endpoint does not match the requested CDP port' 'Inspect dsh --profile web --dump-config and the active patch layers.'
+            }
+        } else {
+            Fail 'effective web composition does not contain exactly one intended Browser Harness provider' 'Remove competing browser providers and inspect dsh --profile web --dump-config.'
+        }
+    } catch {
+        Fail 'could not inspect effective web composition' 'Run dsh --profile web --dump-config manually and repair the profile composition.'
+    }
+} else {
+    Fail 'dsh executable not found on PATH' 'Build/install the DSH CLI before running browser readiness.'
+}
+
 # --- 2. dedicated Chrome serving CDP ----------------------------------------
 $cdp = $null
 try {
