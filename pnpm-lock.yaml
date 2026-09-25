@@ -26,6 +26,9 @@ importers:
       '@deepseek-ai/dsh-computer-use':
         specifier: workspace:^
         version: link:packages/computer-use/computer-use
+      '@deepseek-ai/dsh-degenerate-output-guard':
+        specifier: workspace:^
+        version: link:packages/guard/degenerate-output-guard
       '@deepseek-ai/dsh-experimental-browser-use-browser-harness-mcp':
         specifier: workspace:^
         version: link:packages/experimental/browser-use-browser-harness-mcp
@@ -1529,6 +1532,9 @@ importers:
       '@deepseek-ai/dsh-deepseek-llm-api-extensions':
         specifier: workspace:^
         version: link:../../llm/deepseek-llm-api-extensions
+      '@deepseek-ai/dsh-degenerate-output-guard':
+        specifier: workspace:^
+        version: link:../../guard/degenerate-output-guard
       '@deepseek-ai/dsh-fs-local':
         specifier: workspace:^
         version: link:../../fs/fs-local
