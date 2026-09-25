@@ -61,6 +61,21 @@ try {
     # Nothing listening yet; fall through to a normal start.
 }
 
+if ($alreadyServing) {
+    $requestedProfile = [IO.Path]::GetFullPath($ProfileDir).TrimEnd('\')
+    $portOwners = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" |
+        Where-Object { $_.CommandLine -match "(?:^|\s)--remote-debugging-port=$Port(?:\s|$)" })
+    $dedicatedOwners = @($portOwners | Where-Object {
+        $arguments = $_.CommandLine
+        $arguments -match '(?:^|\s)--user-data-dir=(?:"([^"]+)"|(\S+))' -and
+        [string]::Equals([IO.Path]::GetFullPath($(if ($Matches[1]) { $Matches[1] } else { $Matches[2] })).TrimEnd('\'),
+            $requestedProfile, [StringComparison]::OrdinalIgnoreCase)
+    })
+    if ($portOwners.Count -ne 1 -or $dedicatedOwners.Count -ne 1) {
+        throw "CDP port $Port is already serving a Chrome profile other than $requestedProfile; refusing to adopt or terminate it. Choose another port or close that browser yourself."
+    }
+}
+
 if ($alreadyServing -and -not $Force) {
     Write-Host "CDP already available on port $Port ($($probe.Browser)); reusing it."
     $version = $probe
