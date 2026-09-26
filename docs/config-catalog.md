@@ -618,6 +618,28 @@ export type ApplyTo = 'reasoning' | 'text' | 'both'
 
 Source: [`packages/guard/degenerate-output-guard/src/index.ts:38`](../packages/guard/degenerate-output-guard/src/index.ts)
 
+<a id="deepseek-aidsh-execution-world"></a>
+
+## `@deepseek-ai/dsh-execution-world`
+
+Requires: `storageDomain` · `fs`
+
+```ts config-catalog
+/** Deployment identity selection; remote deployments must explicitly choose their own UUID. */
+export interface Config {
+  /** Local identity is persisted once; deployment identity is supplied by the operator. */
+  mode: 'persisted-local' | 'deployment'
+  /** Stable UUID shared by aliases of one remote world, never by different worlds. */
+  deploymentId?: string
+  /** Absolute Host coordination path shared by every process using this identity store. */
+  allocationLockPath: string
+  /** Maximum wait for another identity transaction, in milliseconds. */
+  lockWaitMs?: number
+}
+```
+
+Source: [`packages/execution/execution-world/src/index.ts:16`](../packages/execution/execution-world/src/index.ts)
+
 <a id="deepseek-aidsh-experimental-agent-team"></a>
 
 ## `@deepseek-ai/dsh-experimental-agent-team`

@@ -515,6 +515,12 @@
     - id: fs-sandbox
       name: '@deepseek-ai/dsh-fs-sandbox'
 
+    - id: execution-world-identity
+      name: '@deepseek-ai/dsh-execution-world'
+      config:
+        mode: persisted-local
+        allocationLockPath: !!js dshHomePath('locks', 'execution-world-identity.lock')
+
     # The native DeepSeek adapter. No key or endpoint is inlined: both resolve per
     # request from the `llm-deepseek:` settings section over this entry, with the
     # key coming from the credential store below. Thinking defaults are a deployment

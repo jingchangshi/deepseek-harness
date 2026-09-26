@@ -85,6 +85,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   fileUploads: 'attachment.md',
   fileReferences: 'session-reference.md',
   fs: 'filesystem.md',
+  executionWorldIdentity: 'execution-world.md',
   goals: 'goal.md',
   inspector: 'extensions.md',
   webServer: 'web-server.md',
@@ -261,6 +262,7 @@ export const EVENT_WALK_EXEMPTIONS: Record<string, string> = {
  * appear on more than one page.
  */
 export const LINK_MAP: Readonly<Record<string, string>> = {
+  ExecutionWorkspaceId: 'execution-world.md',
   WorkspaceChangesSummary: 'deliverables.md',
   WorkspaceFileDiff: 'deliverables.md',
   Reload: 'boot.md',

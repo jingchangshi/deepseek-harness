@@ -916,6 +916,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'executionWorldIdentity',
+    summary: 'Owns durable identity allocation, not execution handles or remote transport.',
+    description: 'Owns durable identity allocation, not execution handles or remote transport.',
+    methods: [
+      {
+        signature: 'resolve(root: string, signal?: AbortSignal): Promise<ExecutionWorkspaceId>',
+        description: 'Resolve an existing directory through the current filesystem and durably allocate its identity. Concurrent aliases share one allocation. Disposal rejects outstanding resolutions; an allocation already committed before cancellation remains available on the next call or restart.',
+        parameters: [{ name: 'root', description: 'directory in the mounted filesystem\'s execution world.' }, { name: 'signal', description: 'caller cancellation, combined with this provider\'s lifetime.' }],
+        returns: 'the same opaque ID after recreation with the same storage and world configuration.',
+      },
+    ],
+  },
+  {
     key: 'fileReferences',
     summary: 'Host capability for cancellable file-reference discovery.',
     description: 'Host capability for cancellable file-reference discovery.',
@@ -4663,6 +4676,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EpochHeader',
     declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    adapterDefaults?: LlmCallConfigAdapterDefaults;\n    tools?: ToolSchema[];\n}',
+  },
+  {
+    name: 'ExecutionWorkspaceId',
+    declaration: 'export type ExecutionWorkspaceId = Branded<\'ExecutionWorkspaceId\'>;',
   },
   {
     name: 'FeedbackCategory',

@@ -61,6 +61,8 @@ Default file editing uses `read`, `write`, and `edit`. The `str_replace_editor` 
 
 The bundle mounts [MCP resources](../../mcp/mcp-resources/README.md) once. Configure only [MCP client entries](../../mcp/mcp-client/README.md) for the servers you need. Clients mounted by another provider also count as configured in their scope. Callers with no configured server in scope receive no MCP tools or prompt text.
 
+The mounted filesystem also receives [durable workspace identity](../../execution/execution-world/README.md) in local mode, with allocation coordination under `DSH_HOME/locks`. Remote filesystem compositions must replace the `execution-world-identity` row's entire configuration with an explicit deployment UUID and Host coordination path. The standalone `sdk-minimal` profile does not mount this service.
+
 ### Shell tools per platform
 
 On macOS and Linux you get the bash shell tools; on Windows you get the PowerShell twins instead, so exactly one shell stack is available per machine. The safety behavior is identical on every platform. A Windows host that prefers the unconfined PowerShell executor can switch the shell rows in its profile patch — the switch must disable both PowerShell rows and re-enable both bash rows, otherwise the profile fails to load.

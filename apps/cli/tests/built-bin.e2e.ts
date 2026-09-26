@@ -1193,6 +1193,12 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(stdout).toContain('agents: []')
       expect(stdout).toContain('# == @deepseek-ai/dsh-base')
       expect(stdout).toContain("name: '@deepseek-ai/dsh-host-webserver'")
+      const rows = yaml.load(stdout, { schema: entryListSchema }) as { id: string; name: string; config?: unknown }[]
+      expect(rows.filter(row => row.name === '@deepseek-ai/dsh-execution-world')).toEqual([
+        { id: 'execution-world-identity', name: '@deepseek-ai/dsh-execution-world', config: {
+          mode: 'persisted-local', allocationLockPath: { __jsExpr: "dshHomePath('locks', 'execution-world-identity.lock')" },
+        } },
+      ])
       expect(existsSync(join(home, 'profiles', 'node_modules'))).toBe(false)
     }, SPAWN_TIMEOUT_MS + 30_000)
 
@@ -1206,6 +1212,24 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(stdout).toContain('# == @deepseek-ai/dsh-web-app')
       expect(existsSync(join(home, 'profiles', 'rescue', 'package.json'))).toBe(true)
     }, SPAWN_TIMEOUT_MS + 30_000)
+
+    it('prints one local identity in headless and replaces it with an explicit deployment overlay', async () => {
+      const defaults = await runBuiltBin(['--profile', 'headless', '--dump-default-config'], { DSH_HOME: home })
+      expect(defaults.code).toBe(0)
+      const rows = yaml.load(defaults.stdout, { schema: entryListSchema }) as { name: string; config?: { mode?: string } }[]
+      const identities = rows.filter(row => row.name === '@deepseek-ai/dsh-execution-world')
+      expect(identities).toHaveLength(1)
+      expect(identities[0]?.config?.mode).toBe('persisted-local')
+      const config = { mode: 'deployment', deploymentId: '00000000-0000-4000-8000-000000000001', allocationLockPath: join(home, 'remote.lock') }
+      const overlay = join(home, 'identity.patch.yml')
+      writeFileSync(overlay, JSON.stringify([{ id: 'execution-world-identity', config }]))
+      const effective = await runBuiltBin(['web', '--patch', overlay, '--dump-config'], { DSH_HOME: home })
+      expect(effective.code).toBe(0)
+      const patched = yaml.load(effective.stdout, { schema: entryListSchema }) as { id: string; name: string; config?: unknown }[]
+      expect(patched.filter(row => row.name === '@deepseek-ai/dsh-execution-world')).toEqual([
+        { id: 'execution-world-identity', name: '@deepseek-ai/dsh-execution-world', config },
+      ])
+    }, SPAWN_TIMEOUT_MS * 2 + 30_000)
 
     it('rejects an unknown source before creating the target profile', async () => {
       const { stdout, code, stderr } = await runBuiltBin(
@@ -1277,6 +1301,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(stdout).toContain('# == @deepseek-ai/dsh-sdk-minimal')
       expect(stdout).not.toContain('@deepseek-ai/dsh-base')
       expect(stdout).not.toContain('@deepseek-ai/dsh-web-app')
+      expect(stdout).not.toContain('@deepseek-ai/dsh-execution-world')
     }, SPAWN_TIMEOUT_MS * 2 + 30_000)
 
     it('composes the profile user layer and a --patch overlay in order', async () => {
