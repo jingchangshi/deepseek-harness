@@ -27,6 +27,8 @@ Use `dsh-fs-local` to read, list, atomically write, and edit files on the host f
 
 `executionWorldAffinity` uses the process’s shared [Host namespace token](../../execution/execution-world-affinity/README.md). It expresses provider ownership, not access authority.
 
+`supportsRootRead(fs)` detects the optional `openReadRoot` capability on Windows and Linux; other platforms do not advertise it. Its caller-owned scope provides bounded UTF-8 reads, metadata, and directory entries through pinned native objects. With the default `follow-contained` policy, contained aliases resolve before handle-relative no-follow traversal; escaping aliases reject. With `deny`, original descendant components undergo native no-follow traversal without alias resolution. Windows retains the root across renames, while Linux rejects a changed root locator. Cancellation and `close()` join outstanding operations before releasing ownership, without a hard syscall deadline. Native failures become `FsError`. Ordinary filesystem methods remain unrestricted; this capability does not confine Git or provide SSH forwarding.
+
 Mount this backend when a composition needs `ctx.fs` backed by the real host filesystem and accepts a process-local implementation. The common path is explicit: load the backend, give it a base directory, and the model-facing tools (`dsh-tool-fs`) or your own plugins can read, write, and edit files.
 
 ### When to choose it

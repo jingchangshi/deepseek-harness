@@ -12,6 +12,8 @@ Filesystem identities, executable lookup, process cwd, sandbox workspace roots a
 
 ## Transport and trust
 
+The optional `SshFileSystem.openReadRoot` capability forwards [root-confined inspection](../../packages/ssh/fs-ssh/README.md) to the helper's native filesystem. `SshReadRootId` is a branded helper-local UUID; `rootSegmentsSchema`, `rootInfoSchema`, and `rootEntriesSchema` validate logical child requests and path-free observations. These scopes neither authorize Git reads nor change ordinary filesystem access.
+
 Administrative RPC uses the helper’s SSH exec streams. Ordinary stdin, stdout, stderr, terminal output and optional fd 7 control traffic use separately authenticated forwarded Unix sockets. Each forwarded stream has its own SSH channel window; paused program output does not share the control or administrative window. All channels still share connection bandwidth and transport failure.
 
 Deployment authentication, installed artifact verification and per-stream TLS authentication belong to [`dsh-ssh`](../../packages/ssh/ssh/README.md). The helper executes filesystem and process requests with trusted local providers on the remote machine. SSH is a transport; the selected remote sandbox provider enforces file effects.
@@ -92,6 +94,12 @@ declare class SshConnection extends Service {
   async connectStream(endpoint: SshStreamEndpoint, signal?: AbortSignal): Promise<Socket>;
   /** Tear down the helper's remote managed ranges before releasing the SSH master when reachable. */
   dispose(): Promise<void>;
+  /**
+   * Join helper cleanup only when this connection is closing or has failed.
+   * @returns false for a live connection, true after the helper cleanup acknowledgement;
+   * rejects when remote cleanup cannot be confirmed, including transport loss.
+   */
+  async joinRemoteCleanupIfClosing(): Promise<boolean>;
 }
 ```
 
@@ -131,6 +139,13 @@ async connectStream(endpoint: SshStreamEndpoint, signal?: AbortSignal): Promise<
 
 /** Tear down the helper's remote managed ranges before releasing the SSH master when reachable. */
 dispose(): Promise<void>
+
+/**
+ * Join helper cleanup only when this connection is closing or has failed.
+ * @returns false for a live connection, true after the helper cleanup acknowledgement;
+ * rejects when remote cleanup cannot be confirmed, including transport loss.
+ */
+async joinRemoteCleanupIfClosing(): Promise<boolean>
 ```
 
 Source: [`packages/ssh/ssh/src/index.ts`](../../packages/ssh/ssh/src/index.ts)

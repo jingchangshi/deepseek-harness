@@ -181,6 +181,21 @@ function hostRuntimeFixture(): {
 }
 
 describe('package dependency scope', () => {
+  it('rejects declaration policies with missing owners, unknown packages or no source use', () => {
+    const { root } = generatedHostFixture('object')
+    const state = readPackageDependencyState(root, policy({
+      publishedDeclarationDependencies: {
+        '@missing/owner': ['@fixture/generated'],
+        '@fixture/generated': ['@missing/dependency', '@fixture/generated'],
+      },
+    }))
+    expect(state.policyViolations).toEqual(expect.arrayContaining([
+      'publishedDeclarationDependencies names unmanaged package @missing/owner',
+      'publishedDeclarationDependencies names unknown dependency @missing/dependency',
+      'publishedDeclarationDependencies @fixture/generated has no source use of @fixture/generated',
+    ]))
+  })
+
   it('keeps the measured Host relay roster explicit', () => {
     expect(PACKAGE_DEPENDENCY_POLICY.clientFaceExclude).toEqual([
       '@deepseek-ai/dsh-api-session-controller',
@@ -643,6 +658,20 @@ describe('face-aware source classification', () => {
 })
 
 describe('dependency sections', () => {
+  it('retains published declaration dependencies without runtime imports', () => {
+    const subject = {
+      ...facts({ devDependencies: { '@deepseek-ai/dsh-types': 'workspace:^' } }),
+      publishedDeclarationDependencies: new Set(['@deepseek-ai/dsh-types']),
+    }
+    expect(expectedPackageDependencies(subject).get('@deepseek-ai/dsh-types')?.section).toBe('dependencies')
+    repairPackageDependencyManifest(subject)
+    expect(subject.manifest.dependencies?.['@deepseek-ai/dsh-types']).toBe('workspace:^')
+    expect(subject.manifest.devDependencies?.['@deepseek-ai/dsh-types']).toBeUndefined()
+    const repaired = structuredClone(subject.manifest)
+    repairPackageDependencyManifest(subject)
+    expect(subject.manifest).toEqual(repaired)
+  })
+
   it.each(['client-only', 'client-host'] as const)('moves unused third-party and CSS inputs to development dependencies for %s', (role) => {
     const subject = sourceFacts({
       'src/index.ts': "import 'host-runtime'",

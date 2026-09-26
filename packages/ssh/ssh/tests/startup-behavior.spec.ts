@@ -56,7 +56,7 @@ const config: Config = {
   requestTimeoutMs: 1000, maxFrameBytes: 4096, maxPending: 8, leaseMs: 30_000,
 }
 const hello = {
-  protocol: 1, hash: 'a'.repeat(64), platform: 'linux', nodeVersion: 'v24.19.0',
+  protocol: 2, hash: 'a'.repeat(64), platform: 'linux', nodeVersion: 'v24.19.0',
   node: '/canonical/node', root: '/tmp/remote-helper', workspace: '/canonical/workspace',
 }
 
@@ -162,7 +162,7 @@ describe.skipIf(process.platform === 'win32')('SSH connection startup', () => {
     expect(argv).toContain('StrictHostKeyChecking=yes')
     expect(argv).toContain('ForwardAgent=no')
     expect(argv.at(-1)).toBe("'/remote/node' '--disable-sigusr1' '/remote/helper'\\''s file.js'")
-    expect(test.calls[0]?.params).toEqual({ protocol: 1, workspace: '/remote/workspace', leaseMs: 30_000, bootstrapPath: '/remote/process.js' })
+    expect(test.calls[0]?.params).toEqual({ protocol: 2, workspace: '/remote/workspace', leaseMs: 30_000, bootstrapPath: '/remote/process.js' })
   })
 
   it('permits filesystem-only deployments and refuses an unconfigured PTC bootstrap getter', async () => {
@@ -176,7 +176,7 @@ describe.skipIf(process.platform === 'win32')('SSH connection startup', () => {
   it.each([
     { hello: { hash: 'c'.repeat(64) }, error: 'helper digest' },
     { hello: { bootstrapHash: 'c'.repeat(64) }, error: 'bootstrap digest' },
-    { hello: { protocol: 2 }, error: 'Invalid' },
+    { hello: { protocol: 1 }, error: 'Invalid' },
   ])('refuses a mismatched helper identity before readiness: $error', async ({ hello, error }) => {
     const test = setup({ hello })
     await expect(test.service.ready).rejects.toThrow(error)

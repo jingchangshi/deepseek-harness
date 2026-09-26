@@ -38,6 +38,8 @@ Reads preserve the shared filesystem error codes. Writes and edits send the reso
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
+`openReadRoot` requests a helper-owned native read scope. Child requests carry only its opaque ID, logical path components, and a byte ceiling for text; the host never resolves child paths. The helper must support the optional [root reader](../../fs/fs/README.md), otherwise opening fails without a local fallback. `close()` cancels proxy requests and closes the remote scope once. If the direct close fails, only a confirmed helper-wide cleanup can satisfy it; a live connection preserves the original error and unconfirmed transport loss rejects with an unknown-cleanup error. Transport loss invalidates the scope without replay; helper shutdown joins both published and still-opening scopes. Root text transfers are limited to 8 MiB and do not provide streaming or Git confinement.
+
 <details>
 <summary>Implementation internals — click to expand</summary>
 

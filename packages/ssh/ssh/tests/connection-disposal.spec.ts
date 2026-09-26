@@ -68,7 +68,7 @@ async function setup(phase: 'connect' | 'authenticate', pauseControl?: 'forward'
     if (method === 'heartbeat') { heartbeatCalls++; return holdHeartbeat ? heartbeat.promise : null }
     if (method === 'ordinary') { ordinaryEntered.resolve(undefined); return ordinary.promise }
     if (method !== 'hello') throw new Error(`unexpected helper operation: ${method}`)
-    return { protocol: 1, hash: 'a'.repeat(64), platform: 'linux', nodeVersion: 'v24.19.0', node: '/usr/bin/node', root: '/tmp/remote-helper', workspace: '/workspace' }
+    return { protocol: 2, hash: 'a'.repeat(64), platform: 'linux', nodeVersion: 'v24.19.0', node: '/usr/bin/node', root: '/tmp/remote-helper', workspace: '/workspace' }
   })
   const rawSocket = new PendingSocket()
   const secureSocket = new PendingSocket()
@@ -137,10 +137,36 @@ async function setup(phase: 'connect' | 'authenticate', pauseControl?: 'forward'
     controlSignals: () => controlChild?.signals, heartbeatCalls: () => heartbeatCalls,
     ordinaryEntered: ordinaryEntered.promise, releaseOrdinary: () => { ordinary.resolve(null) },
     releaseHeartbeat: () => { heartbeat.resolve(null) }, closeEntered: closeEntered.promise,
-    releaseClose: () => { closing.resolve(null) } }
+    releaseClose: () => { closing.resolve(null) }, killTransport: () => { child.kill('SIGKILL') } }
 }
 
 describe.skipIf(process.platform === 'win32')('SSH stream establishment disposal', () => {
+  it('joins helper cleanup acknowledgement and retains it through local teardown', async () => {
+    const state = await setup('connect', undefined, false, true)
+    expect(await state.service.joinRemoteCleanupIfClosing()).toBe(false)
+    const disposal = state.service.dispose()
+    await state.closeEntered
+    let confirmed = false
+    const confirmation = state.service.joinRemoteCleanupIfClosing().then((value) => { confirmed = value })
+    await new Promise<void>(resolve => setImmediate(resolve))
+    expect(confirmed).toBe(false)
+    state.releaseClose()
+    await disposal
+    await confirmation
+    expect(confirmed).toBe(true)
+    state.killTransport()
+    expect(await state.service.joinRemoteCleanupIfClosing()).toBe(true)
+  })
+
+  it('does not confirm remote cleanup after transport loss', async () => {
+    const state = await setup('connect')
+    state.killTransport()
+    await state.observed
+    await expect(state.service.joinRemoteCleanupIfClosing()).rejects.toThrow('cleanup outcome unknown')
+    await state.service.dispose()
+    await expect(state.service.joinRemoteCleanupIfClosing()).rejects.toThrow('cleanup outcome unknown')
+  })
+
   it.each(['ready continuation', 'already closing'] as const)('rejects new requests during the %s without sending them', async (phase) => {
     const state = await setup('connect', undefined, false, true)
     const request = () => state.service.request('ordinary', {}, z.null(), undefined, true)

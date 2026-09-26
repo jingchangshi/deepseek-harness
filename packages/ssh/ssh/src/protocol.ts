@@ -7,24 +7,27 @@ import { z } from 'zod'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 
 /** Wire version shared by the installed helper and client package. */
-export const SSH_PROTOCOL_VERSION = 1
+export const SSH_PROTOCOL_VERSION = 2
 
 /** Maximum prepared or running process handles owned by one helper. */
 export const SSH_MAX_PROCESS_HANDLES = 128
 /** Maximum open text iterators owned by one helper. */
 export const SSH_MAX_TEXT_STREAMS = 128
+/** Maximum pinned read roots owned by one helper. */
+export const SSH_MAX_READ_ROOTS = 64
 
 const managementLimits = {
   heartbeat: 1,
   close: 1,
   'process.terminate': SSH_MAX_PROCESS_HANDLES,
   'fs.streamClose': SSH_MAX_TEXT_STREAMS,
+  'fs.rootClose': SSH_MAX_READ_ROOTS,
 } as const
 type RequestClass = 'ordinary' | keyof typeof managementLimits
 
 function requestClass(method: string): RequestClass {
   switch (method) {
-    case 'heartbeat': case 'close': case 'process.terminate': case 'fs.streamClose': return method
+    case 'heartbeat': case 'close': case 'process.terminate': case 'fs.streamClose': case 'fs.rootClose': return method
     // All other private operations share the configured request budget.
     default: return 'ordinary'
   }

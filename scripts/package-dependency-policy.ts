@@ -70,6 +70,7 @@ export interface PackageDependencyPolicy {
   readonly clientFaceExclude: readonly string[]
   readonly hostPackages: readonly string[]
   readonly configurationOnlyDevDependencies: Readonly<Record<string, readonly string[]>>
+  readonly publishedDeclarationDependencies?: Readonly<Record<string, readonly string[]>>
   readonly duplicateSafePackages?: readonly string[]
   readonly safeHostDependencyExports: HostDependencyExports
   readonly peerRequiredHostExports: HostDependencyExports
@@ -81,6 +82,7 @@ export const PACKAGE_DEPENDENCY_POLICY: PackageDependencyPolicy = {
   clientFaceExclude: CLIENT_FACE_EXCLUDE,
   hostPackages: HOST_DEPENDENCY_PACKAGES,
   configurationOnlyDevDependencies: CONFIGURATION_ONLY_DEV_DEPENDENCIES,
+  publishedDeclarationDependencies: { '@deepseek-ai/dsh-llm': ['@deepseek-ai/dsh-attachment'] },
   duplicateSafePackages: DUPLICATE_SAFE_PACKAGES,
   safeHostDependencyExports: SAFE_HOST_DEPENDENCY_EXPORTS,
   peerRequiredHostExports: PEER_REQUIRED_HOST_EXPORTS,

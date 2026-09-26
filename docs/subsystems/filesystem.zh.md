@@ -10,6 +10,8 @@
 
 ## 目标标识与元数据（提供方约定）
 
+对于根目录约束的检查，[`FsRootReadable`](../../packages/fs/fs/src/root-read.ts) 是通过 `supportsRootRead(fs)` 检测的可选能力，并非普通 `FileSystem` 读取或 `contains` 的保证。其 `FsReadRoot` 接受逻辑分量数组，返回 `FsReadRootInfo`、`FsReadRootEntry[]` 或有界文本，不暴露原生路径或句柄。作用域所有权和失败行为见[服务 README](../../packages/fs/fs/README.zh.md)；平台支持由[本地提供方](../../packages/fs/fs-local/README.zh.md)说明。
+
 每个操作首先将用户提供的路径解析为不透明的后端目标。消费方可以显示 `displayPath`，但禁止解析 `targetKey`（一个品牌化的不透明 id），也不得假设它是本地绝对路径。
 
 与文件系统共享执行世界的消费方通过提供方获取跨能力坐标，而不是解释该身份：`processPath(target)` 返回子进程可以打开的规范化绝对路径；`processPathFromHostPath(hostPath)` 只在该执行世界共享相应宿主文件时映射其绝对路径；`fileUrl(target)` 返回采用提供方平台语法的 `file:` URI；`contains(parent, child)` 检查规范化身份相等或后代包含关系。

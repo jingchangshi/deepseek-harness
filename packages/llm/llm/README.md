@@ -29,6 +29,8 @@ Any composition that calls a model provider — an agent loop, a session-title g
 
 ### When to choose it
 
+Public request and content declarations use attachment reference types. `@deepseek-ai/dsh-attachment` is a required package dependency; type-only consumers do not need to mount its storage service.
+
 Choose this package whenever a plugin or composition needs to call a model: it is the only supported path into provider adapters, and it keeps one vocabulary across the loop, the session log, and every consumer. Do not reach for it when you need provider-specific wire behavior (that belongs in an adapter such as `dsh-llm-deepseek` or `dsh-llm-pi-ai`) or retry execution (that belongs in `dsh-llm-retry`).
 
 ### Minimal composition

@@ -35,6 +35,10 @@ Pick [`fs-local`](../fs-local/README.md) for ordinary host files or [`fs-sandbox
 
 ### What the service lets you do
 
+Root scopes acknowledge their immutable `aliasPolicy`. The default `follow-contained` permits aliases whose targets remain in the root; `deny` rejects symbolic links and reparse points in every descendant open. Callers requiring `deny` must verify the acknowledgement and close a mismatching scope. This policy does not classify hard-linked content by other names.
+
+`supportsRootRead(fs)` detects the optional `FsRootReadable` capability; ordinary reads do not imply it. `openReadRoot` returns a caller-owned `FsReadRoot` with `stat`, bounded `readText`, `listDir`, and idempotent `close`. Requests use logical path components rather than provider paths. The provider pins the root object and prevents alias substitution from redirecting reads outside it; callers must close the scope. Unsupported providers offer no pathname fallback. See [local provider support](../fs-local/README.md).
+
 Through `ctx.fs` you can resolve any path to a stable target identity, read a whole text file or stream it in chunks, read raw bytes up to an explicit cap, list one directory level, atomically create or replace a file, and apply a literal text edit atomically. The version guard on both mutations is optional: omit it for unconditional create-or-overwrite, or supply it to fail when the file changed since you last observed it. Every operation returns data or a typed `FsError` carrying a stable code such as `FS_NOT_FOUND`, `FS_STALE_VERSION`, or `FS_AMBIGUOUS_EDIT`, so callers branch on the code, never on message text.
 
 -----

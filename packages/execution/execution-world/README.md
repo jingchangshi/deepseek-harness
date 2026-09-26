@@ -24,6 +24,10 @@ Resolve an existing execution-world directory to an opaque, durable workspace ID
 
 ## Use this package
 
+Import `bindExecutionReadLease` from `@deepseek-ai/dsh-execution-world/read-lease` in a plugin that explicitly injects `executionWorldIdentity`, `fs`, `subprocess`, and `sandbox`. It returns only `workspaceId`, `fs` (`stat`, bounded `readText`, `listDir`), and idempotent `dispose()`. Paths are slash-separated root-relative components; the empty string denotes the root. Every descendant open rejects symbolic links and reparse points; providers must acknowledge the `deny` alias policy before access is granted. Missing secure root support rejects without Host fallback. Disposal joins owned reads and root cleanup; the lease grants neither subprocess access nor Git authorization.
+
+Import `bindExecutionGitLease` from `@deepseek-ai/dsh-execution-world/git-lease` only when the caller has separately authorized fixed Git reads for a trusted repository. It exposes no general subprocess surface: the lease validates the consumer Git argv, runs it in the provider execution world with read-only confinement, bounded collected output, cancellation, and quiescent cleanup. The capability does not claim sensitive-file filtering or root-read equivalence; Git configuration and repository metadata remain part of the explicit Git authorization.
+
 Mount this service with `storageDomain` and the execution filesystem. `ctx.executionWorldIdentity.resolve(root, signal)` returns a persisted ID after verifying that the provider-resolved root is a directory. Missing roots and regular files reject. Concurrent aliases share one allocation.
 
 | Field | Default | Meaning |
@@ -71,7 +75,7 @@ No direct model request changes; consumers own any identity fields they expose.
 <a id="known-limitations-and-deferred-work"></a>
 
 - The operator must keep deployment UUIDs unique and stable; this service does not authenticate a host from a UUID.
-- Read-only filesystem/subprocess bindings are not implemented by this identity service.
+- The internal read-only execution binding requires matching captured provider generations and a provider-held root reader. File metadata, bounded text reads and directory listings never fall back to ordinary pathname reads; disposal joins root cleanup. Its subprocess confinement limits file effects, not read visibility or networking, and does not establish Git read isolation.
 - Persistent target identity depends on the filesystem provider returning the same canonical key across recreation.
 - All processes sharing identity storage must use the same coordination path on one host; cross-machine shared storage is unsupported.
 
@@ -82,6 +86,8 @@ No direct model request changes; consumers own any identity fields they expose.
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-Native Windows and Linux tests exercise real JSON storage, fresh Cordis contexts, separate-process restart, overlapping producers and killed-holder recovery with their native kernel locks. Remote SSH and full C2C acceptance remain unverified.
+Native Windows and Linux tests exercise real JSON storage, fresh Cordis contexts, separate-process restart, overlapping producers and killed-holder recovery with their native kernel locks. Root-read acceptance has passed over actual OpenSSH from WSL/Linux x64 to a separate Linux arm64 host, including explicit binding disposal, acknowledged connection disposal and unknown cleanup after forced transport loss. Native Windows SSH and the full C2C product loop remain unverified.
+
+The opt-in `tests/read-only-ssh.e2e.ts` suite uses `DSH_SSH_TEST_CONFIG` with a disposable Linux workspace and the installed helper digest. It exercises root reads over actual OpenSSH from a POSIX client; a skipped run proves neither SSH behavior nor native Windows client support. A fresh teardown connection removes test fixtures only and does not confirm cleanup by the original helper.
 
 </details>

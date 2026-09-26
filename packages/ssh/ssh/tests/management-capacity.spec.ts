@@ -2,7 +2,7 @@
 import { PassThrough } from 'node:stream'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { z } from 'zod'
-import { SSH_MAX_PROCESS_HANDLES, SSH_MAX_TEXT_STREAMS, SshRpcPeer } from '../src/protocol.ts'
+import { SSH_MAX_PROCESS_HANDLES, SSH_MAX_TEXT_STREAMS, SSH_MAX_READ_ROOTS, SshRpcPeer } from '../src/protocol.ts'
 
 const frameBytes = 128 * 1024
 const management = [
@@ -10,6 +10,7 @@ const management = [
   { method: 'close', limit: 1 },
   { method: 'process.terminate', limit: SSH_MAX_PROCESS_HANDLES },
   { method: 'fs.streamClose', limit: SSH_MAX_TEXT_STREAMS },
+  { method: 'fs.rootClose', limit: SSH_MAX_READ_ROOTS },
 ] as const
 const allClasses = [{ method: 'process.done', limit: 1 }, ...management]
 const paramsSchema = z.object({ index: z.number(), immediate: z.boolean().optional() })

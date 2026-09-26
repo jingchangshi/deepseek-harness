@@ -14,7 +14,7 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, parse } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
-import { FsError, FsTargetKey } from '@deepseek-ai/dsh-fs'
+import { FsError, FsTargetKey, supportsRootRead } from '@deepseek-ai/dsh-fs'
 import type { FsTarget } from '@deepseek-ai/dsh-fs'
 import SandboxPolicyService from '@deepseek-ai/dsh-sandbox-policy'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -58,6 +58,21 @@ function target(path: string): Promise<FsTarget> {
 }
 
 describe('the capability fact', () => {
+  it('inherits native root reads independently of the mutation policy', async () => {
+    await boot('read-only')
+    const supported = process.platform === 'win32' || process.platform === 'linux'
+    expect(supportsRootRead(fs)).toBe(supported)
+    if (!supportsRootRead(fs)) return
+    await writeFile(join(workspace, 'inside.txt'), 'INSIDE')
+    const scope = await fs.openReadRoot(await target(workspace))
+    try {
+      expect(await scope.readText(['inside.txt'], 6)).toBe('INSIDE')
+      await expect(scope.readText(['..', 'out', 'secret'], 100)).rejects.toMatchObject({ code: 'FS_SANDBOX_DENIED' })
+    } finally {
+      await scope.close()
+    }
+  })
+
   it('reports the deployment default mode (what the tool layer advertises against)', async () => {
     await boot('workspace-write')
     expect(fs.sandboxMode).toBe('workspace-write')

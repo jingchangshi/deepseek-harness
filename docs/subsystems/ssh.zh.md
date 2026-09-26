@@ -12,6 +12,8 @@
 
 ## 传输与信任
 
+可选的 `SshFileSystem.openReadRoot` 能力将[根目录约束的检查](../../packages/ssh/fs-ssh/README.zh.md)转发至辅助进程的原生文件系统。`SshReadRootId` 是品牌化的辅助进程本地 UUID；`rootSegmentsSchema`、`rootInfoSchema` 和 `rootEntriesSchema` 验证逻辑子项请求及不含路径的观察结果。这些作用域既不授权 Git 读取，也不改变普通文件系统访问。
+
 管理 RPC 使用辅助进程的 SSH exec 流。普通 stdin、stdout、stderr、终端输出及可选 fd 7 控制流使用分别认证的转发 Unix 套接字。每条转发流拥有独立 SSH 通道窗口；暂停的程序输出不与控制或管理消息共用窗口。所有通道仍共享连接带宽及传输失败。
 
 部署认证、已安装产物验证及逐流 TLS 认证属于 [`dsh-ssh`](../../packages/ssh/ssh/README.zh.md)。辅助进程使用远端机器上的可信本地提供方执行文件系统与进程请求。SSH 是传输方式；文件效果限制由所选远端沙箱提供方执行。
@@ -92,6 +94,12 @@ declare class SshConnection extends Service {
   async connectStream(endpoint: SshStreamEndpoint, signal?: AbortSignal): Promise<Socket>;
   /** Tear down the helper's remote managed ranges before releasing the SSH master when reachable. */
   dispose(): Promise<void>;
+  /**
+   * Join helper cleanup only when this connection is closing or has failed.
+   * @returns false for a live connection, true after the helper cleanup acknowledgement;
+   * rejects when remote cleanup cannot be confirmed, including transport loss.
+   */
+  async joinRemoteCleanupIfClosing(): Promise<boolean>;
 }
 ```
 
@@ -131,6 +139,13 @@ async connectStream(endpoint: SshStreamEndpoint, signal?: AbortSignal): Promise<
 
 /** Tear down the helper's remote managed ranges before releasing the SSH master when reachable. */
 dispose(): Promise<void>
+
+/**
+ * Join helper cleanup only when this connection is closing or has failed.
+ * @returns false for a live connection, true after the helper cleanup acknowledgement;
+ * rejects when remote cleanup cannot be confirmed, including transport loss.
+ */
+async joinRemoteCleanupIfClosing(): Promise<boolean>
 ```
 
 Source: [`packages/ssh/ssh/src/index.ts`](../../packages/ssh/ssh/src/index.ts)

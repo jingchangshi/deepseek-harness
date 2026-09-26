@@ -9,6 +9,8 @@
  */
 
 import type { ExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
+export { supportsRootRead } from './root-read.ts'
+export type { FsReadRoot, FsReadRootInfo, FsReadRootEntry, FsRootReadable, FsReadRootAliasPolicy, FsReadRootOpenOptions } from './root-read.ts'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type {

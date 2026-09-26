@@ -10,6 +10,8 @@ Provider source: [`packages/fs/fs/src/types.ts`](../../packages/fs/fs/src/types.
 
 ## Target identity and metadata (provider contract)
 
+For root-confined inspection, [`FsRootReadable`](../../packages/fs/fs/src/root-read.ts) is an optional capability detected by `supportsRootRead(fs)`, not a guarantee of ordinary `FileSystem` reads or `contains`. Its `FsReadRoot` accepts logical component arrays and returns `FsReadRootInfo`, `FsReadRootEntry[]`, or bounded text without native paths or handles. Scope ownership and failure behavior are documented in the [service README](../../packages/fs/fs/README.md); platform support belongs to the [local provider](../../packages/fs/fs-local/README.md).
+
 Every operation resolves a user-supplied path to an opaque backend target first. Consumers may display `displayPath`, but must not parse `targetKey` (a branded opaque id) or assume it is a local absolute path.
 
 Consumers that share the filesystem's execution world obtain cross-capability coordinates through the provider instead of interpreting that identity: `processPath(target)` returns the canonical absolute path a subprocess can open, `processPathFromHostPath(hostPath)` maps an absolute harness-host file only when that execution world shares it, `fileUrl(target)` returns its provider-platform `file:` URI, and `contains(parent, child)` tests canonical identity or descendant containment.

@@ -1,11 +1,22 @@
 /** Strict JSON validation for SSH helper requests and remote observations. */
 import { z } from 'zod'
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import { SSH_PROTOCOL_VERSION } from './protocol.ts'
 
 /** Identity of one prepared or running process in its owning SSH helper. */
 export type SshProcessId = Branded<'SshProcessId'>
 /** Identity of one open text iterator in its owning SSH helper. */
 export type SshTextStreamId = Branded<'SshTextStreamId'>
+/** Identity of a pinned read root in its owning SSH helper. */
+export type SshReadRootId = Branded<'SshReadRootId'>
+/** Admit a helper-owned read root identity. */
+export const readRootIdSchema = z.uuid().transform((value): SshReadRootId => value as SshReadRootId)
+/** Root-relative logical components, excluding traversal and platform separators. */
+export const rootSegmentsSchema = z.array(z.string().min(1).refine(value => value !== '.' && value !== '..' && !/[\\/\0]/u.test(value)))
+/** Metadata from a securely opened remote object, without native paths. */
+export const rootInfoSchema = z.object({ type: z.enum(['file', 'directory', 'other']), size: z.number().nonnegative().optional() }).strict()
+/** Direct child names and metadata without provider targets. */
+export const rootEntriesSchema = z.array(rootInfoSchema.extend({ name: z.string().min(1).refine(value => value !== '.' && value !== '..' && !/[\/\0]/u.test(value)) }))
 /** Admit a process identity from the private helper protocol. */
 export const processIdSchema = z.uuid().transform((value): SshProcessId => value as SshProcessId)
 /** Admit a text iterator identity from the private helper protocol. */
@@ -54,7 +65,7 @@ export const spawnSchema = z.object({
   }).strict().optional(),
 }).strict().refine(value => (value.stdio === undefined) !== (value.terminal === undefined), 'select ordinary or terminal execution')
 /** Connection handshake binds sockets and workspace to one helper process. */
-export const helloSchema = z.object({ protocol: z.literal(1), hash: z.string().regex(/^[0-9a-f]{64}$/), platform: z.enum(['linux', 'darwin']), nodeVersion: z.string(), node: remotePath, root: remotePath, workspace: remotePath, bootstrapHash: z.string().regex(/^[0-9a-f]{64}$/).optional() }).strict()
+export const helloSchema = z.object({ protocol: z.literal(SSH_PROTOCOL_VERSION), hash: z.string().regex(/^[0-9a-f]{64}$/), platform: z.enum(['linux', 'darwin']), nodeVersion: z.string(), node: remotePath, root: remotePath, workspace: remotePath, bootstrapHash: z.string().regex(/^[0-9a-f]{64}$/).optional() }).strict()
 /** A prepared process publishes its sockets before target code may execute. */
 export const streamEndpointSchema = z.object({ path: remotePath, capability: z.string().regex(/^[0-9a-f]{64}$/) }).strict()
 /** A stream capability reaches only the authenticated SSH client and its helper. */

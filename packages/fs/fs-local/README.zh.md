@@ -27,6 +27,8 @@ kind: "package-reference"
 
 `executionWorldAffinity` 使用进程的共享[宿主命名空间令牌](../../execution/execution-world-affinity/README.zh.md)。它表达提供方归属，不授予访问权限。
 
+`supportsRootRead(fs)` 检测 Windows 和 Linux 上可选的 `openReadRoot` 能力；其他平台不声明支持。调用方持有的读取作用域通过固定的原生对象提供有界 UTF-8 读取、元数据和目录条目。默认的 `follow-contained` 策略先解析目录内别名，再执行相对于句柄且不跟随链接的遍历；越界别名会被拒绝。`deny` 策略直接对原始后代路径分量执行原生的不跟随链接遍历，不解析别名。Windows 在重命名后保留根目录，Linux 则拒绝变化后的根目录定位路径。取消操作和 `close()` 等待尚未结束的操作后才释放资源，不保证系统调用的硬性截止时间。原生失败转换为 `FsError`。普通文件系统方法仍不受限；此能力不约束 Git，也不提供 SSH 转发。
+
 当组合需要由真实宿主文件系统支撑的 `ctx.fs`、且可以接受进程本地实现时，挂载此后端。常用路径是显式的：加载后端、给出基准目录，然后面向模型的工具（`dsh-tool-fs`）或你自己的插件即可读取、写入和编辑文件。
 
 ### 何时选择

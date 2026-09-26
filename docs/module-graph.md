@@ -607,7 +607,9 @@ flowchart TD
   pkg_tmux_context --> pkg_session_projection
   pkg_tmux_context --> pkg_shell
   pkg_execution_world --> pkg_fs
+  pkg_execution_world --> pkg_sandbox
   pkg_execution_world --> pkg_storage_domain
+  pkg_execution_world --> pkg_subprocess
   pkg_experimental_ptc_runtime_python --> pkg_ptc_runtime
   pkg_experimental_ptc_runtime_python --> pkg_timeout
   pkg_experimental_ptc_runtime_python --> pkg_util_values
@@ -1500,7 +1502,7 @@ flowchart TD
 | [`file-reference`](../packages/context/file-reference) | `context` | [`agent`](../packages/core/agent) |
 | [`time-context`](../packages/context/time-context) | `context` | [`agent`](../packages/core/agent), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection) |
 | [`tmux-context`](../packages/context/tmux-context) | `context` | [`agent`](../packages/core/agent), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`shell`](../packages/shell/shell) |
-| [`execution-world`](../packages/execution/execution-world) | `execution` | [`fs`](../packages/fs/fs), [`storage-domain`](../packages/storage/storage-domain) |
+| [`execution-world`](../packages/execution/execution-world) | `execution` | [`fs`](../packages/fs/fs), [`sandbox`](../packages/sandbox/sandbox), [`storage-domain`](../packages/storage/storage-domain), [`subprocess`](../packages/subprocess/subprocess) |
 | [`experimental-ptc-runtime-python`](../packages/experimental/ptc-runtime-python) | `experimental` | [`ptc-runtime`](../packages/ptc-runtime/ptc-runtime), [`timeout`](../packages/util/timeout), [`util-values`](../packages/util/values) |
 | [`degenerate-output-guard`](../packages/guard/degenerate-output-guard) | `guard` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`commands`](../packages/interaction/commands) | `interaction` | [`agent`](../packages/core/agent), [`attachment`](../packages/attachment/attachment), [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`typert-protocol`](../packages/typert/protocol) |

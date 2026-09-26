@@ -2496,6 +2496,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Tear down the helper\'s remote managed ranges before releasing the SSH master when reachable.',
         parameters: [],
       },
+      {
+        signature: 'async joinRemoteCleanupIfClosing(): Promise<boolean>',
+        description: 'Join helper cleanup only when this connection is closing or has failed.',
+        parameters: [],
+        returns: 'false for a live connection, true after the helper cleanup acknowledgement; rejects when remote cleanup cannot be confirmed, including transport loss.',
+      },
     ],
   },
   {

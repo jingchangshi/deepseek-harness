@@ -1,6 +1,6 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import { fileURLToPath } from 'node:url'
-import { FsError, FsTargetKey, FsVersion, type FsTarget } from '@deepseek-ai/dsh-fs'
+import { FsError, FsTargetKey, FsVersion, supportsRootRead, type FsTarget } from '@deepseek-ai/dsh-fs'
 import type { SandboxExecutionPolicy } from '@deepseek-ai/dsh-sandbox'
 import { RemoteOperationError } from '@deepseek-ai/dsh-ssh/protocol'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
@@ -13,9 +13,13 @@ const streamId = '00000000-0000-4000-8000-000000000001'
 
 async function setup() {
   const dispatch = vi.fn<Dispatch>()
+  const requests = vi.fn<(method: string, signal: AbortSignal | undefined, wait: boolean) => void>()
+  const cleanup = vi.fn<() => Promise<boolean>>().mockResolvedValue(false)
   class WireConnection extends Service {
+    joinRemoteCleanupIfClosing = cleanup
     constructor(ctx: Context) { super(ctx, 'ssh') }
-    async request<T>(method: string, params: unknown, result: z.ZodType<T>, signal?: AbortSignal): Promise<T> {
+    async request<T>(method: string, params: unknown, result: z.ZodType<T>, signal?: AbortSignal, wait = false): Promise<T> {
+      requests(method, signal, wait)
       return result.parse(await dispatch(method, params, signal))
     }
   }
@@ -27,10 +31,114 @@ async function setup() {
   const ctx = new Context()
   const fibers = [await ctx.plugin(WireConnection), await ctx.plugin(Policy), await ctx.plugin(SshFileSystem)]
   onTestFinished(async () => { for (const fiber of fibers.reverse()) await fiber.dispose() })
-  return { fs: ctx.fs, dispatch }
+  return { fs: ctx.fs, dispatch, requests, cleanup }
 }
 
 describe('SSH filesystem provider', () => {
+  it.each(['confirmed', 'live', 'unknown'] as const)('handles failed root close with %s connection cleanup', async (state) => {
+    const { fs, dispatch, cleanup } = await setup()
+    dispatch.mockResolvedValueOnce(streamId).mockRejectedValueOnce(new Error('root close failed'))
+    if (state === 'confirmed') cleanup.mockResolvedValue(true)
+    if (state === 'unknown') cleanup.mockRejectedValue(new Error('transport lost'))
+    if (!supportsRootRead(fs)) throw new Error('Missing SSH root reader')
+    const scope = await fs.openReadRoot(target)
+    const closing = scope.close()
+    expect(scope.close()).toBe(closing)
+    if (state === 'confirmed') await closing
+    else await expect(closing).rejects.toThrow(state === 'live' ? 'root close failed' : 'cleanup outcome unknown')
+    expect(cleanup).toHaveBeenCalledTimes(1)
+  })
+
+  it('joins acquisition and cleanup when cancellation precedes the scope response', async () => {
+    const { fs, dispatch, requests } = await setup()
+    const acquired = Promise.withResolvers<string>()
+    const closing = Promise.withResolvers<undefined>()
+    const released = Promise.withResolvers<null>()
+    const cancellation = new AbortController()
+    dispatch.mockImplementationOnce(() => acquired.promise).mockImplementationOnce(() => {
+      closing.resolve(undefined)
+      return released.promise
+    })
+    if (!supportsRootRead(fs)) throw new Error('Missing SSH root reader')
+    let settled = false
+    const pending = fs.openReadRoot(target, cancellation.signal)
+    const checked = expect(pending).rejects.toMatchObject({ code: 'FS_ABORTED' }).then(() => { settled = true })
+    try {
+      expect(requests).toHaveBeenLastCalledWith('fs.rootOpen', undefined, true)
+      cancellation.abort()
+      acquired.resolve(streamId)
+      await closing.promise
+      expect(requests).toHaveBeenLastCalledWith('fs.rootClose', undefined, true)
+      expect(settled).toBe(false)
+    } finally {
+      acquired.resolve(streamId)
+      released.resolve(null)
+      await checked
+    }
+  })
+
+  it('forwards root operations using only the helper scope and logical components', async () => {
+    const { fs, dispatch } = await setup()
+    dispatch.mockResolvedValueOnce(streamId).mockResolvedValueOnce({ type: 'file', size: 6 })
+      .mockResolvedValueOnce(null).mockResolvedValueOnce('INSIDE')
+      .mockResolvedValueOnce([{ name: 'value.txt', type: 'file' }]).mockResolvedValueOnce(null)
+    if (!supportsRootRead(fs)) throw new Error('Missing SSH root reader')
+    const scope = await fs.openReadRoot(target)
+    expect(await scope.stat(['value.txt'])).toEqual({ type: 'file', size: 6 })
+    expect(await scope.stat(['missing'])).toBeUndefined()
+    expect(await scope.readText(['value.txt'], 6)).toBe('INSIDE')
+    expect(await scope.listDir([])).toEqual([{ name: 'value.txt', type: 'file' }])
+    const closing = scope.close()
+    expect(scope.close()).toBe(closing)
+    await closing
+    await expect(scope.stat([])).rejects.toMatchObject({ code: 'FS_ABORTED' })
+    expect(dispatch.mock.calls.map(([method, params]) => [method, params])).toEqual([
+      ['fs.rootOpen', { target, aliasPolicy: 'follow-contained' }],
+      ['fs.rootStat', { id: streamId, segments: ['value.txt'] }],
+      ['fs.rootStat', { id: streamId, segments: ['missing'] }],
+      ['fs.rootReadText', { id: streamId, segments: ['value.txt'], maxBytes: 6 }],
+      ['fs.rootList', { id: streamId, segments: [] }],
+      ['fs.rootClose', { id: streamId }],
+    ])
+  })
+
+  it('closes an unpublished scope when opening is cancelled after its response', async () => {
+    const { fs, dispatch } = await setup()
+    const cancellation = new AbortController()
+    dispatch.mockImplementationOnce(async () => {
+      cancellation.abort()
+      return streamId
+    }).mockResolvedValueOnce(null)
+    if (!supportsRootRead(fs)) throw new Error('Missing SSH root reader')
+    await expect(fs.openReadRoot(target, cancellation.signal)).rejects.toMatchObject({ code: 'FS_ABORTED' })
+    expect(dispatch).toHaveBeenLastCalledWith('fs.rootClose', { id: streamId }, undefined)
+  })
+
+  it('aborts active root requests when closing without cancelling remote cleanup', async () => {
+    const { fs, dispatch } = await setup()
+    const entered = Promise.withResolvers<AbortSignal>()
+    dispatch.mockResolvedValueOnce(streamId).mockImplementationOnce(async (_method, _params, signal) => {
+      if (signal === undefined) throw new Error('Missing root operation cancellation')
+      entered.resolve(signal)
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => { reject(new Error('Root request aborted')) }, { once: true })
+      })
+    }).mockResolvedValueOnce(null)
+    if (!supportsRootRead(fs)) throw new Error('Missing SSH root reader')
+    const scope = await fs.openReadRoot(target)
+    const pending = expect(scope.readText(['value.txt'], 6)).rejects.toMatchObject({ code: 'FS_ABORTED' })
+    const signal = await entered.promise
+    try {
+      await scope.close()
+      await pending
+      expect(signal.aborted).toBe(true)
+      expect(dispatch).toHaveBeenLastCalledWith('fs.rootClose', { id: streamId }, undefined)
+    } finally {
+      await scope.close()
+      await pending
+    }
+  })
+
   it.each([
     ['literal%20name.ts', 'literal%2520name.ts'],
     ['back\\slash.ts', 'back%5Cslash.ts'],

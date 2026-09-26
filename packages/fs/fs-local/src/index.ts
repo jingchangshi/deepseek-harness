@@ -17,6 +17,7 @@ import type {
   FsEditRequest,
   FsInfo,
   FsPathInfo,
+  FsRootReadable,
   FsTarget,
   FsWriteIntent,
   FsWriteOutcome,
@@ -39,6 +40,7 @@ import {
   writeFileAtomic,
 } from './fsio.ts'
 import type { FsIoInternals } from './fsio.ts'
+import { localRootReader } from './root-read.ts'
 
 /** Configuration for the local filesystem backend. */
 export interface Config {
@@ -66,6 +68,9 @@ const MAX_DIFF_BASIS_BYTES = Math.min(
  */
 export class LocalFileSystem extends FileSystem {
   override readonly executionWorldAffinity: ExecutionWorldAffinity = HOST_EXECUTION_WORLD_AFFINITY
+
+  /** Native root-confined reads on Windows and Linux; absent on other platforms. */
+  readonly openReadRoot: FsRootReadable['openReadRoot'] | undefined = localRootReader
 
   static Config: z<Config> = z.object({
     cwd: z.string().default(process.cwd()),

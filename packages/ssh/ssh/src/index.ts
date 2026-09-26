@@ -68,6 +68,7 @@ export class SshConnection extends Service {
   private readonly lifetime = new AbortController()
   private readonly operations = new Set<Promise<unknown>>()
   private disposal: Promise<void> | undefined
+  private readonly remoteCleanup = Promise.withResolvers<boolean>()
   private failure: Error | undefined
   private sockets = new Set<Socket>()
   private nextSocket = 0
@@ -76,6 +77,7 @@ export class SshConnection extends Service {
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'ssh')
+    void this.remoteCleanup.promise.catch(() => {})
     if (process.platform !== 'linux' && process.platform !== 'darwin') throw new Error('SSH runtime requires a POSIX client')
     this.config = z.object({
       host: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.@-]*$/),
@@ -189,13 +191,31 @@ export class SshConnection extends Service {
     return this.disposal
   }
 
+  /**
+   * Join helper cleanup only when this connection is closing or has failed.
+   * @returns false for a live connection, true after the helper cleanup acknowledgement;
+   * rejects when remote cleanup cannot be confirmed, including transport loss.
+   */
+  async joinRemoteCleanupIfClosing(): Promise<boolean> {
+    if (!this.closed && this.failure === undefined) return false
+    return this.remoteCleanup.promise
+  }
+
   private async disposeOnce(): Promise<void> {
     this.closed = true
     this.lifetime.abort(new Error('SSH connection is closing'))
     if (this.heartbeat !== undefined) clearInterval(this.heartbeat)
     try {
       await this.ready.catch(() => {})
-      if (this.failure === undefined) await this.rpc?.request('close', {}, z.null(), AbortSignal.timeout(this.config.requestTimeoutMs))
+      if (this.failure === undefined && this.rpc !== undefined) {
+        await this.rpc.request('close', {}, z.null(), AbortSignal.timeout(this.config.requestTimeoutMs))
+        this.remoteCleanup.resolve(true)
+      } else {
+        this.remoteCleanup.reject(new Error('SSH remote cleanup outcome unknown', { cause: this.failure }))
+      }
+    } catch (error) {
+      this.remoteCleanup.reject(new Error('SSH remote cleanup outcome unknown', { cause: error }))
+      throw error
     } finally {
       this.rpc?.close()
       // TLS wrappers release their reads before their underlying sockets close.
@@ -251,6 +271,7 @@ export class SshConnection extends Service {
 
   private fail(error: Error): void {
     if (this.failure !== undefined) return
+    this.remoteCleanup.reject(new Error('SSH remote cleanup outcome unknown', { cause: error }))
     this.failure = error
     this.lifetime.abort(error)
     if (this.heartbeat !== undefined) clearInterval(this.heartbeat)

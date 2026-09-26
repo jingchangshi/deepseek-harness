@@ -64,6 +64,10 @@ Connection disposal joins forwarding and cancellation subprocesses and partially
 
 Failed startup and process results release their reservations after native quiescence; the bounded completion cache preserves the original rejection for later result reads. Helper shutdown also joins endpoint and directory cleanup already in progress.
 
+The helper retains at most 64 published read roots. `fs.rootClose` has independent management capacity, so ordinary requests cannot prevent scope cleanup. Opening scopes cancelled before publication are closed; shutdown joins root operations and closes retained scopes before disposing filesystem providers. A root-close failure rejects the helper cleanup acknowledgement even when other teardown succeeds. See [remote root reads](../fs-ssh/README.md) for the caller API and transfer limits.
+
+`joinRemoteCleanupIfClosing()` returns false while the connection is live and confirms cleanup only after the helper acknowledges successful shutdown. It waits during intentional closure and rejects when transport loss or a failed acknowledgement leaves cleanup unknown; subsequent local teardown cannot revoke a successful acknowledgement.
+
 For terminals opting into shell activity observation, root exit retains the reservation and its remaining work. Activity RPC continues to reach the provider; explicit termination awaits quiescence before releasing endpoints and recording the completed result. Helper connection disposal and lease expiry retain their existing termination authority.
 
 The helper starts with `--disable-sigusr1`, so a same-user process signal cannot open its Node debugger.

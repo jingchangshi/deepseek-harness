@@ -63,6 +63,7 @@ export interface PackageDependencyFacts {
   readonly hostRuntimeExportUses: readonly HostRuntimeExportUse[]
   readonly peerRequiredHostDependencies: ReadonlySet<string>
   readonly configurationOnlyDevDependencies: ReadonlySet<string>
+  readonly publishedDeclarationDependencies?: ReadonlySet<string>
   readonly clientInject: ReadonlySet<string>
 }
 
@@ -481,6 +482,7 @@ export function readPackageDependencyFacts(
     configurationOnlyDevDependencies: new Set(
       policy.configurationOnlyDevDependencies[pkg.manifest.name ?? ''] ?? [],
     ),
+    publishedDeclarationDependencies: new Set(policy.publishedDeclarationDependencies?.[pkg.name] ?? []),
     clientInject: new Set(inject.map(packageNameOf).filter(name => name !== undefined)),
   }
 }
@@ -573,6 +575,15 @@ export function readPackageDependencyState(
       ...Object.keys(policy.configurationOnlyDevDependencies)
         .filter(name => !selectedNames.has(name))
         .map(name => `configurationOnlyDevDependencies names unmanaged package ${name}`),
+      ...Object.entries(policy.publishedDeclarationDependencies ?? {}).flatMap(([owner, dependencies]) => {
+        const ownerFacts = facts.find(fact => fact.manifest.name === owner)
+        if (ownerFacts === undefined) return [`publishedDeclarationDependencies names unmanaged package ${owner}`]
+        return dependencies.flatMap(dependency => !workspaceNames.has(dependency)
+          ? [`publishedDeclarationDependencies names unknown dependency ${dependency}`]
+          : !ownerFacts.allSourceUses.has(dependency)
+            ? [`publishedDeclarationDependencies ${owner} has no source use of ${dependency}`]
+            : [])
+      }),
     ].sort(),
     workspaceNames,
   }
@@ -610,6 +621,9 @@ export function expectedPackageDependencies(
   }
   for (const name of facts.configurationOnlyDevDependencies) {
     if (facts.workspaceNames.has(name)) add(name, 'devDependencies', 'configured development-only relationship')
+  }
+  for (const name of facts.publishedDeclarationDependencies ?? []) {
+    add(name, 'dependencies', 'published declaration dependency')
   }
   for (const name of Object.keys(facts.manifest.peerDependencies ?? {})) {
     if (name !== CORDIS) add(name, 'devDependencies', 'existing non-Cordis peer')

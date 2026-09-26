@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import type { Readable, Writable } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
-import { FsError, type FsTarget, type FsWriteIntent, type FsVersion } from '@deepseek-ai/dsh-fs'
+import { FsError, supportsRootRead, type FsReadRoot, type FsTarget, type FsWriteIntent, type FsVersion } from '@deepseek-ai/dsh-fs'
 import { SandboxedFileSystem } from '@deepseek-ai/dsh-fs-sandbox'
 import { SubprocessExecutableNotFoundError } from '@deepseek-ai/dsh-subprocess'
 import { LocalSubprocessRuntime } from '@deepseek-ai/dsh-subprocess-local'
@@ -13,10 +13,11 @@ import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
 import type { SandboxExecutionPolicy, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import { z } from 'zod'
-import { SshRpcPeer, RemoteOperationError, SSH_MAX_PROCESS_HANDLES, SSH_MAX_TEXT_STREAMS, SSH_PROTOCOL_VERSION } from './protocol.ts'
+import { SshRpcPeer, RemoteOperationError, SSH_MAX_PROCESS_HANDLES, SSH_MAX_TEXT_STREAMS, SSH_MAX_READ_ROOTS, SSH_PROTOCOL_VERSION } from './protocol.ts'
 import { RemoteProcesses } from './helper-processes.ts'
 import { editSchema, environmentSchema, intentSchema, policySchema, processIdSchema, remotePath, targetSchema, textStreamIdSchema } from './schemas.ts'
-import type { SshTextStreamId } from './schemas.ts'
+import { readRootIdSchema, rootSegmentsSchema } from './schemas.ts'
+import type { SshTextStreamId, SshReadRootId } from './schemas.ts'
 
 const MAX_FRAME_BYTES = 64 * 1024 * 1024
 const MAX_TEXT_BYTES = 8 * 1024 * 1024
@@ -59,6 +60,15 @@ export async function runSshHelper(transport: HelperTransport): Promise<void> {
   const processes = new RemoteProcesses(ctx, root, SSH_MAX_PROCESS_HANDLES, 30_000)
   const lifetime = new AbortController()
   const iterators = new Map<SshTextStreamId, { iterator: AsyncIterator<string>; controller: AbortController }>()
+  const readRoots = new Map<SshReadRootId, FsReadRoot>()
+  const rootOperations = new Set<Promise<unknown>>()
+  let rootCleanupFailure: Error | undefined
+  const closeRoot = async (scope: FsReadRoot): Promise<void> => {
+    try { await scope.close() } catch (error) {
+      rootCleanupFailure ??= new Error('SSH read root cleanup failed', { cause: error })
+      throw error
+    }
+  }
   let lease: NodeJS.Timeout | undefined
   let leaseMs = 30_000
   let initialized = false
@@ -71,11 +81,15 @@ export async function runSshHelper(transport: HelperTransport): Promise<void> {
       for (const record of iterators.values()) record.controller.abort(lifetime.signal.reason)
       await Promise.allSettled([...iterators.values()].map(async record => record.iterator.return?.()))
       iterators.clear()
+      await Promise.allSettled([...readRoots.values()].map(closeRoot))
+      await Promise.allSettled([...rootOperations])
+      readRoots.clear()
       try { await processes.close() }
       finally {
         try { await runtime.close() }
         finally { await rm(root, { recursive: true, force: true }) }
       }
+      if (rootCleanupFailure !== undefined) throw rootCleanupFailure
     })()
     return cleanup
   }
@@ -144,6 +158,52 @@ export async function runSshHelper(transport: HelperTransport): Promise<void> {
       const resolved = await policy(input.policy, signal)
       if (resolved.mode === 'danger-full-access') throw new Error('Unconfined argv does not need a sandbox wrapper')
       return ctx.sandbox.confine(input.argv, resolved as SandboxPolicy, signal)
+    }
+    if (method === 'fs.rootOpen' || method === 'fs.rootStat' || method === 'fs.rootReadText'
+      || method === 'fs.rootList' || method === 'fs.rootClose') {
+      const operation = (async () => {
+        if (method === 'fs.rootOpen') {
+          const input = z.object({ target: targetSchema, aliasPolicy: z.enum(['follow-contained', 'deny']) }).strict().parse(raw)
+          const target = asTarget(input.target)
+          if (!supportsRootRead(ctx.fs)) throw new FsError('SSH filesystem has no secure root reader', 'FS_SANDBOX_DENIED')
+          if (readRoots.size >= SSH_MAX_READ_ROOTS) throw new Error('SSH read root limit reached')
+          const scope = await ctx.fs.openReadRoot(target, signal, { aliasPolicy: input.aliasPolicy })
+          try {
+            if (scope.aliasPolicy !== input.aliasPolicy) throw new FsError('SSH root alias policy unavailable', 'FS_SANDBOX_DENIED')
+            signal.throwIfAborted()
+            if (readRoots.size >= SSH_MAX_READ_ROOTS) throw new Error('SSH read root limit reached')
+            const id = randomUUID() as SshReadRootId
+            readRoots.set(id, scope)
+            return id
+          } catch (error) {
+            await closeRoot(scope)
+            throw error
+          }
+        }
+        if (method === 'fs.rootClose') {
+          const { id } = z.object({ id: readRootIdSchema }).strict().parse(raw)
+          const scope = readRoots.get(id)
+          if (scope !== undefined) await closeRoot(scope)
+          if (readRoots.get(id) === scope) readRoots.delete(id)
+          return null
+        }
+        if (method === 'fs.rootReadText') {
+          const input = z.object({
+            id: readRootIdSchema, segments: rootSegmentsSchema, maxBytes: z.number().int().min(0).max(MAX_TEXT_BYTES),
+          }).strict().parse(raw)
+          const scope = readRoots.get(input.id)
+          if (scope === undefined) throw new FsError('Unknown SSH read root', 'FS_ABORTED')
+          return scope.readText(input.segments, input.maxBytes, signal)
+        }
+        const input = z.object({ id: readRootIdSchema, segments: rootSegmentsSchema }).strict().parse(raw)
+        const scope = readRoots.get(input.id)
+        if (scope === undefined) throw new FsError('Unknown SSH read root', 'FS_ABORTED')
+        if (method === 'fs.rootStat') return await scope.stat(input.segments, signal) ?? null
+        return scope.listDir(input.segments, signal)
+      })()
+      rootOperations.add(operation)
+      try { return await operation }
+      finally { rootOperations.delete(operation) }
     }
     if (method === 'fs.resolve' || method === 'fs.lstat') {
       const input = z.object({ path: z.string(), cwd: remotePath.optional() }).strict().parse(raw)

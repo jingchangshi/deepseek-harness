@@ -47,13 +47,13 @@ describe.skipIf(process.platform === 'win32')('SSH helper wire and lifecycle bou
     const test = await createHelperHarness(false)
     try {
       for (const params of [
-        { protocol: 2, workspace: test.root, leaseMs: 3000 },
-        { protocol: 1, workspace: 'relative', leaseMs: 3000 },
-        { protocol: 1, workspace: test.root, leaseMs: 2999 },
+        { protocol: 1, workspace: test.root, leaseMs: 3000 },
+        { protocol: 2, workspace: 'relative', leaseMs: 3000 },
+        { protocol: 2, workspace: test.root, leaseMs: 2999 },
       ]) await expect(test.client.request('hello', params, helloSchema)).rejects.toThrow()
       const bootstrapPath = `${test.root}/bootstrap.js`
       await writeFile(bootstrapPath, 'export const identity = "test"\n')
-      const facts = await test.client.request('hello', { protocol: 1, workspace: test.root, leaseMs: 3000, bootstrapPath }, helloSchema)
+      const facts = await test.client.request('hello', { protocol: 2, workspace: test.root, leaseMs: 3000, bootstrapPath }, helloSchema)
       expect(facts.bootstrapHash).toBe(createHash('sha256').update(await readFile(bootstrapPath)).digest('hex'))
     } finally { await test.close() }
   })
@@ -103,7 +103,6 @@ describe.skipIf(process.platform === 'win32')('SSH helper wire and lifecycle bou
     const test = await createHelperHarness()
     const bothEntered = Promise.withResolvers<undefined>()
     const release = Promise.withResolvers<undefined>()
-    // oxlint-disable-next-line typescript/unbound-method -- The delayed call supplies the original service receiver.
     const original = LocalFileSystem.prototype.streamText
     const spy = vi.spyOn(LocalFileSystem.prototype, 'streamText')
     try {
