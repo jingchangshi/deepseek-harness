@@ -19,6 +19,9 @@
     },
     {
       "path": "../../sandbox/sandbox"
+    },
+    {
+      "path": "../../execution/execution-world-affinity"
     }
   ]
 }

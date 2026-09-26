@@ -8,6 +8,7 @@
  * @module @deepseek-ai/dsh-subprocess-local
  */
 
+import { HOST_EXECUTION_WORLD_AFFINITY, type ExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { constants } from 'node:fs'
 import { access, stat } from 'node:fs/promises'
 import { userInfo } from 'node:os'
@@ -57,6 +58,8 @@ const requireNodePty = createLazyRequire<typeof NodePty>('node-pty', import.meta
  * JavaScript-observable host exit also performs synchronous final termination.
  */
 export class LocalSubprocessRuntime extends SubprocessRuntime {
+  override readonly executionWorldAffinity: ExecutionWorldAffinity = HOST_EXECUTION_WORLD_AFFINITY
+
   /** Live handles retained for normal disposal and synchronous host-exit finalization. */
   private live = new Set<LocalSubprocessHandle>()
   /** Live terminals retained through normal quiescence or host-exit finalization. */

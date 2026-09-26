@@ -200,27 +200,29 @@ it.for(['fs', 'storageDomain'] as const)('restarts pending activation after repl
   const root = await fixture(test)
   const harness = await open(root, { mode: 'persisted-local' }, false)
   const config = { mode: 'persisted-local' as const, allocationLockPath: join(root, 'identity.lock') }
-  const fiber = harness.ctx.plugin(ExecutionWorldIdentity, config)
+  let fiber: ReturnType<typeof harness.ctx.plugin> | undefined
   try {
     await withAllocationLock(config.allocationLockPath, 30_000, new AbortController().signal, async () => {
+      const pending = harness.ctx.plugin(ExecutionWorldIdentity, config)
+      fiber = pending
       await vi.waitFor(() => {
-        expect(fiber.state).toBe(FiberState.LOADING)
+        expect(pending.state).toBe(FiberState.LOADING)
         expect(harness.ctx.get('executionWorldIdentity', false)).toBeDefined()
       })
       await harness.dependencies[dependency].dispose()
       await vi.waitFor(() => {
-        expect(fiber.state).toBe(FiberState.PENDING)
-        expect(fiber.inertia).toBeUndefined()
+        expect(pending.state).toBe(FiberState.PENDING)
+        expect(pending.inertia).toBeUndefined()
       })
       expect(harness.ctx.get('executionWorldIdentity')).toBeUndefined()
       await harness.restoreDependency(dependency)
-      await vi.waitFor(() => { expect(fiber.state).toBe(FiberState.LOADING) })
+      await vi.waitFor(() => { expect(pending.state).toBe(FiberState.LOADING) })
     })
-    await fiber.await()
-    expect(fiber.state).toBe(FiberState.ACTIVE)
+    await fiber?.await()
+    expect(fiber?.state).toBe(FiberState.ACTIVE)
     expect(await harness.ctx.executionWorldIdentity.resolve(join(root, 'workspace'))).toMatch(/^[0-9a-f-]{36}$/u)
   } finally {
-    await fiber.dispose()
+    await fiber?.dispose()
     await harness.close()
   }
 })

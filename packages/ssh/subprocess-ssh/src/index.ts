@@ -1,4 +1,5 @@
 /** Remote subprocess and PTY handles with independent SSH streams and helper-owned process lifetimes. */
+import type { ExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { Duplex, PassThrough, type Readable, type Writable } from 'node:stream'
 import type { Socket } from 'node:net'
 import { Context } from '@deepseek-ai/cordis'
@@ -227,6 +228,8 @@ class RemoteProcess implements SubprocessHandle {
 
 /** SSH provider paired with the SSH filesystem; the remote helper selects POSIX process ownership. */
 export class SshSubprocessRuntime extends SubprocessRuntime {
+  override get executionWorldAffinity(): ExecutionWorldAffinity { return this.ctx.ssh.executionWorldAffinity }
+
   static inject = ['ssh']
   private readonly live = new Set<RemoteProcess>()
   private readonly terminals = new Set<SubprocessTerminalHandle>()

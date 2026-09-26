@@ -25,6 +25,8 @@ Use `dsh-fs-local` to read, list, atomically write, and edit files on the host f
 <a id="use-this-package"></a>
 ## Use this package
 
+`executionWorldAffinity` uses the process’s shared [Host namespace token](../../execution/execution-world-affinity/README.md). It expresses provider ownership, not access authority.
+
 Mount this backend when a composition needs `ctx.fs` backed by the real host filesystem and accepts a process-local implementation. The common path is explicit: load the backend, give it a base directory, and the model-facing tools (`dsh-tool-fs`) or your own plugins can read, write, and edit files.
 
 ### When to choose it

@@ -20,6 +20,7 @@
  * @module @deepseek-ai/dsh-sandbox-local
  */
 
+import { HOST_EXECUTION_WORLD_AFFINITY, type ExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -248,6 +249,8 @@ const RUNNER_FAILURE_RULES = {
  * else.
  */
 export class LocalSandboxProvider extends SandboxProvider {
+  override readonly executionWorldAffinity: ExecutionWorldAffinity = HOST_EXECUTION_WORLD_AFFINITY
+
   // Inline schema call: the config catalog walks `static Config` statically.
   static Config: z<Config> = z.object({
     runnerCommand: z.array(z.string()).default([]),

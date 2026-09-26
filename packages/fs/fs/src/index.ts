@@ -8,6 +8,7 @@
  * @module @deepseek-ai/dsh-fs
  */
 
+import type { ExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type {
@@ -84,6 +85,9 @@ declare module '@deepseek-ai/cordis' {
  * without changing the unguarded provider contract.
  */
 export abstract class FileSystem extends Service {
+  /** Shared owner witness for the filesystem, process, and confinement namespace. */
+  abstract readonly executionWorldAffinity: ExecutionWorldAffinity
+
   constructor(ctx: Context) {
     super(ctx, 'fs')
   }

@@ -5,6 +5,7 @@
  * abstract service contract, so a minimal fake backend exercises it.
  */
 
+import { createExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { FileSystem, FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
@@ -21,6 +22,8 @@ import type {
 
 /** A minimal in-memory fake implementing the provider primitives. */
 class FakeFileSystem extends FileSystem {
+  override readonly executionWorldAffinity = createExecutionWorldAffinity()
+
   files = new Map<string, string>()
 
   override async resolve(path: string): Promise<FsTarget> {

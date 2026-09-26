@@ -10,6 +10,7 @@
  * Real-`rg` behavior is pinned separately in integration.spec.ts.
  */
 
+import { createExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
@@ -148,6 +149,8 @@ class FakeHandle implements SubprocessHandle {
  * assert on the exact spawn specs and settled handles.
  */
 class FakeSubprocess extends SubprocessRuntime {
+  override readonly executionWorldAffinity = createExecutionWorldAffinity()
+
   async terminalEnvironment() { return { platform: 'posix' as const } }
   spawns: SubprocessSpawnSpec[] = []
   override async resolveExecutable(command: string): Promise<string> { return command }

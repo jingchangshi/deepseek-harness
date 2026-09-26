@@ -1,3 +1,4 @@
+import { createExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { spawnSync } from 'node:child_process'
 import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -40,6 +41,8 @@ afterEach(async () => {
 })
 
 class PassthroughSandbox extends SandboxProvider {
+  override readonly executionWorldAffinity = createExecutionWorldAffinity()
+
   async confine(argv: readonly string[], _policy: SandboxPolicy): Promise<ConfinedArgv> {
     return { argv: [...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }

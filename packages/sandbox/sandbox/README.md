@@ -25,6 +25,8 @@ Use `dsh-sandbox` to run a subprocess and everything it spawns under a per-call 
 <a id="use-this-package"></a>
 ## Use this package
 
+Implementations must provide `executionWorldAffinity` using the same [namespace token](../../execution/execution-world-affinity/README.md) from their shared runtime owner. Consumers detect mixed execution worlds by reference equality; durable workspace identity cannot replace this check.
+
 Compose this service with one backend and a confined consumer, and every command the consumer runs executes under the policy you resolve — you see only the confinement result and its enforcement completeness, never the platform runner.
 
 ### When to choose it

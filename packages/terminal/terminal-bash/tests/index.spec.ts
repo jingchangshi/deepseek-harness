@@ -1,3 +1,4 @@
+import { createExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { describe, expect, it, vi } from 'vitest'
 import { PassThrough } from 'node:stream'
 import { resolve } from 'node:path'
@@ -26,12 +27,16 @@ import type {
 import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 
 class EmptySandbox extends SandboxProvider {
+  override readonly executionWorldAffinity = createExecutionWorldAffinity()
+
   async confine(_argv: readonly string[], _policy: SandboxPolicy): Promise<ConfinedArgv> {
     return { argv: [], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
   }
 }
 
 class RecordingSandbox extends SandboxProvider {
+  override readonly executionWorldAffinity = createExecutionWorldAffinity()
+
   calls: { argv: readonly string[]; policy: SandboxPolicy }[] = []
 
   async confine(argv: readonly string[], policy: SandboxPolicy): Promise<ConfinedArgv> {
@@ -81,6 +86,8 @@ function terminalHandle(): SubprocessTerminalHandle {
 }
 
 class StubSubprocessRuntime extends SubprocessRuntime {
+  override readonly executionWorldAffinity = createExecutionWorldAffinity()
+
   async terminalEnvironment() { return { platform: 'posix' as const } }
   async resolveExecutable(command: string): Promise<string> { return command }
   spawn(_spec: SubprocessSpawnSpec): SubprocessHandle { throw new Error('unused') }

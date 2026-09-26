@@ -4,6 +4,7 @@
  * @module @deepseek-ai/dsh-fs-local
  */
 
+import { HOST_EXECUTION_WORLD_AFFINITY, type ExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { Context } from '@deepseek-ai/cordis'
 import { constants as bufferConstants } from 'node:buffer'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
@@ -64,6 +65,8 @@ const MAX_DIFF_BASIS_BYTES = Math.min(
  * containment with a stricter backend or a `tools/execute` permission plugin.
  */
 export class LocalFileSystem extends FileSystem {
+  override readonly executionWorldAffinity: ExecutionWorldAffinity = HOST_EXECUTION_WORLD_AFFINITY
+
   static Config: z<Config> = z.object({
     cwd: z.string().default(process.cwd()),
     diffBasisMaxBytes: z.number().default(DEFAULT_DIFF_BASIS_MAX_BYTES),

@@ -9,6 +9,7 @@
  * writes CRLF on Windows, so exact text assertions normalize line endings.
  */
 
+import { createExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -188,6 +189,8 @@ describe('resolvePwshPath and candidatePwshPaths (pure, every platform)', () => 
 describe('spawn construction (pure, every platform)', () => {
   /** A subprocess service that records spawn specs and settles instantly. */
   class CapturingSubprocessRuntime extends SubprocessRuntime {
+    override readonly executionWorldAffinity = createExecutionWorldAffinity()
+
     async terminalEnvironment() { return { platform: 'posix' as const } }
     specs: SubprocessSpawnSpec[] = []
     done: Promise<SubprocessOutcome> = Promise.resolve({ exitCode: 0, signal: null })

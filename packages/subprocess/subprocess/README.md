@@ -25,6 +25,8 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
+Implementations must provide `executionWorldAffinity` using the same [namespace token](../../execution/execution-world-affinity/README.md) from their shared runtime owner. Consumers detect mixed execution worlds by reference equality; durable workspace identity cannot replace this check.
+
 Mount a subprocess provider in any composition that must run child processes, and call `ctx.subprocess` from the capability that owns the command. The common path is explicit: resolve the executable, spawn with a fully specified request, read the output you asked for, and terminate the managed range when the work is done.
 
 ### Mounting the service

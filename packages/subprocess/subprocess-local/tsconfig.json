@@ -25,6 +25,9 @@
     },
     {
       "path": "../../util/lazy-require"
+    },
+    {
+      "path": "../../execution/execution-world-affinity"
     }
   ]
 }

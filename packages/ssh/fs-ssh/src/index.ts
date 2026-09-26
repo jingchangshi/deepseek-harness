@@ -1,4 +1,5 @@
 /** Filesystem provider preserving remote identities and helper-owned atomic mutations. */
+import type { ExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { posix } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { FileSystem, FsError } from '@deepseek-ai/dsh-fs'
@@ -18,6 +19,8 @@ const errorCodes: Record<FsErrorCode, true> = {
 
 /** Remote filesystem paired with the SSH subprocess and sandbox providers. */
 export class SshFileSystem extends FileSystem {
+  override get executionWorldAffinity(): ExecutionWorldAffinity { return this.ctx.ssh.executionWorldAffinity }
+
   static inject = ['ssh', 'sandboxPolicy']
 
   override get sandboxMode(): SandboxMode { return this.ctx.sandboxPolicy.defaultMode }

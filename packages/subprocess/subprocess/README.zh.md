@@ -25,6 +25,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+实现必须提供 `executionWorldAffinity`，并从共享运行时所有者获得同一[命名空间令牌](../../execution/execution-world-affinity/README.zh.md)。消费者通过引用相等检测混合执行世界；持久工作区身份不能替代此检查。
+
 在需要运行子进程的组合中挂载一个 subprocess 提供方，并从拥有该命令的能力调用 `ctx.subprocess`。常用路径是显式的：解析可执行文件、用完全明确的请求 spawn、读取你要的输出，并在工作完成时终止受管范围。
 
 ### 挂载服务

@@ -25,6 +25,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+每个连接代际拥有独立的 `executionWorldAffinity`；共享此连接的文件系统、子进程和沙箱提供方转发同一[命名空间令牌](../../execution/execution-world-affinity/README.zh.md)。
+
 在自定义 `dsh` 配置组合中，将本服务与 [`fs-ssh`](../fs-ssh/README.zh.md)、[`subprocess-ssh`](../subprocess-ssh/README.zh.md) 和 [`sandbox-ssh`](../sandbox-ssh/README.zh.md) 组合。主机运行 Harness、模型传输和 Session 存储；远端机器提供文件与进程。headless 配置组合支持这种安排。
 
 ### 部署前提

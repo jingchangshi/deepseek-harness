@@ -61,6 +61,8 @@ interface Config {
 ```ts public-api
 /** One non-reconnecting SSH session; loss invalidates all active operations. */
 declare class SshConnection extends Service {
+  /** Namespace witness shared only by providers using this connection generation. */
+  readonly executionWorldAffinity: ExecutionWorldAffinity;
   static Config: schema<Config>;
   /** Verified remote helper coordinates; callers must await this before launch. */
   readonly ready: Promise<Hello>;

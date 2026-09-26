@@ -25,6 +25,8 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
+Each connection generation owns a distinct `executionWorldAffinity`; filesystem, subprocess, and sandbox providers sharing that connection forward the same [namespace token](../../execution/execution-world-affinity/README.md).
+
 Compose this service with [`fs-ssh`](../fs-ssh/README.md), [`subprocess-ssh`](../subprocess-ssh/README.md) and [`sandbox-ssh`](../sandbox-ssh/README.md) in a custom `dsh` profile. The host runs the Harness, model transport and Session storage; the remote machine supplies the files and processes. Headless profiles support this arrangement.
 
 ### Deployment prerequisites

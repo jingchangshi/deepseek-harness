@@ -1,4 +1,5 @@
 /** Snapshot provider whose asynchronous refusal records every attempted underlying spawn. */
+import { createExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -31,6 +32,8 @@ export async function apply(ctx: Context): Promise<void> {
     }
   }
   class RefusingSandbox extends SandboxProvider {
+    override readonly executionWorldAffinity = createExecutionWorldAffinity()
+
     override async confine(_argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
       await Promise.resolve()
       signal?.throwIfAborted()

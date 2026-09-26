@@ -25,6 +25,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+`executionWorldAffinity` 使用进程的共享[宿主命名空间令牌](../../execution/execution-world-affinity/README.zh.md)。它表达提供方归属，不授予访问权限。
+
 在 `ctx.sandbox` 后挂载此提供方并配一个受限执行器，执行器 spawn 的每条命令都会在你解析的策略下受限运行。随附的[基础组合包](../../bundle/base/cordis.patch.yml)拥有默认策略与执行器接线。
 
 ### 何时选择

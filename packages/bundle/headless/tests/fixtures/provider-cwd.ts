@@ -1,4 +1,5 @@
 /** Empty POSIX filesystem fixture whose execution coordinates differ from the Harness host. */
+import { createExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { posix } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { FileSystem, FsError, FsTargetKey, FsVersion, type FsTarget, type FsInfo } from '@deepseek-ai/dsh-fs'
@@ -9,6 +10,8 @@ interface Config { root: string }
 
 /** Empty provider-owned workspace; no operation accesses the host filesystem. */
 export default class ProviderCwdFileSystem extends FileSystem {
+  override readonly executionWorldAffinity = createExecutionWorldAffinity()
+
   static inject = ['sandboxPolicy']
   static Config: schema<Config> = schema.object({ root: schema.string().required() })
   private readonly config: Config

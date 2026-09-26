@@ -38,6 +38,9 @@
     "@deepseek-ai/dsh-sandbox": "workspace:^",
     "@deepseek-ai/cordis": "workspace:^"
   },
+  "dependencies": {
+    "@deepseek-ai/dsh-execution-world-affinity": "workspace:^"
+  },
   "devDependencies": {
     "@deepseek-ai/dsh-brand": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",

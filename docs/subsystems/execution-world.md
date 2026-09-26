@@ -13,6 +13,7 @@ An execution world is the filesystem and process namespace used by mounted provi
 ## Table of Contents
 
 - [Identity](#identity)
+- [Provider affinity](#provider-affinity)
 - [Canonical roots](#canonical-roots)
 - [Durability and lifecycle](#durability-and-lifecycle)
 - [Deployment selection](#deployment-selection)
@@ -30,6 +31,14 @@ type ExecutionWorkspaceId = Branded<'ExecutionWorkspaceId'>
 The service persists a random workspace UUID indexed by a digest of the selected world UUID and the filesystem's canonical target key. An existing mapping survives process and provider recreation when storage, world selection and target identity remain stable. Distinct worlds have separate mappings even when their directory text is identical. IDs contain no encoded hostname, username or path.
 
 `ExecutionWorkspaceId` is distinct from the GUI [`WorkspaceId`](workspace.md). GUI workspaces own titles and session membership; execution identities own neither. There is no conversion between these ID types.
+
+<a id="provider-affinity"></a>
+
+## Provider affinity
+
+Filesystem, subprocess, and sandbox providers expose `executionWorldAffinity`, an opaque token compared by reference. Ordinary Host providers share the process-local token; SSH providers forward the token owned by their exact connection generation. Distinct connection owners allocate distinct tokens even if their deployment UUID or path strings match. [Execution-world affinity](../../packages/execution/execution-world-affinity/README.md) owns the token API.
+
+Affinity expresses trusted provider ownership, not remote authentication or authorization. It is never persisted or derived from `ExecutionWorkspaceId`. Matching tokens identify one execution namespace; Cordis dependency generations separately determine which live instances a consumer captured. Tokens alone neither enforce root containment nor bind consumer capabilities.
 
 <a id="canonical-roots"></a>
 

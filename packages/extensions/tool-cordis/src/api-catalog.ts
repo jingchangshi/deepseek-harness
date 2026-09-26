@@ -989,6 +989,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Abstract filesystem provider. Targets must preserve identity across aliases; reads expose regular UTF-8 text or typed errors, listings are stable and content-free, and mutations are atomic. Optional guards add stale protection without changing the unguarded provider contract.',
     methods: [
       {
+        signature: 'abstract readonly executionWorldAffinity: ExecutionWorldAffinity',
+        description: 'Shared owner witness for the filesystem, process, and confinement namespace.',
+        parameters: [],
+      },
+      {
         signature: 'abstract resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget>',
         description: 'Resolve a model/plugin-supplied path into a stable FsTarget. May perform I/O (a remote/sandboxed backend may need a round-trip to map a path to a stable identity), hence async even though the local backend only normalizes + realpaths.',
         parameters: [{ name: 'path', description: 'the path to resolve; relative paths resolve against `opts.cwd`.' }, { name: 'opts', description: 'optional cwd override and cancellation signal.' }],
@@ -1635,6 +1640,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Abstract process-sandbox service.',
     description: 'Abstract process-sandbox service. confine must return enforcing argv or fail closed at wrap or runner-execution time; silent unconfined passthrough is forbidden. Functional probes arbitrate multi-runner chains and may be skipped for a sole candidate, whose own refusal remains the fail-closed end.',
     methods: [
+      {
+        signature: 'abstract readonly executionWorldAffinity: ExecutionWorldAffinity',
+        description: 'Shared owner witness for the filesystem, process, and confinement namespace.',
+        parameters: [],
+      },
       {
         signature: 'abstract confine(argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv>',
         description: 'Wrap `argv` so it executes confined under `policy` on this host; the caller spawns the returned argv in place of its own.',
@@ -2460,6 +2470,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'One non-reconnecting SSH session; loss invalidates all active operations.',
     methods: [
       {
+        signature: 'readonly executionWorldAffinity: ExecutionWorldAffinity = createExecutionWorldAffinity()',
+        description: 'Namespace witness shared only by providers using this connection generation.',
+        parameters: [],
+      },
+      {
         signature: 'readonly ready: Promise<Hello>',
         description: 'Verified remote helper coordinates; callers must await this before launch.',
         parameters: [],
@@ -2656,6 +2671,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Abstract subprocess service.',
     description: 'Abstract subprocess service. Subclass, implement spawn, and load the subclass as a plugin — it registers as `ctx.subprocess` (one implementation per context; loading a second throws, which is cordis\' standard duplicate-service behavior).\n\nImplementations must honor these semantics:\n\n- Executable paths belong to one execution world shared with the mounted filesystem provider.\n- spawn returns a live handle synchronously. Target identity remains provider-private; `done` resolves with the spawned command\'s exit facts and may reject for spawn or provider failures.\n- Collect-mode readers are offset-based and non-consuming, so independent readers never consume one another\'s output; lossy reads report truncation and the spill file holding the complete stream when one exists. Piped streams are handed to the caller raw and never buffered here.\n- SubprocessHandle.terminate (and the spec\'s abort signal) starts the provider\'s documented procedure against its managed range. SubprocessHandle.waitForExit observes that same range so a consumer-owned teardown ladder can hold each tier on real quiescence; each provider documents its signalling and observability limits.\n- Disposal of the service terminates all still-running managed processes and awaits their exit.\n- spawnTerminal owns terminal allocation, text transport, foreground groups, signalling, and whole-session quiescence behind one awaited termination method; readiness and persistent-shell policy stay in the PTY consumer. Its output stream ends after queued terminal output when the top-level process exits.',
     methods: [
+      {
+        signature: 'abstract readonly executionWorldAffinity: ExecutionWorldAffinity',
+        description: 'Shared owner witness for the filesystem, process, and confinement namespace.',
+        parameters: [],
+      },
       {
         signature: 'abstract resolveExecutable( command: string, env?: Readonly<Record<string, string>>, signal?: AbortSignal, ): Promise<string>',
         description: 'Resolve one configured executable in this provider\'s execution world. Absolute paths are verified; bare names use the provider\'s scrubbed PATH plus explicit environment overrides. Relative paths containing separators are rejected: the resolution base is undefined, so providers fail loud instead of guessing.',
@@ -4680,6 +4700,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ExecutionWorkspaceId',
     declaration: 'export type ExecutionWorkspaceId = Branded<\'ExecutionWorkspaceId\'>;',
+  },
+  {
+    name: 'ExecutionWorldAffinity',
+    declaration: 'export type ExecutionWorldAffinity = symbol;',
   },
   {
     name: 'FeedbackCategory',

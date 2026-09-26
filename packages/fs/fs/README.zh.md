@@ -25,6 +25,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+实现必须提供 `executionWorldAffinity`，并从共享运行时所有者获得同一[命名空间令牌](../../execution/execution-world-affinity/README.zh.md)。消费者通过引用相等检测混合执行世界；持久工作区身份不能替代此检查。
+
 你很少直接加载 `dsh-fs`：你挂载一个注册为 `ctx.fs` 的后端，然后从自己的插件调用该服务，或让 `dsh-tool-fs` 工具替你调用。本页服务于确实接触它的两类读者——选择后端的部署方，以及实现或消费该约定的开发者。
 
 ### 选择并挂载后端

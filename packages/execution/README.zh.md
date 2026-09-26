@@ -1,5 +1,5 @@
 ---
-description: "execution 包组：为已挂载执行文件系统解析的目录提供持久身份。"
+description: "execution 包组：持久目录身份与活跃提供方的命名空间归属。"
 kind: "package-group"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-group"
 
 ## 概述
 
-使用本系列可在进程或提供方重启后识别同一执行目录。已挂载的文件系统在自己的命名空间中解析别名，包括远程路径。不透明身份不包含宿主、用户或目录名称。它们不替代 GUI 工作区记录，也不授予执行访问权限。
+使用本系列可在进程或提供方重启后识别同一执行目录，并检查活跃提供方是否共享执行命名空间。已挂载的文件系统在自己的命名空间中解析别名，包括远程路径。持久身份与临时归属令牌不包含宿主、用户或目录名称。它们不替代 GUI 工作区记录，也不授予执行访问权限。
 
 ## 目录
 
@@ -24,6 +24,7 @@ kind: "package-group"
 | 包 | 职责 |
 |---|---|
 | [`execution-world`](execution-world/README.zh.md) | 持久保存不透明的执行世界与规范根目录身份 |
+| [`execution-world-affinity`](execution-world-affinity/README.zh.md) | 以共享运行时令牌标识活跃提供方的执行命名空间 |
 
 <a id="related-documentation"></a>
 

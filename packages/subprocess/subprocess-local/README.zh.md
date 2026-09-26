@@ -25,6 +25,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+`executionWorldAffinity` 使用进程的共享[宿主命名空间令牌](../../execution/execution-world-affinity/README.zh.md)。它表达提供方归属，不授予访问权限。
+
 把提供方与它的消费方挂载在同一组合中，并完全按子进程服务的规定启动进程；本包只决定这些进程在宿主机上如何运行。在 Windows 上，非终端子进程与 `taskkill` 辅助进程会隐藏窗口，因此后台操作不会抢占焦点。遵循进程启动可见性设置的 GUI 窗口也会被隐藏。
 
 ### 挂载提供方

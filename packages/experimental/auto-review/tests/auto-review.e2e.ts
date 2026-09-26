@@ -1,3 +1,4 @@
+import { createExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { randomUUID } from 'node:crypto'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -54,6 +55,8 @@ interface CaseResult {
 
 /** Full access must never ask this fixture to confine a command. */
 class UnusedSandbox extends SandboxProvider {
+  override readonly executionWorldAffinity = createExecutionWorldAffinity()
+
   override async confine(_argv: readonly string[], _policy: SandboxPolicy): Promise<ConfinedArgv> {
     throw new Error('Auto certification unexpectedly requested a confining sandbox')
   }

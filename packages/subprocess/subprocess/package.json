@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-subprocess",
-  "description": "Subprocess seam (ctx.subprocess) for the DeepSeek Harness \u2014 managed process groups, bounded spill-backed output, and escalated kills behind one abstract service",
+  "description": "Subprocess seam (ctx.subprocess) for the DeepSeek Harness — managed process groups, bounded spill-backed output, and escalated kills behind one abstract service",
   "version": "0.1.6-alpha.2",
   "publishConfig": {
     "access": "public"
@@ -39,5 +39,8 @@
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-http-proxy": "workspace:^",
     "@deepseek-ai/dsh-launch-environment": "workspace:^"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-execution-world-affinity": "workspace:^"
   }
 }

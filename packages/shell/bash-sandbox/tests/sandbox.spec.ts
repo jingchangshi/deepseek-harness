@@ -5,6 +5,7 @@
  * the Unix denial signature used by the classifier without requiring a real sandbox runner.
  */
 
+import { createExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -61,6 +62,8 @@ async function setup(
   const { mode, workspaceRoot, ...execConfig } = config
   const calls: ConfineCall[] = []
   class FakeSandboxProvider extends SandboxProvider {
+    override readonly executionWorldAffinity = createExecutionWorldAffinity()
+
     async confine(argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
       calls.push({ argv: [...argv], policy })
       return behavior(argv, policy, signal)

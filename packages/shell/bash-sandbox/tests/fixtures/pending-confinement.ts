@@ -1,4 +1,5 @@
 /** Snapshot provider that awaits cancellation and records any premature process allocation. */
+import { createExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -26,6 +27,8 @@ export async function apply(ctx: Context): Promise<void> {
     }
   }
   class PendingSandbox extends SandboxProvider {
+    override readonly executionWorldAffinity = createExecutionWorldAffinity()
+
     override async confine(_argv: readonly string[], _policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
       if (signal === undefined) throw new Error('foreground confinement requires a deadline signal')
       signal.throwIfAborted()

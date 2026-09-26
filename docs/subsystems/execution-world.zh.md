@@ -13,6 +13,7 @@ description: "持久执行目录身份、提供方负责的规范化与分配生
 ## 目录
 
 - [身份](#identity)
+- [提供方归属](#provider-affinity)
 - [规范根目录](#canonical-roots)
 - [持久化与生命周期](#durability-and-lifecycle)
 - [部署选择](#deployment-selection)
@@ -30,6 +31,14 @@ type ExecutionWorkspaceId = Branded<'ExecutionWorkspaceId'>
 服务持久保存随机工作区 UUID，以所选世界 UUID 和文件系统规范目标键的摘要建立索引。当存储、世界选择和目标身份保持稳定时，已有映射在进程和提供方重建后保持不变。不同世界即使目录文本相同也使用独立映射。ID 不编码宿主名、用户名或路径。
 
 `ExecutionWorkspaceId` 与 GUI 的 [`WorkspaceId`](workspace.zh.md) 不同。GUI 工作区拥有标题与会话成员关系；执行身份不拥有这些信息。两种 ID 类型之间不存在转换。
+
+<a id="provider-affinity"></a>
+
+## 提供方归属
+
+文件系统、子进程和沙箱提供方公开 `executionWorldAffinity`，这是按引用比较的不透明令牌。普通宿主提供方共享进程本地令牌；SSH 提供方转发其确切连接代际拥有的令牌。不同连接所有者分配不同令牌，即使部署 UUID 或路径文本相同。[执行世界归属](../../packages/execution/execution-world-affinity/README.zh.md)拥有令牌 API。
+
+归属表达可信提供方的所有权，不表示远程认证或授权。它不被持久化，也不从 `ExecutionWorkspaceId` 派生。相同令牌标识同一执行命名空间；Cordis 依赖代际另行确定消费者捕获了哪些活跃实例。令牌本身既不强制根目录包含关系，也不绑定消费者能力。
 
 <a id="canonical-roots"></a>
 

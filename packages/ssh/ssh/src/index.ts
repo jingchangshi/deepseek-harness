@@ -1,5 +1,6 @@
 /** OpenSSH connection owner for one version-matched POSIX helper and its independent forwarded streams. */
 
+import { createExecutionWorldAffinity, type ExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { spawn, execFile, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -45,6 +46,9 @@ declare module '@deepseek-ai/cordis' {
 
 /** One non-reconnecting SSH session; loss invalidates all active operations. */
 export class SshConnection extends Service {
+  /** Namespace witness shared only by providers using this connection generation. */
+  readonly executionWorldAffinity: ExecutionWorldAffinity = createExecutionWorldAffinity()
+
   static Config: schema<Config> = schema.object({
     host: schema.string().required(), node: schema.string().required(), helper: schema.string().required(),
     helperHash: schema.string().required(), workspace: schema.string().required(),

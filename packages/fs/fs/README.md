@@ -25,6 +25,8 @@ Use `dsh-fs` when an application needs consistent filesystem operations across h
 <a id="use-this-package"></a>
 ## Use this package
 
+Implementations must provide `executionWorldAffinity` using the same [namespace token](../../execution/execution-world-affinity/README.md) from their shared runtime owner. Consumers detect mixed execution worlds by reference equality; durable workspace identity cannot replace this check.
+
 You rarely load `dsh-fs` directly: you mount a backend that registers as `ctx.fs`, then either call the service from your own plugin or let the `dsh-tool-fs` tools call it for you. This page serves the two audiences that do touch it — deployments choosing a backend, and developers implementing or consuming the contract.
 
 ### Choosing and mounting a backend

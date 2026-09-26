@@ -1,4 +1,5 @@
 /** Remote argv wrapper that selects and applies the sandbox on the SSH host. */
+import type { ExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import type {} from '@deepseek-ai/dsh-ssh'
@@ -8,6 +9,8 @@ const factsSchema = z.object({ argv: z.array(z.string()).min(1), enforcement: z.
 
 /** Resolve each confinement request on the same host as its filesystem and subprocess providers. */
 export class SshSandboxProvider extends SandboxProvider {
+  override get executionWorldAffinity(): ExecutionWorldAffinity { return this.ctx.ssh.executionWorldAffinity }
+
   static inject = ['ssh']
 
   override async confine(argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {

@@ -22,6 +22,9 @@
     },
     {
       "path": "../../subprocess/subprocess-local"
+    },
+    {
+      "path": "../../execution/execution-world-affinity"
     }
   ]
 }

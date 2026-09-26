@@ -25,6 +25,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+实现必须提供 `executionWorldAffinity`，并从共享运行时所有者获得同一[命名空间令牌](../../execution/execution-world-affinity/README.zh.md)。消费者通过引用相等检测混合执行世界；持久工作区身份不能替代此检查。
+
 将此服务与一个后端和一个受限消费方组合，消费方运行的每条命令都会在你解析的策略下执行——你只看到隔离结果及其强制执行完整度，永远看不到 runner。
 
 ### 何时选择

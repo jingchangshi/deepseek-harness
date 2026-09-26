@@ -8,6 +8,7 @@
  * @module @deepseek-ai/dsh-subprocess
  */
 
+import type { ExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { proxyEnvironmentForChild } from '@deepseek-ai/dsh-http-proxy'
 import { DSH_ENV_PREFIX } from './types.ts'
@@ -115,6 +116,9 @@ declare module '@deepseek-ai/cordis' {
  *   when the top-level process exits.
  */
 export abstract class SubprocessRuntime extends Service {
+  /** Shared owner witness for the filesystem, process, and confinement namespace. */
+  abstract readonly executionWorldAffinity: ExecutionWorldAffinity
+
   constructor(ctx: Context) {
     super(ctx, 'subprocess')
   }

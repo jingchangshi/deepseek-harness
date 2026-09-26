@@ -5,6 +5,7 @@
  * @module @deepseek-ai/dsh-sandbox
  */
 
+import type { ExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { Context, Service } from '@deepseek-ai/cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -156,6 +157,9 @@ declare module '@deepseek-ai/cordis' {
  * skipped for a sole candidate, whose own refusal remains the fail-closed end.
  */
 export abstract class SandboxProvider extends Service {
+  /** Shared owner witness for the filesystem, process, and confinement namespace. */
+  abstract readonly executionWorldAffinity: ExecutionWorldAffinity
+
   /* v8 ignore next -- abstract service construction is covered through concrete provider packages. */
   constructor(ctx: Context) {
     super(ctx, 'sandbox')

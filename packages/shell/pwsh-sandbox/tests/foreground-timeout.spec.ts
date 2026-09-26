@@ -1,4 +1,5 @@
 /** One foreground deadline covers sandbox preparation and native execution. */
+import { createExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { Context } from '@deepseek-ai/cordis'
 import { SandboxProvider } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
@@ -25,6 +26,8 @@ async function setup() {
     return prepared.promise
   })
   class ControlledSandbox extends SandboxProvider {
+    override readonly executionWorldAffinity = createExecutionWorldAffinity()
+
     override confine(argv: readonly string[], policy: SandboxPolicy, signal?: AbortSignal): Promise<ConfinedArgv> {
       return confine(argv, policy, signal)
     }

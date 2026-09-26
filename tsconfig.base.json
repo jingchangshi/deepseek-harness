@@ -331,6 +331,7 @@
       "@deepseek-ai/dsh-degenerate-output-guard": ["./packages/guard/degenerate-output-guard/src"],
       "@deepseek-ai/dsh-deque": ["./packages/util/deque/src"],
       "@deepseek-ai/dsh-execution-world": ["./packages/execution/execution-world/src"],
+      "@deepseek-ai/dsh-execution-world-affinity": ["./packages/execution/execution-world-affinity/src"],
       "@deepseek-ai/dsh-file-reference": ["./packages/context/file-reference/src"],
       "@deepseek-ai/dsh-file-reference-local": ["./packages/context/file-reference-local/src"],
       "@deepseek-ai/dsh-fs": ["./packages/fs/fs/src"],

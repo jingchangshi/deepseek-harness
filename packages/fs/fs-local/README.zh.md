@@ -25,6 +25,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+`executionWorldAffinity` 使用进程的共享[宿主命名空间令牌](../../execution/execution-world-affinity/README.zh.md)。它表达提供方归属，不授予访问权限。
+
 当组合需要由真实宿主文件系统支撑的 `ctx.fs`、且可以接受进程本地实现时，挂载此后端。常用路径是显式的：加载后端、给出基准目录，然后面向模型的工具（`dsh-tool-fs`）或你自己的插件即可读取、写入和编辑文件。
 
 ### 何时选择
