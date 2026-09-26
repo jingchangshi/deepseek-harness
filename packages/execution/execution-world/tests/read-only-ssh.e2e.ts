@@ -1,4 +1,4 @@
-/** Opt-in root-read acceptance through the real OpenSSH connection and Linux helper. */
+/** Opt-in root-read acceptance through an OpenSSH client and a POSIX helper. */
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
 import type { ChildProcess } from 'node:child_process'
@@ -19,7 +19,7 @@ import { open } from './fixtures/harness.ts'
 
 const configPath = process.env.DSH_SSH_TEST_CONFIG
 
-describe.skipIf(configPath === undefined || process.platform === 'win32')('OpenSSH root-read binding', () => {
+describe.skipIf(configPath === undefined)('OpenSSH root-read binding', () => {
   it.each(['binding', 'connection', 'transport'] as const)('reads the remote root and revokes access after %s disposal', async (owner) => {
     if (configPath === undefined) throw new Error('Missing SSH acceptance configuration')
     const config = JSON.parse(await readFile(configPath, 'utf8')) as Config

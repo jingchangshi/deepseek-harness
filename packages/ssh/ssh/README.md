@@ -1,5 +1,5 @@
 ---
-description: "OpenSSH connection configuration and remote helper lifecycle for deployments composing POSIX file, process and sandbox providers."
+description: "OpenSSH client configuration and POSIX remote helper lifecycle for deployments composing file, process and sandbox providers."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-ssh` connects a POSIX Harness host to an installed helper on a POSIX SSH host. One deployment-owned OpenSSH alias supplies authentication and host identity; the paired filesystem, subprocess and sandbox providers use that connection. The connection verifies installed artifact digests before readiness; the helper owns remote cleanup when the connection closes or its lease expires.
+`dsh-ssh` connects a Windows or POSIX Harness host to an installed helper on a POSIX SSH host. One deployment-owned OpenSSH alias supplies authentication and host identity; the paired filesystem, subprocess and sandbox providers use that connection. The connection verifies installed artifact digests before readiness; the helper owns remote cleanup when the connection closes or its lease expires.
 
 ## Table of Contents
 
@@ -31,7 +31,7 @@ Compose this service with [`fs-ssh`](../fs-ssh/README.md), [`subprocess-ssh`](..
 
 ### Deployment prerequisites
 
-Both endpoints require Linux or macOS. The local `ssh` command must support connection multiplexing and Unix-socket forwarding; the server must permit that forwarding. Configure the alias, credentials and known-host entry before startup: the service enables `BatchMode`, requires strict host-key checking, disables agent forwarding and adds no interactive authentication flow.
+The remote endpoint requires Linux or macOS. A POSIX client requires connection multiplexing and Unix-socket forwarding; a Windows client uses an independent OpenSSH process per stream and a fixed Node relay to the helper's Unix socket. Configure the alias, credentials and known-host entry before startup: the service enables `BatchMode`, requires strict host-key checking, disables agent forwarding and adds no interactive authentication flow.
 
 Install the built helper and its matching runtime dependencies on the remote host. Keep Node, helper, bootstrap and their dependencies outside the workspace and writable temporary roots. They must also remain outside a backend’s replaced temporary tree, such as bwrap’s private `/tmp`; the workspace may still be under `/tmp`. Digest verification detects an unexpected installed artifact after helper startup; it does not make writable deployment files safe to execute or authenticate a malicious SSH host.
 
@@ -56,11 +56,11 @@ For PTC, configure both bootstrap fields and pass the verified `ctx.ssh.nodeExec
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The OpenSSH master carries private administrative RPC. Each program stream uses a separate forwarded Unix socket and an independent SSH channel. Program stdout cannot forge administrative replies or occupy the control stream’s channel window. SSH transport congestion still affects the shared connection.
+On POSIX clients, the OpenSSH master carries private administrative RPC and forwards each program stream through a separate Unix socket and SSH channel. On Windows clients, an ordinary SSH process carries the administrative RPC and each program stream has a separate SSH process invoking a fixed Node relay to the helper's Unix socket. Program stdout cannot forge administrative replies or occupy the control stream’s channel window. POSIX multiplexing may still share transport congestion.
 
 Each stream reservation has a random 256-bit TLS pre-shared key carried only by administrative RPC. TLS authenticates both endpoints and protects every stream byte; the key is never sent as a stream preface. Socket directories are private (`0700`) and sockets use `0600`. Replacing a writable socket path cannot impersonate an endpoint or reveal the stream key; an attacker can still interrupt service or relay opaque TLS records.
 
-Connection disposal joins forwarding and cancellation subprocesses and partially established streams before removing local resources. Transport loss rejects pending operations and invalidates the connection. The helper starts managed cleanup on SSH EOF, termination signals or heartbeat expiry. A disconnected client cannot confirm the remote outcome; operations are never reconnected or replayed automatically.
+Connection disposal joins forwarding and cancellation subprocesses and partially established streams before removing local resources. Windows per-stream SSH processes are terminated and joined, with a bounded escalation when termination does not complete. Transport loss rejects pending operations and invalidates the connection. The helper starts managed cleanup on SSH EOF, termination signals or heartbeat expiry. A disconnected client cannot confirm the remote outcome; operations are never reconnected or replayed automatically.
 
 Failed startup and process results release their reservations after native quiescence; the bounded completion cache preserves the original rejection for later result reads. Helper shutdown also joins endpoint and directory cleanup already in progress.
 
@@ -97,7 +97,7 @@ This provider contributes no request-prefix content. Its consumers own model-vis
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- No Windows endpoint, automatic provisioning, reconnect or replay is supplied.
+- No Windows remote endpoint, automatic provisioning, reconnect or replay is supplied.
 - Web workspace UI paths still assume host filesystem access; use headless or a custom composition whose consumers honor provider paths.
 - TLS stream keys do not protect against remote OS process-memory inspection or debugging. File-effect policy retains the selected sandbox backend’s limits.
 

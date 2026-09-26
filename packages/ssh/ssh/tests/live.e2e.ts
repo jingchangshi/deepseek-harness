@@ -1,4 +1,4 @@
-/** Opt-in acceptance against an explicitly configured, disposable POSIX SSH workspace. */
+/** Opt-in OpenSSH client acceptance against an explicitly configured, disposable POSIX helper workspace. */
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { once } from 'node:events'
@@ -23,7 +23,7 @@ import { doneSchema, preparedSchema } from '../src/schemas.ts'
 const configPath = process.env.DSH_SSH_TEST_CONFIG
 const bootstrap = process.env.DSH_SSH_TEST_BOOTSTRAP
 const languageServer = process.env.DSH_SSH_TEST_LSP
-const enabled = configPath !== undefined && process.platform !== 'win32'
+const enabled = configPath !== undefined
 
 async function setup() {
   const config = JSON.parse(readFileSync(configPath as string, 'utf8')) as Config
@@ -62,7 +62,7 @@ async function removeOwned(test: Awaited<ReturnType<typeof setup>>) {
   } finally { await test.dispose() }
 }
 
-describe.skipIf(!enabled)('POSIX SSH runtime acceptance', () => {
+describe.skipIf(!enabled)('OpenSSH client to POSIX helper acceptance', () => {
   it('refuses same-user sandboxed connectors before granting a process stream', async () => {
     const test = await setup()
     try {

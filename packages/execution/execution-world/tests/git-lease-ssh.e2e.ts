@@ -1,4 +1,4 @@
-/** Opt-in fixed Git lease acceptance through real POSIX OpenSSH and a Linux helper. */
+/** Opt-in fixed Git lease acceptance through an OpenSSH client and a POSIX helper. */
 import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
 import type { ChildProcess } from 'node:child_process'
@@ -21,7 +21,7 @@ import { open } from './fixtures/harness.ts'
 const configPath = process.env.DSH_SSH_TEST_CONFIG
 const prefix = ['--no-optional-locks', '-c', 'core.fsmonitor=false'] as const
 
-describe.skipIf(configPath === undefined || process.platform === 'win32')('OpenSSH fixed Git lease', () => {
+describe.skipIf(configPath === undefined)('OpenSSH fixed Git lease', () => {
   it.each(['binding', 'connection', 'transport'] as const)('reads the remote repository and revokes %s ownership', async (owner) => {
     if (configPath === undefined) throw new Error('Missing SSH acceptance configuration')
     const config = JSON.parse(await readFile(configPath, 'utf8')) as Config

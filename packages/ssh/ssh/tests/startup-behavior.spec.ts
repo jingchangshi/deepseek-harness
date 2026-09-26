@@ -131,7 +131,156 @@ function setup(options: {
     helloEntered: helloEntered.promise, releaseHello: () => { releaseHello.resolve(undefined) }, release: () => { released.resolve(null) } }
 }
 
-describe.skipIf(process.platform === 'win32')('SSH connection startup', () => {
+describe('Windows SSH client startup', () => {
+  const windows = <T>(run: () => T): T => {
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    try { return run() } finally { platform.mockRestore() }
+  }
+
+  const streamChild = (test: ReturnType<typeof setup>): Child => {
+    const child = new Child()
+    transport.spawn.mockReturnValueOnce(child)
+    transport.tls.mockImplementationOnce((options: { socket: Duplex }) => {
+      options.socket.once('close', () => { test.secure.destroy() })
+      test.secure.once('close', () => { options.socket.destroy() })
+      queueMicrotask(() => { test.secure.emit('secureConnect') })
+      return test.secure
+    })
+    return child
+  }
+
+  it('starts an administrative SSH channel without ControlMaster', async () => {
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    let test: ReturnType<typeof setup>
+    try { test = setup() } finally { platform.mockRestore() }
+    await test.service.ready
+    const argv = transport.spawn.mock.calls[0]?.[1] as string[]
+    expect(argv).not.toContain('-M')
+    expect(argv).not.toContain('-S')
+    expect(argv).toContain('BatchMode=yes')
+    expect(argv).toContain('StrictHostKeyChecking=yes')
+    expect(argv).toContain('ClearAllForwardings=yes')
+  })
+
+  it('authenticates a dedicated stream without exposing its capability in SSH arguments', async () => {
+    const test = windows(() => setup())
+    await test.service.ready
+    const child = streamChild(test)
+    const endpoint = { path: '/tmp/remote-helper/data', capability: 'b'.repeat(64) }
+    expect(await test.service.connectStream(endpoint)).toBe(test.secure)
+    const argv = transport.spawn.mock.calls[1]?.[1] as string[]
+    expect(argv).toContain('BatchMode=yes')
+    expect(argv).not.toContain('-S')
+    expect(argv.join(' ')).toContain("'/canonical/node' '--disable-sigusr1' '-e'")
+    expect(argv.join(' ')).toContain('net.createConnection')
+    expect(argv.join(' ')).toContain("'/tmp/remote-helper/data'")
+    expect(argv.join(' ')).not.toContain(config.helper)
+    expect(argv.join(' ')).not.toContain(endpoint.capability)
+    const tlsOptions = transport.tls.mock.calls[0]?.[0] as { pskCallback: () => { psk: Buffer } } | undefined
+    expect(tlsOptions?.pskCallback().psk).toEqual(Buffer.from(endpoint.capability, 'hex'))
+    await test.service.dispose()
+    expect(child.signals).toContain('SIGTERM')
+    expect(child.closed).toBe(true)
+  })
+
+  it('joins a stream child that ignores termination before disposal settles', async () => {
+    const test = windows(() => setup({ config: { requestTimeoutMs: 20 } }))
+    await test.service.ready
+    const child = streamChild(test)
+    child.ignoreTerm = true
+    await test.service.connectStream({ path: '/tmp/remote-helper/data', capability: 'b'.repeat(64) })
+    let settled = false
+    const disposal = test.service.dispose().then(() => { settled = true })
+    await child.terminating.promise
+    expect(settled).toBe(false)
+    await disposal
+    expect(child.signals).toContain('SIGKILL')
+    expect(child.closed).toBe(true)
+  })
+
+  it('rejects invalid endpoints without spawning another SSH process', async () => {
+    const test = windows(() => setup())
+    await test.service.ready
+    for (const path of ['/tmp/other/data', '/tmp/remote-helper/data:other', '/tmp/remote-helper/data\n']) {
+      await expect(test.service.connectStream({ path, capability: 'b'.repeat(64) })).rejects.toThrow('invalid stream path')
+    }
+    expect(transport.spawn).toHaveBeenCalledTimes(1)
+  })
+
+  it('joins the stream child before caller cancellation settles during authentication', async () => {
+    const test = windows(() => setup({ config: { requestTimeoutMs: 200 } }))
+    await test.service.ready
+    const child = new Child()
+    child.ignoreTerm = true
+    transport.spawn.mockReturnValueOnce(child)
+    transport.tls.mockImplementationOnce((options: { socket: Duplex }) => {
+      options.socket.once('close', () => { test.secure.destroy() })
+      test.secure.once('close', () => { options.socket.destroy() })
+      return test.secure
+    })
+    const controller = new AbortController()
+    const result = test.service.connectStream({ path: '/tmp/remote-helper/data', capability: 'b'.repeat(64) }, controller.signal)
+    const rejection = expect(result).rejects.toThrow()
+    await expect.poll(() => transport.tls.mock.calls.length).toBe(1)
+    let settled = false
+    void result.finally(() => { settled = true }).catch(() => {})
+    controller.abort(new Error('caller cancelled stream'))
+    await child.terminating.promise
+    expect(settled).toBe(false)
+    await rejection
+    expect(child.signals).toContain('SIGKILL')
+    expect(child.closed).toBe(true)
+  })
+
+  it('settles a failed stream spawn without retaining its child', async () => {
+    const test = windows(() => setup())
+    await test.service.ready
+    const child = new Child()
+    transport.spawn.mockReturnValueOnce(child)
+    transport.tls.mockImplementationOnce((options: { socket: Duplex }) => {
+      options.socket.once('close', () => { test.secure.destroy() })
+      test.secure.once('close', () => { options.socket.destroy() })
+      return test.secure
+    })
+    const result = test.service.connectStream({ path: '/tmp/remote-helper/data', capability: 'b'.repeat(64) })
+    const rejection = expect(result).rejects.toThrow('SSH stream closed during authentication')
+    await expect.poll(() => transport.tls.mock.calls.length).toBe(1)
+    child.emit('error', new Error('stream spawn failed'))
+    await rejection
+    expect(child.closed).toBe(true)
+    expect(transport.spawn).toHaveBeenCalledTimes(2)
+  })
+
+  it('joins a stubborn stream child after normal stream close without disposing the connection', async () => {
+    const test = windows(() => setup({ config: { requestTimeoutMs: 20 } }))
+    await test.service.ready
+    const child = streamChild(test)
+    child.ignoreTerm = true
+    const secure = await test.service.connectStream({ path: '/tmp/remote-helper/data', capability: 'b'.repeat(64) })
+    secure.destroy()
+    await child.terminating.promise
+    await expect.poll(() => child.closed).toBe(true)
+    expect(child.signals).toContain('SIGKILL')
+    expect(await test.service.joinRemoteCleanupIfClosing()).toBe(false)
+  })
+
+  it('terminates stream children on administrative transport loss without replay', async () => {
+    const test = windows(() => setup({ config: { requestTimeoutMs: 20 } }))
+    await test.service.ready
+    const child = streamChild(test)
+    child.ignoreTerm = true
+    await test.service.connectStream({ path: '/tmp/remote-helper/data', capability: 'b'.repeat(64) })
+    test.child.kill('SIGKILL')
+    await child.terminating.promise
+    await expect.poll(() => child.closed).toBe(true)
+    expect(child.signals).toContain('SIGKILL')
+    await expect(test.service.joinRemoteCleanupIfClosing()).rejects.toThrow('cleanup outcome unknown')
+    await expect(test.service.connectStream({ path: '/tmp/remote-helper/data', capability: 'b'.repeat(64) })).rejects.toThrow()
+    expect(transport.spawn).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('SSH administrative connection startup', () => {
   it.each([
     { host: '-option' }, { host: 'alias; command' }, { node: 'relative' }, { helperHash: 'bad' },
     { bootstrapPath: '/remote/bootstrap.js' }, { bootstrapHash: 'b'.repeat(64) },
@@ -139,13 +288,6 @@ describe.skipIf(process.platform === 'win32')('SSH connection startup', () => {
     { maxFrameBytes: 64 * 1024 * 1024 + 1 }, { maxPending: 129 }, { leaseMs: 2999 },
   ])('rejects invalid deployment configuration before SSH starts: %j', (invalid) => {
     expect(() => setup({ config: invalid })).toThrow()
-    expect(transport.spawn).not.toHaveBeenCalled()
-  })
-
-  it('rejects a non-POSIX client before starting SSH', () => {
-    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
-    try { expect(() => setup()).toThrow('POSIX client') }
-    finally { platform.mockRestore() }
     expect(transport.spawn).not.toHaveBeenCalled()
   })
 
@@ -223,6 +365,9 @@ describe.skipIf(process.platform === 'win32')('SSH connection startup', () => {
     } finally { timeout.mockRestore() }
   })
 
+})
+
+describe.skipIf(process.platform === 'win32')('POSIX SSH socket forwarding', () => {
   it('returns authenticated paused streams and rejects paths outside the helper root', async () => {
     const test = setup()
     await test.service.ready
@@ -259,6 +404,9 @@ describe.skipIf(process.platform === 'win32')('SSH connection startup', () => {
     expect(test.raw.destroyed).toBe(true)
   })
 
+})
+
+describe('SSH administrative connection lifecycle', () => {
   it('reports directory creation failure without starting a helper process', async () => {
     const failure = new Error('temporary directory unavailable')
     const test = setup({ directoryFailure: failure })
@@ -298,6 +446,9 @@ describe.skipIf(process.platform === 'win32')('SSH connection startup', () => {
     }
   })
 
+})
+
+describe.skipIf(process.platform === 'win32')('POSIX SSH socket lifecycle', () => {
   it('joins authenticated sockets whose native close callbacks are delayed', async () => {
     const test = setup()
     await test.service.ready

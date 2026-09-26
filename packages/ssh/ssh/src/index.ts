@@ -1,10 +1,12 @@
-/** OpenSSH connection owner for one version-matched POSIX helper and its independent forwarded streams. */
+/** OpenSSH connection owner for one version-matched POSIX helper and its independent authenticated streams. */
 
 import { createExecutionWorldAffinity, type ExecutionWorldAffinity } from '@deepseek-ai/dsh-execution-world-affinity'
 import { spawn, execFile, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { createConnection, type Socket } from 'node:net'
+import { Duplex } from 'node:stream'
 import { Context, Service } from '@deepseek-ai/cordis'
 import schema from '@deepseek-ai/schemastery'
 import { z } from 'zod'
@@ -13,6 +15,16 @@ import { helloSchema, type SshStreamEndpoint } from './schemas.ts'
 import { authenticateStream } from './stream-security.ts'
 
 type Hello = z.infer<typeof helloSchema>
+type StreamChildState = { closed: Promise<void>; stopping?: Promise<void> }
+
+const STREAM_RELAY = [
+  'const net=require("node:net");',
+  'const socket=net.createConnection({path:process.argv[1],allowHalfOpen:true});',
+  'process.stdin.pipe(socket);socket.pipe(process.stdout,{end:false});',
+  'socket.on("close",()=>{process.stdin.unpipe(socket);process.stdin.pause();process.stdout.end()});',
+  'socket.on("error",()=>{process.exitCode=1;socket.destroy()});',
+  'process.stdout.on("error",()=>socket.destroy());',
+].join('')
 
 /** Deployment-owned SSH identity and installed helper; no model argument selects these values. */
 export interface Config {
@@ -71,6 +83,8 @@ export class SshConnection extends Service {
   private readonly remoteCleanup = Promise.withResolvers<boolean>()
   private failure: Error | undefined
   private sockets = new Set<Socket>()
+  private readonly streamChildren = new Map<ChildProcessWithoutNullStreams, StreamChildState>()
+  private readonly windowsClient = process.platform === 'win32'
   private nextSocket = 0
   private readonly config: Required<Omit<Config, 'bootstrapPath' | 'bootstrapHash'>> & Pick<Config, 'bootstrapPath' | 'bootstrapHash'>
   private remote: Hello | undefined
@@ -78,7 +92,7 @@ export class SshConnection extends Service {
   constructor(ctx: Context, config: Config) {
     super(ctx, 'ssh')
     void this.remoteCleanup.promise.catch(() => {})
-    if (process.platform !== 'linux' && process.platform !== 'darwin') throw new Error('SSH runtime requires a POSIX client')
+    if (!this.windowsClient && process.platform !== 'linux' && process.platform !== 'darwin') throw new Error('Unsupported SSH client platform')
     this.config = z.object({
       host: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.@-]*$/),
       node: z.string().startsWith('/'), helper: z.string().startsWith('/'), helperHash: z.string().regex(/^[0-9a-f]{64}$/),
@@ -145,6 +159,7 @@ export class SshConnection extends Service {
     const remote = endpoint.path
     if (!remote.startsWith(`${hello.root}/`) || /[:\r\n\0]/u.test(remote)) throw new Error('SSH helper returned an invalid stream path')
     signal.throwIfAborted()
+    if (this.windowsClient) return this.establishWindowsStream(remote, endpoint.capability, hello.node, signal)
     const local = join(this.directory as string, `s${this.nextSocket++}`)
     const forward = `${local}:${remote}`
     const cancelForward = async (): Promise<void> => {
@@ -183,6 +198,40 @@ export class SshConnection extends Service {
     authenticated.on('error', () => { authenticated.destroy() })
     authenticated.once('close', () => { this.sockets.delete(authenticated) })
     return authenticated
+  }
+
+  private async establishWindowsStream(remote: string, capability: string, node: string, signal: AbortSignal): Promise<Socket> {
+    const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
+    const command = [node, '--disable-sigusr1', '-e', STREAM_RELAY, remote].map(quote).join(' ')
+    const child = spawn('ssh', [
+      '-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ForwardAgent=no',
+      '-o', 'ClearAllForwardings=yes', '-o', 'ServerAliveInterval=10', '-o', 'ServerAliveCountMax=3',
+      this.config.host, command,
+    ], { stdio: ['pipe', 'pipe', 'pipe'] })
+    const state: StreamChildState = { closed: new Promise<void>((resolve) => { child.once('close', () => { resolve() }) }) }
+    this.streamChildren.set(child, state)
+    void state.closed.then(() => { this.streamChildren.delete(child) })
+    child.stderr.resume()
+    const raw = Duplex.from({ readable: child.stdout, writable: child.stdin })
+    raw.on('error', () => { raw.destroy() })
+    child.once('error', (error) => { raw.destroy(error) })
+    child.once('close', () => { raw.destroy() })
+    raw.once('close', () => { void this.track(this.stopStreamChild(child, state)) })
+    const abort = (): void => { raw.destroy(signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason))) }
+    signal.addEventListener('abort', abort, { once: true })
+    try {
+      const authenticated = await authenticateStream(raw, capability, this.config.requestTimeoutMs, signal)
+      this.sockets.add(authenticated)
+      authenticated.on('error', () => { authenticated.destroy() })
+      authenticated.once('close', () => { this.sockets.delete(authenticated) })
+      return authenticated
+    } catch (error) {
+      raw.destroy()
+      await this.stopStreamChild(child, state)
+      throw error
+    } finally {
+      signal.removeEventListener('abort', abort)
+    }
   }
 
   /** Tear down the helper's remote managed ranges before releasing the SSH master when reachable. */
@@ -224,8 +273,10 @@ export class SshConnection extends Service {
         else { socket.once('close', () => { resolve() }); socket.destroy() }
       }))
       this.child?.kill('SIGTERM')
+      const streamClosures = [...this.streamChildren].map(([child, state]) => this.stopStreamChild(child, state))
       const force = setTimeout(() => { this.child?.kill('SIGKILL') }, this.config.requestTimeoutMs)
-      try { await this.childClosed } finally { clearTimeout(force) }
+      force.unref()
+      try { await Promise.all([this.childClosed, ...streamClosures]) } finally { clearTimeout(force) }
       await Promise.all(socketClosures)
       while (this.operations.size > 0) await Promise.allSettled([...this.operations])
       if (this.directory !== undefined) await rm(this.directory, { recursive: true, force: true })
@@ -233,6 +284,16 @@ export class SshConnection extends Service {
   }
 
   private controlPath(): string { return join(this.directory as string, 'master') }
+
+  private stopStreamChild(child: ChildProcessWithoutNullStreams, state: StreamChildState): Promise<void> {
+    state.stopping ??= (async () => {
+      child.kill('SIGTERM')
+      const force = setTimeout(() => { child.kill('SIGKILL') }, this.config.requestTimeoutMs)
+      force.unref()
+      try { await state.closed } finally { clearTimeout(force) }
+    })()
+    return state.stopping
+  }
 
   private assertOpen(): void {
     if (this.closed) throw new Error('SSH connection is closed')
@@ -277,16 +338,17 @@ export class SshConnection extends Service {
     if (this.heartbeat !== undefined) clearInterval(this.heartbeat)
     this.rpc?.close(error)
     for (const socket of [...this.sockets].reverse()) socket.destroy(error)
+    for (const [child, state] of this.streamChildren) void this.track(this.stopStreamChild(child, state))
     this.child?.kill('SIGTERM')
   }
 
   private async start(): Promise<Hello> {
-    this.directory = await mkdtemp('/tmp/dsh-ssh-')
+    this.directory = await mkdtemp(this.windowsClient ? join(tmpdir(), 'dsh-ssh-') : '/tmp/dsh-ssh-')
     if (this.closed) throw new Error('SSH connection closed before startup')
     const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`
     const command = [this.config.node, '--disable-sigusr1', this.config.helper].map(quote).join(' ')
     const child = spawn('ssh', [
-      '-T', '-M', '-S', this.controlPath(), '-o', 'ControlPersist=no', '-o', 'BatchMode=yes',
+      '-T', ...(this.windowsClient ? [] : ['-M', '-S', this.controlPath(), '-o', 'ControlPersist=no']), '-o', 'BatchMode=yes',
       '-o', 'StrictHostKeyChecking=yes', '-o', 'ForwardAgent=no', '-o', 'ClearAllForwardings=yes',
       '-o', 'ServerAliveInterval=10', '-o', 'ServerAliveCountMax=3', this.config.host, command,
     ], { stdio: ['pipe', 'pipe', 'pipe'] })
