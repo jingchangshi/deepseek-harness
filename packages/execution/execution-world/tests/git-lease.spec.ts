@@ -249,4 +249,57 @@ describe('provider Git lease', () => {
     await expect(lease.git.execute(statusArgv, limits(new AbortController().signal))).rejects.toThrow('did not reach quiescence')
     await expect(lease.dispose()).rejects.toThrow('cleanup failed')
   })
+
+  it('joins the process range after an actual timeout', async () => {
+    const { harness, mount } = await fixture()
+    let resolveDone!: (outcome: SubprocessOutcome) => void
+    let resolveExit!: (exited: boolean) => void
+    let notifySpawn!: () => void
+    const done = new Promise<SubprocessOutcome>((resolve) => { resolveDone = resolve })
+    const exited = new Promise<boolean>((resolve) => { resolveExit = resolve })
+    const spawned = new Promise<void>((resolve) => { notifySpawn = resolve })
+    const terminate = vi.fn()
+    vi.spyOn(harness.ctx.subprocess, 'spawn').mockImplementation((spec) => {
+      spec.signal?.addEventListener('abort', () => { terminate(); resolveDone({ exitCode: 1, signal: null }) }, { once: true })
+      notifySpawn()
+      return { done, terminate, waitForExit: () => exited, collected: {} } as unknown as SubprocessHandle
+    })
+    const { lease } = await mount()
+    let settled = false
+    const execution = lease.git.execute(statusArgv, { ...limits(new AbortController().signal), timeoutMs: 20 })
+      .finally(() => { settled = true })
+    await spawned
+    await done
+    expect(terminate).toHaveBeenCalled()
+    expect(settled).toBe(false)
+    resolveExit(true)
+    await expect(execution).rejects.toThrow()
+    await lease.dispose()
+  })
+
+  it('rejects a failed process-range join', async () => {
+    const { harness, mount } = await fixture()
+    const spawn = vi.spyOn(harness.ctx.subprocess, 'spawn').mockImplementation(() => ({
+      done: Promise.resolve({ exitCode: 0, signal: null }), terminate: vi.fn(),
+      waitForExit: async () => { throw new Error('range join failed') }, collected: {},
+    }) as unknown as SubprocessHandle)
+    const { lease } = await mount()
+    await expect(lease.git.execute(statusArgv, limits(new AbortController().signal))).rejects.toThrow('range join failed')
+    await expect(lease.dispose()).rejects.toThrow('cleanup failed')
+    expect(spawn).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['stdout', 'stderr'] as const)('rejects lossy %s output', async (stream) => {
+    const { harness, mount } = await fixture()
+    vi.spyOn(harness.ctx.subprocess, 'spawn').mockImplementation(() => ({
+      done: Promise.resolve({ exitCode: 0, signal: null }), terminate: vi.fn(), waitForExit: async () => true,
+      collected: {
+        stdout: { readFrom: () => ({ text: '', lossy: stream === 'stdout' }) },
+        stderr: { readFrom: () => ({ text: '', lossy: stream === 'stderr' }) },
+      },
+    }) as unknown as SubprocessHandle)
+    const { lease } = await mount()
+    await expect(lease.git.execute(statusArgv, limits(new AbortController().signal))).rejects.toThrow('byte ceiling')
+    await lease.dispose()
+  })
 })
