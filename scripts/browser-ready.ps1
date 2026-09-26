@@ -80,11 +80,17 @@ if (Test-Path $patch) {
 # Raw profile patches are only one layer. Inspect the same composed tree used by
 # DSH so home-level and command-line overlays cannot silently change readiness.
 $dsh = Get-Command dsh -ErrorAction SilentlyContinue
-if ($dsh) {
+$pnpm = Get-Command pnpm -ErrorAction SilentlyContinue
+if ($dsh -or $pnpm) {
     try {
-        $dump = (& $dsh.Source --profile web --dump-config 2>&1 | Out-String)
-        $harnessRows = ([regex]::Matches($dump, 'browser-use-browser-harness-mcp')).Count
-        $browserUseRows = ([regex]::Matches($dump, 'id:[32;1m\s*browser-use')).Count
+        if ($dsh) {
+            $dump = (& $dsh.Source --profile web --dump-config 2>&1 | Out-String)
+        } else {
+            $dump = (& $pnpm.Source dsh --profile web --dump-config 2>&1 | Out-String)
+        }
+        if ($LASTEXITCODE -ne 0) { throw "configuration dump exited with code $LASTEXITCODE" }
+        $harnessRows = ([regex]::Matches($dump, '(?m)^- id:\s*browser-use-browser-harness-mcp\s*$')).Count
+        $browserUseRows = ([regex]::Matches($dump, '(?m)^- id:\s*browser-use\s*$')).Count
         $playwrightRows = ([regex]::Matches($dump, 'browser-use-playwright|browser-use-browser-use')).Count
         if ($harnessRows -eq 1 -and $browserUseRows -eq 1 -and $playwrightRows -eq 0) {
             if ($dump -match [regex]::Escape("http://127.0.0.1:$Port")) {
@@ -99,7 +105,7 @@ if ($dsh) {
         Fail 'could not inspect effective web composition' 'Run dsh --profile web --dump-config manually and repair the profile composition.'
     }
 } else {
-    Fail 'dsh executable not found on PATH' 'Build/install the DSH CLI before running browser readiness.'
+    Fail 'dsh and pnpm executables not found on PATH' 'Install the workspace dependencies or expose the DSH CLI before running browser readiness.'
 }
 
 # --- 2. dedicated Chrome serving CDP ----------------------------------------
