@@ -39,7 +39,7 @@ export function validateGitArgv(argv: readonly string[], emptyFile: 'NUL' | '/de
     return
   }
   if (command === 'status') {
-    if (args.length !== 3 || args[1] !== '--porcelain=v1' || args[2] !== '-z') throw new Error('Git status argv is not authorized')
+    if (args.length !== 4 || args[1] !== '--porcelain=v1' || args[2] !== '-z' || args[3] !== '--untracked-files=all') throw new Error('Git status argv is not authorized')
     return
   }
   if (command === 'log') {
@@ -47,23 +47,26 @@ export function validateGitArgv(argv: readonly string[], emptyFile: 'NUL' | '/de
     return
   }
   if (command !== 'diff') throw new Error('Git subcommand is not authorized')
-  if (args.length === 1 || (args.length === 2 && args[1] === '--cached')) return
-  if (args[1] === '--no-ext-diff' && args[2] === '--no-textconv' && args[3] === '--no-index') {
-    if (args.length !== 7 || args[4] !== '--' || args[5] !== emptyFile || args[6] === undefined || !isSafeRelativePath(args[6])) throw new Error('Git no-index argv is not authorized')
+  if (args[1] !== '--no-ext-diff' || args[2] !== '--no-textconv') throw new Error('Git diff must disable external drivers')
+  const diffArgs = args.slice(3)
+  if (diffArgs.length === 0 || (diffArgs.length === 1 && diffArgs[0] === '--cached')) return
+  if (diffArgs[0] === '--no-index') {
+    if (diffArgs.length !== 4 || diffArgs[1] !== '--' || diffArgs[2] !== emptyFile
+      || diffArgs[3] === undefined || !isSafeRelativePath(diffArgs[3])) throw new Error('Git no-index argv is not authorized')
     return
   }
-  if (args.length < 2 || args.length > 53) throw new Error('Git diff argv is not authorized')
-  const refMode = args[1]
+  if (diffArgs.length < 1 || diffArgs.length > 52) throw new Error('Git diff argv is not authorized')
+  const refMode = diffArgs[0]
   if (refMode === undefined) throw new Error('Git diff argv is not authorized')
-  const separator = args.indexOf('--')
+  const separator = diffArgs.indexOf('--')
   if (separator >= 0) {
-    if (separator !== 2) throw new Error('Git diff separator is not authorized')
+    if (separator !== 1) throw new Error('Git diff separator is not authorized')
     assertSafeRef(refMode)
-    assertSafePathspecs(args.slice(3))
+    assertSafePathspecs(diffArgs.slice(2))
   } else if (refMode.startsWith(':(literal)')) {
-    assertSafePathspecs(args.slice(1))
+    assertSafePathspecs(diffArgs)
   } else {
     assertSafeRef(refMode)
-    assertSafePathspecs(args.slice(2))
+    assertSafePathspecs(diffArgs.slice(1))
   }
 }

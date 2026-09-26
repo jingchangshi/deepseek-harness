@@ -1,7 +1,7 @@
 /** Root-relative read capabilities and confined process requests for one live provider generation. */
 import type { FsReadRootInfo } from '@deepseek-ai/dsh-fs'
 import type { ConfinedArgv } from '@deepseek-ai/dsh-sandbox'
-import type { SubprocessHandle } from '@deepseek-ai/dsh-subprocess'
+import type { SubprocessHandle, SubprocessTerminalEnvironment } from '@deepseek-ai/dsh-subprocess'
 import type { ExecutionWorkspaceId } from './types.ts'
 
 /** A directory child without a raw provider target or executable path. */
@@ -49,7 +49,9 @@ export interface ReadOnlyExecutionStart {
   /** Root-relative working directory; omission selects the bound root. */
   cwd?: string
   /** Explicit environment overlay on the provider's scrubbed base. */
-  env?: Readonly<Record<string, string>>
+  env?: Readonly<NodeJS.ProcessEnv>
+  /** Reject a sandbox that cannot enforce every requested file effect. */
+  requireFullEnforcement?: boolean
   /** Ignore input or supply text with a caller-selected UTF-8 byte ceiling. */
   stdin: 'ignore' | { data: string; maxBytes: number }
   /** Independent raw stream or bounded in-memory tail, without spill files. */
@@ -82,6 +84,8 @@ export interface ReadOnlyExecutionWorld {
   fs: ReadOnlyExecutionFs
   /** Confined subprocess operations with a root-contained working directory. */
   subprocess: {
+    /** Inspect the captured subprocess provider generation, never a later context lookup. */
+    terminalEnvironment(signal?: AbortSignal): Promise<SubprocessTerminalEnvironment>
     /**
      * Start one argv command after resolving its executable and read-only confinement.
      * @param spec - explicit input, output, environment and termination limits.

@@ -161,6 +161,12 @@ export async function bindReadOnlyExecutionWorld(ctx: Context, root: string, sig
       workspaceId,
       fs,
       subprocess: {
+        terminalEnvironment: caller => track((async () => {
+          const operationSignal = active(caller)
+          const environment = await subprocess.terminalEnvironment(operationSignal)
+          active(operationSignal)
+          return environment
+        })()),
         start: spec => track((async () => {
           const operationSignal = active(spec.signal)
           const cwdTarget = await resolve(spec.cwd ?? '', operationSignal)
@@ -168,10 +174,14 @@ export async function bindReadOnlyExecutionWorld(ctx: Context, root: string, sig
           operationSignal.throwIfAborted()
           if (spec.stdin !== 'ignore' && (!Number.isSafeInteger(spec.stdin.maxBytes) || spec.stdin.maxBytes < 0
             || Buffer.byteLength(spec.stdin.data, 'utf8') > spec.stdin.maxBytes)) throw new Error('execution input exceeds its byte ceiling')
-          const executable = await subprocess.resolveExecutable(spec.argv[0], spec.env, operationSignal)
+          const executableEnv = spec.env === undefined ? undefined : Object.fromEntries(
+            Object.entries(spec.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+          )
+          const executable = await subprocess.resolveExecutable(spec.argv[0], executableEnv, operationSignal)
           operationSignal.throwIfAborted()
           const confinement = await sandbox.confine([executable, ...spec.argv.slice(1)], { mode: 'read-only', workspaceRoot: rootPath }, operationSignal)
           active(operationSignal)
+          if (spec.requireFullEnforcement && confinement.enforcement !== 'full') throw new Error('execution requires full sandbox enforcement')
           const handle = subprocess.spawn({
             argv: confinement.argv,
             cwd: filesystem.processPath(cwdTarget),

@@ -26,7 +26,7 @@ kind: "package-reference"
 
 在显式注入 `executionWorldIdentity`、`fs`、`subprocess` 和 `sandbox` 的插件中，从 `@deepseek-ai/dsh-execution-world/read-lease` 导入 `bindExecutionReadLease`。返回值仅包含 `workspaceId`、`fs`（`stat`、有界 `readText`、`listDir`）和幂等的 `dispose()`。路径由斜杠分隔的根目录相对组件组成，空字符串表示根目录。每次打开后代对象时均拒绝符号链接和重解析点；提供方必须确认 `deny` 别名策略后才能授予访问。缺少安全根读取支持时拒绝请求，不回退到宿主。释放会等待所属读取和根资源清理；该租约不授予子进程访问或 Git 授权。
 
-只有在调用方明确授权对可信仓库执行固定 Git 只读操作时，才从 `@deepseek-ai/dsh-execution-world/git-lease` 导入 `bindExecutionGitLease`。它不公开通用 subprocess：租约校验 consumer 的 Git argv，在 provider execution world 中以只读约束运行，限制收集输出，支持取消，并等待进程范围清理完成。该能力不宣称敏感文件过滤或等同于 root-read；Git 配置和仓库元数据属于独立的显式 Git 授权范围。
+只有在调用方明确授权对可信仓库执行固定 Git 只读操作时，才从 `@deepseek-ai/dsh-execution-world/git-lease` 导入 `bindExecutionGitLease`。它不公开通用 subprocess：租约校验 consumer 的 Git argv，对所有获授权的 diff 禁用外部差异驱动和文本转换，并在捕获的 subprocess 提供方代际中以只读约束运行，限制收集输出，支持取消，等待进程范围清理完成。该能力不宣称敏感文件过滤或等同于 root-read；Git 配置和仓库元数据属于独立的显式 Git 授权范围。
 
 与 `storageDomain` 和执行文件系统一起挂载此服务。`ctx.executionWorldIdentity.resolve(root, signal)` 验证提供方解析的根目录确为目录后，返回已持久化的 ID。路径不存在或指向普通文件时拒绝请求。并发解析别名共享一次身份分配。
 
