@@ -174,7 +174,8 @@ Write-Host "  ws: $($version.webSocketDebuggerUrl)"
 # matters is whether Browser Harness can drive it, and that has failed before
 # while the port looked perfectly healthy. Probe the real path via the
 # `browser-harness` CLI (not the MCP wrapper, which needs a live session).
-$cli = Join-Path $env:USERPROFILE '.local\bin\browser-harness.exe'
+$cliCommand = Get-Command browser-harness.exe -ErrorAction SilentlyContinue
+$cli = if ($cliCommand) { $cliCommand.Source } else { Join-Path $env:USERPROFILE '.local\bin\browser-harness.exe' }
 if (Test-Path $cli) {
     $prev = $env:BU_CDP_URL
     $env:BU_CDP_URL = "http://127.0.0.1:$Port"
@@ -194,7 +195,7 @@ if (Test-Path $cli) {
     }
 } else {
     Write-Host ''
-    Write-Host "browser-harness.exe not found at $cli; skipped the end-to-end probe." -ForegroundColor Yellow
+    Write-Host "browser-harness.exe not found on PATH or at $cli; skipped the end-to-end probe." -ForegroundColor Yellow
 }
 
 Write-Host ''

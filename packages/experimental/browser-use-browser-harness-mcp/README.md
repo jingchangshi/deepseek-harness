@@ -107,16 +107,10 @@ chrome.exe --remote-debugging-port=9222
 
 Chrome accepts the flag on its command line, but the CDP port never opens, because a profile that is already in use hands the request to the existing process and the default profile does not expose remote debugging to this flag. `Get-NetTCPConnection -LocalPort 9222` then shows nothing listening, which is the signature of this mistake rather than of a broken install.
 
-**The working setup.** Close every Chrome process first, so the new instance is the one that actually starts:
+**The working setup.** Use the dedicated-profile helper; it preserves the user's ordinary Chrome and refuses to adopt an unrelated CDP listener:
 
 ```powershell
-taskkill /F /IM chrome.exe
-$profile = "$env:LOCALAPPDATA\ChromeAgentProfile"
-& "C:\Program Files\Google\Chrome\Application\chrome.exe" `
-    --remote-debugging-port=9222 `
-    --user-data-dir="$profile" `
-    --no-first-run `
-    --no-default-browser-check
+pwsh -NoProfile -File scripts/chrome-agent.ps1
 ```
 
 Then verify the port, which is the only check that matters:

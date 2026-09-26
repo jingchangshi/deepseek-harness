@@ -58,26 +58,8 @@ if (Test-Path $tsconfig) {
     Fail "tsconfig.base.json not found at $tsconfig" 'Run this script from the DSH checkout.'
 }
 
-# --- 2. profile wires the provider ------------------------------------------
-$patch = Join-Path $env:USERPROFILE '.dsh\profiles\web\cordis.patch.yml'
-if (Test-Path $patch) {
-    $text = Get-Content $patch -Raw
-    if ($text -match 'browser-use-browser-harness-mcp') {
-        if ($text -match "cdpUrl:\s*'http://127\.0\.0\.1:$Port'") {
-            Pass "profile mounts the browser provider with cdpUrl on port $Port"
-        } else {
-            Fail "profile mounts the provider but cdpUrl does not match port $Port" `
-                "Expected `cdpUrl: 'http://127.0.0.1:$Port'` in $patch"
-        }
-    } else {
-        Fail 'profile does not mount the browser-use provider' "Add the browser-use entries to $patch"
-    }
-} else {
-    Fail "profile patch not found: $patch" 'The web profile has no user patch layer.'
-}
-
 # --- 2. effective web composition -------------------------------------------
-# Raw profile patches are only one layer. Inspect the same composed tree used by
+# Individual profile patches are only one layer. Inspect the composed tree used by
 # DSH so home-level and command-line overlays cannot silently change readiness.
 $dsh = Get-Command dsh -ErrorAction SilentlyContinue
 $pnpm = Get-Command pnpm -ErrorAction SilentlyContinue
@@ -91,8 +73,8 @@ if ($dsh -or $pnpm) {
         if ($LASTEXITCODE -ne 0) { throw "configuration dump exited with code $LASTEXITCODE" }
         $harnessRows = ([regex]::Matches($dump, '(?m)^- id:\s*browser-use-browser-harness-mcp\s*$')).Count
         $browserUseRows = ([regex]::Matches($dump, '(?m)^- id:\s*browser-use\s*$')).Count
-        $playwrightRows = ([regex]::Matches($dump, 'browser-use-playwright|browser-use-browser-use')).Count
-        if ($harnessRows -eq 1 -and $browserUseRows -eq 1 -and $playwrightRows -eq 0) {
+        $otherProviders = ([regex]::Matches($dump, '(?m)^- id:\s*browser-use-(?!browser-harness-mcp\s*$)[^\r\n]+')).Count
+        if ($harnessRows -eq 1 -and $browserUseRows -eq 1 -and $otherProviders -eq 0) {
             if ($dump -match [regex]::Escape("http://127.0.0.1:$Port")) {
                 Pass 'effective web composition has exactly one Browser Harness provider and matching CDP endpoint'
             } else {
@@ -132,7 +114,8 @@ if ($cdp) {
 }
 
 # --- 3. Browser Harness daemon attached -------------------------------------
-$cli = Join-Path $env:USERPROFILE '.local\bin\browser-harness.exe'
+$cliCommand = Get-Command browser-harness.exe -ErrorAction SilentlyContinue
+$cli = if ($cliCommand) { $cliCommand.Source } else { Join-Path $env:USERPROFILE '.local\bin\browser-harness.exe' }
 if (Test-Path $cli) {
     $prev = $env:BU_CDP_URL
     $env:BU_CDP_URL = "http://127.0.0.1:$Port"
@@ -148,7 +131,7 @@ if (Test-Path $cli) {
         $env:BU_CDP_URL = $prev
     }
 } else {
-    Fail "browser-harness.exe not found at $cli" 'Install with: uv tool install browser-harness[mcp]'
+    Fail "browser-harness.exe not found on PATH or at $cli" 'Install with: uv tool install browser-harness[mcp]'
 }
 
 # Stale spawnlock: the daemon serializes startup with a lock file, and a crashed
