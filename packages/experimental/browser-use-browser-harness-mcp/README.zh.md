@@ -107,16 +107,10 @@ chrome.exe --remote-debugging-port=9222
 
 Chrome 会在命令行中接受该参数，但 CDP 端口始终不会打开，因为已被占用的配置文件会把请求转交给既有进程，而默认配置文件不会因该参数而暴露远程调试。此时 `Get-NetTCPConnection -LocalPort 9222` 显示没有任何监听——这正是该错误的特征，而不是安装损坏的特征。
 
-**可用的配置方式。** 先关闭所有 Chrome 进程，确保真正启动的是这个新实例：
+**可用的配置方式。** 使用专用配置文件启动脚本；它不会关闭日常使用的 Chrome，并拒绝接管不属于该配置文件的 CDP 监听：
 
 ```powershell
-taskkill /F /IM chrome.exe
-$profile = "$env:LOCALAPPDATA\ChromeAgentProfile"
-& "C:\Program Files\Google\Chrome\Application\chrome.exe" `
-    --remote-debugging-port=9222 `
-    --user-data-dir="$profile" `
-    --no-first-run `
-    --no-default-browser-check
+pwsh -NoProfile -File scripts/chrome-agent.ps1
 ```
 
 随后验证端口，这是唯一真正重要的检查：
@@ -223,4 +217,10 @@ browser-harness skill
 
 真实浏览器测试通过 `DSH_BROWSER_HARNESS_E2E=1` 显式启用，因为 CI 既没有 Chrome 也没有 Browser Harness。测试会针对回环地址 fixture 打开自己的标签页，绝不输入凭据或 MFA。
 
+位于 `apps/cli/tests/profiles/web/tests/browser-harness-session.e2e.ts` 的 Web profile Session 测试使用相同的显式启用条件，并在真实的 `dsh --profile web` 进程中验证工具发现、回环页面调用和新 Session 重新获取工具；启动专用 Chrome profile 后运行 `pnpm run test:e2e apps/cli/tests/profiles/web/tests/browser-harness-session.e2e.ts`。
+
 </details>
+
+### 就绪证据
+
+只有专用 Chrome 配置文件持有所配置的 CDP 地址、Browser Harness 能操作该地址，且最终生效的 DSH profile 配置中恰好存在一个指向该地址的 Browser Harness 提供方，本地浏览器预检才算完成。这些检查不能证明已有 Session 拥有该提供方；在提供方挂载后新建 Session，确认它暴露并成功调用 `mcp__browser-harness__*` 工具。提供方单元测试和直接运行 Browser Harness 的真实栈测试仅提供较低层级的证据，不能证明 Web profile Session 就绪。

@@ -75,7 +75,8 @@ if ($dsh -or $pnpm) {
         $browserUseRows = ([regex]::Matches($dump, '(?m)^- id:\s*browser-use\s*$')).Count
         $otherProviders = ([regex]::Matches($dump, '(?m)^- id:\s*browser-use-(?!browser-harness-mcp\s*$)[^\r\n]+')).Count
         if ($harnessRows -eq 1 -and $browserUseRows -eq 1 -and $otherProviders -eq 0) {
-            if ($dump -match [regex]::Escape("http://127.0.0.1:$Port")) {
+            $harnessBlock = [regex]::Match($dump, '(?ms)^- id:\s*browser-use-browser-harness-mcp\s*$.*?(?=^- id:|\z)').Value
+            if ($harnessBlock -match [regex]::Escape("http://127.0.0.1:$Port")) {
                 Pass 'effective web composition has exactly one Browser Harness provider and matching CDP endpoint'
             } else {
                 Fail 'effective Browser Harness provider endpoint does not match the requested CDP port' 'Inspect dsh --profile web --dump-config and the active patch layers.'

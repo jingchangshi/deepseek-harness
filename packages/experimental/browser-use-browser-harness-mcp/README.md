@@ -217,8 +217,10 @@ An unchanged catalog preserves its tool-definition prefix. Results append to his
 
 The real-browser suite is opt-in behind `DSH_BROWSER_HARNESS_E2E=1`, because CI has neither Chrome nor Browser Harness. It opens its own tab against a loopback fixture and never enters credentials or MFA.
 
+The Web-profile Session suite at `apps/cli/tests/profiles/web/tests/browser-harness-session.e2e.ts` uses the same opt-in gate and verifies tool discovery, a loopback page call, and acquisition by a fresh Session in a real `dsh --profile web` process; run it with `pnpm run test:e2e apps/cli/tests/profiles/web/tests/browser-harness-session.e2e.ts` after starting the dedicated Chrome profile.
+
 </details>
 
-## Readiness evidence
+### Readiness evidence
 
 A local browser preflight is complete only when the dedicated Chrome profile owns the configured CDP endpoint, Browser Harness can drive that endpoint, and the effective DSH profile composition contains exactly one Browser Harness provider with the matching endpoint. Those checks do not prove that an existing Session owns the provider; create a new Session after the provider is mounted and verify that it exposes and successfully executes a `mcp__browser-harness__*` tool. Provider unit tests and direct Browser Harness stack tests are lower-level evidence, not proof of web-profile Session readiness.
