@@ -4,6 +4,10 @@ export const inject = ['agents', 'tools']
 export function apply(ctx) {
   let sequence = 0
   const receive = message => {
+    if (message === 'stop') {
+      process.emit('SIGTERM')
+      return
+    }
     if (message?.command !== 'probe') return
     void probe(message.url).then(result => process.send({ result }), error => process.send({ error: String(error.stack ?? error) }))
   }
@@ -39,12 +43,19 @@ export function apply(ctx) {
         if (!info.includes('/probe')) throw new Error(`Browser did not open test-owned page: ${info}`)
         reports.push({ names, info })
       } finally {
-        await handle.dispose()
+        let disposeError
+        try { await handle.dispose() } catch (error) { disposeError = error }
+        let closeError
         if (ownedTab) {
-          const endpoint = process.env.BU_CDP_URL ?? 'http://127.0.0.1:9222'
-          const closed = await fetch(`${endpoint}/json/close/${encodeURIComponent(ownedTab)}`)
-          if (!closed.ok) throw new Error(`Could not close test-owned tab: ${closed.status}`)
+          try {
+            const endpoint = process.env.BU_CDP_URL ?? 'http://127.0.0.1:9222'
+            const closed = await fetch(`${endpoint}/json/close/${encodeURIComponent(ownedTab)}`)
+            if (!closed.ok) throw new Error(`Could not close test-owned tab: ${closed.status}`)
+          } catch (error) { closeError = error }
         }
+        if (disposeError && closeError) throw new AggregateError([disposeError, closeError], 'Session and owned-tab cleanup failed')
+        if (disposeError) throw disposeError
+        if (closeError) throw closeError
       }
     }
     return reports

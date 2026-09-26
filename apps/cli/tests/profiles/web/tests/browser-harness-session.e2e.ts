@@ -19,11 +19,29 @@ it.runIf(enabled)('mounts Browser Harness in a real Web process and reacquires i
   })
   const processState: { child?: ReturnType<typeof spawn>; completion?: Promise<unknown> } = {}
   test.onTestFinished(async () => {
-    if (processState.child && processState.child.exitCode === null) processState.child.kill('SIGTERM')
-    await processState.completion
-    server.closeAllConnections()
-    if (server.listening) await new Promise<void>((resolve) => { server.close(() => resolve()) })
-    await rm(root, { recursive: true, force: true })
+    let forced = false
+    const watchdog = setTimeout(() => {
+      if (processState.child && processState.child.exitCode === null) {
+        forced = true
+        processState.child.kill('SIGKILL')
+      }
+    }, 10_000)
+    try {
+      if (processState.child && processState.child.exitCode === null) {
+        try { processState.child.send('stop') } catch (_closedChannel) { processState.child.kill('SIGKILL') }
+      }
+      const exit = await processState.completion as [number | null, NodeJS.Signals | null] | undefined
+      if (exit) {
+        expect(forced).toBe(false)
+        expect(exit[1]).toBeNull()
+        expect(exit[0]).toBe(0)
+      }
+    } finally {
+      clearTimeout(watchdog)
+      server.closeAllConnections()
+      if (server.listening) await new Promise<void>((resolve) => { server.close(() => resolve()) })
+      await rm(root, { recursive: true, force: true })
+    }
   })
   server.listen(0, '127.0.0.1')
   await once(server, 'listening')
