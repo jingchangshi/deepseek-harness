@@ -84,7 +84,11 @@ The package contributes no stable request prefix, so it does not invalidate mode
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-None.
+Non-authoritative feasibility evidence: on Windows 11 x64 build 26200.8875, `processmodel.dll` version 10.0.26100.8737 exports `Experimental_CreateProcessInSandbox`, but an AppContainer SBOX 0.1.0 creation request returns Win32 120 (`ERROR_CALL_NOT_IMPLEMENTED`) before creating a payload. This does not validate filesystem write denial, stdio, Git reads, or process-tree cancellation. The Windows ACL backend remains `partial`; full-enforcement callers still reject it.
+
+The opt-in `tests/fixtures/readonly-feasibility.mjs` probe creates a unique profile identity, requests a suspended process, never resumes it, and deletes its profile only after process quiescence. It exits 1 when creation or cleanup fails; exit 0 proves creation only, not full confinement. Install `flatbuffers@25.9.23` into an isolated temporary directory with `npm install --prefix <directory> --ignore-scripts --no-audit --no-fund flatbuffers@25.9.23`, then run `node packages/subprocess/win32-process/tests/fixtures/readonly-feasibility.mjs <directory>` from the repository root. It is not an expected-success CI test or a production backend.
+
+The prototype follows Microsoft's [published API](https://learn.microsoft.com/en-us/windows/win32/secauthz/createprocessinsandbox) and the [pinned SBOX schema](https://github.com/microsoft/mxc/blob/5d246928dec0a9be40c789aff14b4d01f5c355f8/external/windows-sdk/BaseContainerSpecification.fbs). A different native capability generation requires a new runtime feasibility check; an exported symbol or OS version alone does not establish support.
 
 </details>
 

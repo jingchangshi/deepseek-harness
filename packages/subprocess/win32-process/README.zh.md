@@ -84,7 +84,11 @@ Koffi 的 `STARTUPINFOW` 与 `PROCESS_INFORMATION` 定义还会在模块加载�
 <details>
 <summary>维护者工作上下文——点击展开</summary>
 
-无。
+非权威可行性证据：在 Windows 11 x64 build 26200.8875 上，版本为 10.0.26100.8737 的 `processmodel.dll` 导出了 `Experimental_CreateProcessInSandbox`，但 AppContainer SBOX 0.1.0 创建请求在创建载荷之前返回 Win32 120（`ERROR_CALL_NOT_IMPLEMENTED`）。这不验证文件写入拒绝、stdio、Git 读取或进程树取消。Windows ACL 后端仍为 `partial`；要求完整强制隔离的调用方仍拒绝它。
+
+显式运行的 `tests/fixtures/readonly-feasibility.mjs` 探针创建唯一的 profile 标识，请求挂起的进程，从不恢复该进程，且仅在确认进程静止后删除其 profile。创建或清理失败时退出码为 1；退出码 0 只证明创建成功，不证明完整隔离。先用 `npm install --prefix <directory> --ignore-scripts --no-audit --no-fund flatbuffers@25.9.23` 将 `flatbuffers@25.9.23` 安装到独立临时目录，再从仓库根目录执行 `node packages/subprocess/win32-process/tests/fixtures/readonly-feasibility.mjs <directory>`。它不是预期成功的 CI 测试，也不是生产后端。
+
+该原型遵循 Microsoft [公开 API](https://learn.microsoft.com/en-us/windows/win32/secauthz/createprocessinsandbox) 和[固定版本的 SBOX schema](https://github.com/microsoft/mxc/blob/5d246928dec0a9be40c789aff14b4d01f5c355f8/external/windows-sdk/BaseContainerSpecification.fbs)。不同代际的原生能力需要重新进行运行时可行性检查；仅凭导出符号或 OS 版本不能确认支持。
 
 </details>
 
