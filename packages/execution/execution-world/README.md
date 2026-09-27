@@ -28,6 +28,8 @@ Import `bindExecutionReadLease` from `@deepseek-ai/dsh-execution-world/read-leas
 
 Import `bindExecutionGitLease` from `@deepseek-ai/dsh-execution-world/git-lease` only when the caller has separately authorized fixed Git reads for a trusted repository. It exposes no general subprocess surface: the lease validates the consumer Git argv, disables external diff and text conversion for every authorized diff, runs it in the captured subprocess provider generation with read-only confinement, bounded collected output, cancellation, and quiescent cleanup. The capability does not claim sensitive-file filtering or root-read equivalence; Git configuration and repository metadata remain part of the explicit Git authorization.
 
+Git leases default to `require-full`; partial confinement rejects before process creation. Explicit `allow-hardened-windows` permits the Windows ACL runner and reports `hardened-windows`, not full OS confinement. Fixed Git arguments suppress optional index writes and external helpers; inherited Git selectors, tracing and Windows standard-handle redirection are cleared. Repository metadata remains trusted, and neither policy grants arbitrary commands.
+
 Mount this service with `storageDomain` and the execution filesystem. `ctx.executionWorldIdentity.resolve(root, signal)` returns a persisted ID after verifying that the provider-resolved root is a directory. Missing roots and regular files reject. Concurrent aliases share one allocation.
 
 | Field | Default | Meaning |

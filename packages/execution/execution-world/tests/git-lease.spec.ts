@@ -32,12 +32,12 @@ async function fixture() {
   onTestFinished(() => subprocess.dispose())
   const sandbox = await harness.ctx.plugin(TestSandbox)
   onTestFinished(() => sandbox.dispose())
-  const mount = async (signal?: AbortSignal, root = workspace) => {
+  const mount = async (signal?: AbortSignal, root = workspace, policy: 'require-full' | 'allow-hardened-windows' = 'require-full') => {
     let lease!: ExecutionGitLease
     const consumer = harness.ctx.plugin({
       name: 'git-lease-test-consumer',
       inject: ['executionWorldIdentity', 'fs', 'subprocess', 'sandbox'],
-      async apply(ctx: Context) { lease = await bindExecutionGitLease(ctx, root, signal) },
+      async apply(ctx: Context) { lease = await bindExecutionGitLease(ctx, root, signal, policy) },
     })
     onTestFinished(() => consumer.dispose())
     await consumer
@@ -50,6 +50,52 @@ const statusArgv = ['--no-optional-locks', '-c', 'core.fsmonitor=false', 'status
 const limits = (signal: AbortSignal) => ({ maxBytes: 4096, timeoutMs: 20_000, signal })
 
 describe('provider Git lease', () => {
+  it('rejects unauthorized argv before executable resolution, confinement or spawn', async () => {
+    const { harness, mount } = await fixture()
+    const { lease } = await mount()
+    const resolve = vi.spyOn(harness.ctx.subprocess, 'resolveExecutable')
+    const confine = vi.spyOn(harness.ctx.sandbox, 'confine')
+    const spawn = vi.spyOn(harness.ctx.subprocess, 'spawn')
+    const prefix = statusArgv.slice(0, 3)
+    const diff = ['diff', '--no-ext-diff', '--no-textconv']
+    const rejected = [
+      ['status'], ['-C', '..', ...statusArgv], ['--git-dir=../other', ...statusArgv],
+      ['--work-tree=../other', ...statusArgv], ['--exec-path=.', ...statusArgv],
+      ['--config-env=core.pager=EVIL', ...statusArgv], ['-c', 'core.pager=evil', ...statusArgv],
+      ...['add', 'commit', 'reset', 'checkout', 'switch', 'clean', 'update-index', 'config', 'show', 'escape', 'status;echo'].map(command => [...prefix, command]),
+      [...prefix, 'diff', 'HEAD'], [...prefix, ...diff, '--output=written'],
+      [...prefix, ...diff, 'HEAD~1'], [...prefix, ...diff, '--ext-diff'],
+      ...['../outside', 'C:/outside', 'src\\outside'].map(path => [...prefix, ...diff, 'HEAD', '--', ':(literal)' + path]),
+      [...prefix, ...diff, '--no-index', '--', 'other', 'file'],
+      [...prefix, ...diff, '--no-index', '--', lease.git.emptyFile, '../file'],
+    ]
+    for (const args of rejected) {
+      await expect(lease.git.execute(args, limits(new AbortController().signal))).rejects.toThrow()
+    }
+    expect(resolve).not.toHaveBeenCalled()
+    expect(confine).not.toHaveBeenCalled()
+    expect(spawn).not.toHaveBeenCalled()
+    await lease.dispose()
+  })
+
+  it.each(['windows', 'posix'] as const)('allows partial enforcement only for explicit Windows policy on %s', async (platform) => {
+    const { harness, workspace, mount } = await fixture()
+    const environment = await harness.ctx.subprocess.terminalEnvironment()
+    vi.spyOn(harness.ctx.subprocess, 'terminalEnvironment').mockResolvedValue({ ...environment, platform })
+    vi.spyOn(harness.ctx.sandbox, 'confine').mockImplementation(async argv => ({ argv: [...argv], enforcement: 'partial', denialSignatures: [], runnerFailureRules: [] }))
+    const spawn = vi.spyOn(harness.ctx.subprocess, 'spawn')
+    const { lease } = await mount(undefined, workspace, 'allow-hardened-windows')
+    if (platform === 'windows') {
+      expect(lease.assurance).toBe('hardened-windows')
+      expect((await lease.git.execute(statusArgv, limits(new AbortController().signal))).exitCode).toBe(0)
+      expect(spawn).toHaveBeenCalledTimes(1)
+    } else {
+      await expect(lease.git.execute(statusArgv, limits(new AbortController().signal))).rejects.toThrow('full sandbox enforcement')
+      expect(spawn).not.toHaveBeenCalled()
+    }
+    await lease.dispose()
+  })
+
   it('runs fixed Git in the bound workspace and exposes no generic subprocess', async () => {
     const { mount } = await fixture()
     const { lease } = await mount()

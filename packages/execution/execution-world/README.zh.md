@@ -28,6 +28,8 @@ kind: "package-reference"
 
 只有在调用方明确授权对可信仓库执行固定 Git 只读操作时，才从 `@deepseek-ai/dsh-execution-world/git-lease` 导入 `bindExecutionGitLease`。它不公开通用 subprocess：租约校验 consumer 的 Git argv，对所有获授权的 diff 禁用外部差异驱动和文本转换，并在捕获的 subprocess 提供方代际中以只读约束运行，限制收集输出，支持取消，等待进程范围清理完成。该能力不宣称敏感文件过滤或等同于 root-read；Git 配置和仓库元数据属于独立的显式 Git 授权范围。
 
+Git 租约默认为 `require-full`；部分约束在创建进程前拒绝执行。显式选择 `allow-hardened-windows` 时允许 Windows ACL runner，并报告 `hardened-windows`，不宣称完整操作系统隔离。固定 Git 参数抑制可选索引写入和外部辅助程序；继承的 Git 仓库选择、跟踪和 Windows 标准句柄重定向环境变量会被清除。仓库元数据仍属于信任范围，两种策略均不授予任意命令能力。
+
 与 `storageDomain` 和执行文件系统一起挂载此服务。`ctx.executionWorldIdentity.resolve(root, signal)` 验证提供方解析的根目录确为目录后，返回已持久化的 ID。路径不存在或指向普通文件时拒绝请求。并发解析别名共享一次身份分配。
 
 | 字段 | 默认值 | 含义 |

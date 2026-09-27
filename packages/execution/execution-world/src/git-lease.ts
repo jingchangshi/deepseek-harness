@@ -42,12 +42,14 @@ const GIT_ENV_TOMBSTONES = [
   'GIT_TRACE2', 'GIT_TRACE2_EVENT', 'GIT_TRACE2_PERF',
   'GIT_NAMESPACE', 'GIT_REPLACE_REF_BASE', 'GIT_LITERAL_PATHSPECS', 'GIT_GLOB_PATHSPECS',
   'GIT_NOGLOB_PATHSPECS', 'GIT_ICASE_PATHSPECS', 'GIT_EXEC_PATH',
+  'GIT_REDIRECT_STDIN', 'GIT_REDIRECT_STDOUT', 'GIT_REDIRECT_STDERR',
 ] as const
 
 /** Bind fixed read-only Git execution to the same provider root used by file reads.
  * @param ctx - provider services for this execution world.
  * @param root - provider-resolved workspace root.
  * @param signal - cancellation of lease acquisition and execution.
+ * @param policy - full confinement by default; explicit Windows hardening permits partial confinement with fixed Git semantics.
  * @returns fixed Git executor with joined provider cleanup.
  */
 export async function bindExecutionGitLease(ctx: Context, root: string, signal?: AbortSignal, policy: 'require-full' | 'allow-hardened-windows' = 'require-full'): Promise<ExecutionGitLease> {

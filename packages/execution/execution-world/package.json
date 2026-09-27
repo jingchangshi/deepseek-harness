@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-execution-world",
-  "version": "0.1.6-alpha.3",
+  "version": "0.1.6-alpha.4",
   "description": "Durable opaque execution workspace identity",
   "type": "module",
   "main": "lib/index.js",
