@@ -18,6 +18,7 @@ export interface ExecutionGitExecutor {
 /** A fixed Git executor plus its provider cleanup. */
 export interface ExecutionGitLease {
   readonly workspaceId: ExecutionWorkspaceId
+  readonly assurance: 'full' | 'hardened-windows'
   readonly git: ExecutionGitExecutor
   dispose(): Promise<void>
 }
@@ -49,7 +50,7 @@ const GIT_ENV_TOMBSTONES = [
  * @param signal - cancellation of lease acquisition and execution.
  * @returns fixed Git executor with joined provider cleanup.
  */
-export async function bindExecutionGitLease(ctx: Context, root: string, signal?: AbortSignal): Promise<ExecutionGitLease> {
+export async function bindExecutionGitLease(ctx: Context, root: string, signal?: AbortSignal, policy: 'require-full' | 'allow-hardened-windows' = 'require-full'): Promise<ExecutionGitLease> {
   let binding: Awaited<ReturnType<typeof bindReadOnlyExecutionWorld>> | undefined
   try {
     binding = await bindReadOnlyExecutionWorld(ctx, root, signal, 'deny')
@@ -67,8 +68,10 @@ export async function bindExecutionGitLease(ctx: Context, root: string, signal?:
     const abortLease = () => { leaseController.abort(signal?.reason) }
     signal?.addEventListener('abort', abortLease, { once: true })
     const lease = binding
+    const allowHardenedWindows = policy === 'allow-hardened-windows' && environment.platform === 'windows'
     return {
       workspaceId: lease.workspaceId,
+      assurance: allowHardenedWindows ? 'hardened-windows' : 'full',
       git: {
         workspaceId: lease.workspaceId,
         emptyFile,
@@ -82,7 +85,7 @@ export async function bindExecutionGitLease(ctx: Context, root: string, signal?:
           validateGitArgv(args, emptyFile)
           const operation = AbortSignal.any([leaseController.signal, options.signal, AbortSignal.timeout(timeoutMs)])
           const process = await lease.subprocess.start({
-            argv: ['git', ...args], env: gitEnvironment, requireFullEnforcement: true,
+            argv: ['git', ...args], env: gitEnvironment, requireFullEnforcement: !allowHardenedWindows,
             stdin: 'ignore', stdout: { maxBytes }, stderr: { maxBytes }, graceMs: 1_000, signal: operation,
           })
           let outcome: Awaited<typeof process.handle.done>

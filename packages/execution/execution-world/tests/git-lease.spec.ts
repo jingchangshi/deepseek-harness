@@ -53,7 +53,7 @@ describe('provider Git lease', () => {
   it('runs fixed Git in the bound workspace and exposes no generic subprocess', async () => {
     const { mount } = await fixture()
     const { lease } = await mount()
-    expect(Object.keys(lease).sort()).toEqual(['dispose', 'git', 'workspaceId'])
+    expect(Object.keys(lease).sort()).toEqual(['assurance', 'dispose', 'git', 'workspaceId'])
     expect(Object.keys(lease.git).sort()).toEqual(['emptyFile', 'execute', 'signal', 'workspaceId'])
     expect(lease.git.workspaceId).toBe(lease.workspaceId)
     const result = await lease.git.execute(statusArgv, limits(new AbortController().signal))
