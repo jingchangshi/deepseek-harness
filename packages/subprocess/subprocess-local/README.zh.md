@@ -98,6 +98,7 @@ Linux 普通进程和终端进程即使在 bootstrap 消费启动请求前被取
 | [`src/linux-execve.ts`](src/linux-execve.ts) | Linux libc 进程映像替换与继承标准文件描述符保留 |
 | [`src/windows-job.ts`](src/windows-job.ts) | Windows Job 能力检查与 helper 启动 |
 | [`src/runner-launch.ts`](src/runner-launch.ts) | source、built 与 packaged 私有 runner 选择 |
+| [`src/runner-bootstrap.ts`](src/runner-bootstrap.ts) | runner 侧 selector、argv 校验与可执行文件查找；不导入父进程环境或输出管道 |
 | [`src/spawn-runner.ts`](src/spawn-runner.ts) | Linux 一次性 exec bootstrap 与 Windows Job runner |
 | [`src/runner-protocol.ts`](src/runner-protocol.ts) | 严格定义的 Linux launch／startup 文件与 Windows IPC 消息 |
 | [`src/terminal.ts`](src/terminal.ts) | `node-pty` 终端句柄：Linux scope 绑定、前台检查与 fallback 清理 |

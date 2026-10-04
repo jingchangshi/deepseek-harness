@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises'
+import { appendFile, lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -17,20 +17,18 @@ const diff = ['diff', '--no-ext-diff', '--no-textconv']
 const limits = () => ({ maxBytes: 65536, timeoutMs: 20_000, signal: new AbortController().signal })
 
 async function snapshot(root: string): Promise<unknown[]> {
-  const entries: unknown[] = []
-  async function visit(relative: string): Promise<void> {
+  async function visit(relative: string): Promise<unknown[]> {
     const target = join(root, relative)
     const info = await lstat(target, { bigint: true })
     const kind = info.isSymbolicLink() ? 'link' : info.isDirectory() ? 'directory' : 'file'
     const content = kind === 'link' ? await readlink(target)
       : kind === 'file' ? createHash('sha256').update(await readFile(target)).digest('hex') : undefined
-    entries.push({ relative, kind, size: info.size, mtime: info.mtimeNs, ctime: info.ctimeNs, content })
-    if (kind === 'directory') {
-      for (const name of (await readdir(target)).sort()) await visit(relative ? relative + '/' + name : name)
-    }
+    const entry = { relative, kind, size: info.size, mtime: info.mtimeNs, ctime: info.ctimeNs, content }
+    if (kind !== 'directory') return [entry]
+    const children = await Promise.all((await readdir(target)).sort().map(name => visit(relative ? relative + '/' + name : name)))
+    return [entry, ...children.flat()]
   }
-  await visit('')
-  return entries
+  return await visit('')
 }
 
 async function fixture() {
@@ -43,10 +41,7 @@ async function fixture() {
   await mkdir(tripwire)
   const git = (...args: string[]) => execFileSync('git', args, { cwd: workspace, encoding: 'utf8' }).trim()
   git('init', '-q', '-b', 'fixture')
-  git('config', 'user.name', 'Git lease fixture')
-  git('config', 'user.email', 'fixture@example.invalid')
-  git('config', 'commit.gpgsign', 'false')
-  git('config', 'core.autocrlf', 'false')
+  await appendFile(join(workspace, '.git', 'config'), '[user]\n\tname = Git lease fixture\n\temail = fixture@example.invalid\n[commit]\n\tgpgsign = false\n[core]\n\tautocrlf = false\n')
   await writeFile(join(workspace, 'tracked.txt'), 'first\n')
   git('add', 'tracked.txt')
   git('commit', '-qm', 'first fixture commit')
@@ -62,9 +57,15 @@ async function fixture() {
   await writeFile(join(workspace, '.gitattributes'), '*.txt diff=hostile\n')
   const marker = join(tripwire, 'helper-ran').replaceAll('\\', '/')
   const helper = "echo escaped > '" + marker + "'"
-  for (const key of ['diff.external', 'diff.hostile.textconv', 'core.fsmonitor', 'core.pager', 'credential.helper']) git('config', key, helper)
-  git('config', 'alias.escape', '!' + helper)
-  git('config', 'core.hooksPath', tripwire.replaceAll('\\', '/'))
+  // One fixture-owned config write retains every hostile helper without spawning a process per key.
+  await appendFile(join(workspace, '.git', 'config'), [
+    '[diff]', '\texternal = ' + JSON.stringify(helper),
+    '[diff \"hostile\"]', '\ttextconv = ' + JSON.stringify(helper),
+    '[core]', '\tfsmonitor = ' + JSON.stringify(helper), '\tpager = ' + JSON.stringify(helper),
+    '\thooksPath = ' + JSON.stringify(tripwire.replaceAll('\\', '/')),
+    '[credential]', '\thelper = ' + JSON.stringify(helper),
+    '[alias]', '\tescape = ' + JSON.stringify('!' + helper), '',
+  ].join('\n'))
   for (const directory of [workspace, tripwire]) {
     execFileSync('icacls', [directory, '/grant', '*S-1-1-0:(OI)(CI)(M)', '/T'], { stdio: 'pipe' })
   }

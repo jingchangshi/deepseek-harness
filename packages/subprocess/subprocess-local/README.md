@@ -98,6 +98,7 @@ Each spawn selects one owner for both signalling and quiescence. Supported Linux
 | [`src/linux-execve.ts`](src/linux-execve.ts) | Linux libc image replacement and inherited-standard-descriptor preservation |
 | [`src/windows-job.ts`](src/windows-job.ts) | Windows Job capability checks and helper launch |
 | [`src/runner-launch.ts`](src/runner-launch.ts) | Source, built, and packaged private-runner selection |
+| [`src/runner-bootstrap.ts`](src/runner-bootstrap.ts) | Runner-side selector, argv checks and executable lookup; imports no parent environment or output plumbing |
 | [`src/spawn-runner.ts`](src/spawn-runner.ts) | Linux one-shot exec bootstrap and Windows Job runner |
 | [`src/runner-protocol.ts`](src/runner-protocol.ts) | Strict Linux launch/startup files and Windows IPC messages |
 | [`src/terminal.ts`](src/terminal.ts) | `node-pty` handle: Linux scope attachment, foreground inspection, and fallback cleanup |
