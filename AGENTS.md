@@ -180,3 +180,7 @@ Docs accompany every code change: update affected README and JSDoc contracts tog
 ## Vendoring policy
 
 `vendor/` packages are pinned source copies (manifest with upstream SHAs in [vendor/README.md](vendor/README.md)). Update via the sync procedure there; re-apply or retire the logged local modifications; rerun `pnpm run test && pnpm run build`.
+
+## Multi-Agent Engineering
+
+For non-trivial engineering, follow the [planner / worker / reviewer workflow](.agents/workflows/multi-agent-engineering.md). The main agent owns architecture, integration and acceptance; delegate bounded implementation to `worker` and independent review to `reviewer`. Verify the original goal against primary evidence before declaring completion.

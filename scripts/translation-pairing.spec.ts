@@ -1,7 +1,7 @@
 /** Regression tests for bilingual snapshots, corpus scope, and structure. */
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -99,6 +99,32 @@ describe('translation pairing index reads', () => {
 })
 
 describe('translation pairing manifest', () => {
+  it('exempts only the named temporary guidance documents in the checked-in manifest', () => {
+    const manifest = parseTranslationPairingManifest(readFileSync(
+      new URL('./translation-pairing.manifest.json', import.meta.url), 'utf8',
+    ))
+    const isPairSource = translationPairSourcePredicate(manifest)
+    for (const stem of ['arch-1006', 'goal-1006']) {
+      const source = `docs/software-engineering-harness/${stem}.md`
+      expect(isTranslationScopeFile(source)).toBe(true)
+      expect(isTranslationPairingManifestExcluded(source, manifest)).toBe(true)
+      expect(isPairSource(source)).toBe(false)
+      for (const suffix of ['.zh.md', '.i18n.yaml']) {
+        expect(isTranslationPairingManifestExcluded(
+          `docs/software-engineering-harness/${stem}${suffix}`, manifest,
+        )).toBe(false)
+      }
+    }
+    for (const name of [
+      'architecture.md', 'scoped-verification.md', 'arch-10060.md',
+      'goal-1006-extra.md', 'nested/goal-1006.md', 'nested/arch-1006.md',
+    ]) {
+      const source = `docs/software-engineering-harness/${name}`
+      expect(isTranslationPairingManifestExcluded(source, manifest)).toBe(false)
+      expect(isPairSource(source)).toBe(true)
+    }
+  })
+
   it('accepts an exclusions-only manifest', () => {
     const manifest = parseTranslationPairingManifest(JSON.stringify({
       excluded: ['docs/generated/'],

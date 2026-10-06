@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for command-runners.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/command-runners.md
+/:
+  en: 9bd6ddea323d7598
+  zh: 9df2ece7da480ca0
+/command-runners:
+  en: 9fa924f9f4ffa6e5
+  zh: 8ab9c8d644a02e8a
+/command-runners/summary:
+  en: f34293a20d686cbb
+  zh: 808b8dcc33c8080d
+/command-runners/table-of-contents:
+  en: 43ee93cb1e8f28a8
+  zh: 6d7763471397e97e
+/command-runners/configuration:
+  en: 156bf91cd2063785
+  zh: 07957ca5c5826023
+/command-runners/environment-and-arguments:
+  en: bc6f48106cbfe791
+  zh: 064b141feeb4a741
+/command-runners/termination-and-recovery:
+  en: 25be3f73fb1dded8
+  zh: 0dd6fddc37e04620
+/command-runners/dev-note:
+  en: b75c8458928b72b9
+  zh: 45e76642489dcc3c

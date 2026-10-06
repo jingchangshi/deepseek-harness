@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for operations.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/operations.md
+/harness-operations:
+  en: 9bb655af3706b803
+  zh: aca4ce5600b281af
+/harness-operations/install:
+  en: 922c87e94ee175e3
+  zh: 3b13ea8226fd56bf
+/harness-operations/daily-use:
+  en: dc754473afd016c3
+  zh: 973b02cf077dd977
+/harness-operations/project-configuration:
+  en: 4ac452a019d5c2b4
+  zh: 4c41e568b2b00afa
+/harness-operations/recovery:
+  en: ec8658ece4571ccb
+  zh: a76c98999ea22f0c
+/harness-operations/diagnostics:
+  en: 757a1ccd702c7707
+  zh: 4705cd85201b8887
+/harness-operations/dev-note:
+  en: b75c8458928b72b9
+  zh: 02cbcc6baa338b07

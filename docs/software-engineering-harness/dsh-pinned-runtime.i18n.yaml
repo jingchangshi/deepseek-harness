@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for dsh-pinned-runtime.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/dsh-pinned-runtime.md
+/pinned-dsh-runtime:
+  en: 2aef689202087c44
+  zh: 5d7d428ce8650347
+/pinned-dsh-runtime/validate-the-freeze:
+  en: 17d9ebf8b143dce4
+  zh: af92c332f20be3dc
+/pinned-dsh-runtime/upgrade-procedure:
+  en: acf4c9d9a4ea89ad
+  zh: 6cde252f2357b349
+/pinned-dsh-runtime/current-qualification:
+  en: cd2e614380eb9262
+  zh: b6a6d6c1518f1d10
+/pinned-dsh-runtime/dev-note:
+  en: b75c8458928b72b9
+  zh: 02cbcc6baa338b07

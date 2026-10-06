@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for compiler-profile.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/compiler-profile.md
+/compiler-verification-profile:
+  en: 195fca041a6e041a
+  zh: b89f809c8efa4b38
+/compiler-verification-profile/project-adapters:
+  en: 8bba78b53238beec
+  zh: 5c9d4c2c7de14d6d
+/compiler-verification-profile/scope:
+  en: 3fa86d4d8be1177c
+  zh: 7d7e5b5a48d719dc
+/compiler-verification-profile/evidence:
+  en: da4032b925c013d9
+  zh: 636c91841ed11f5a
+/compiler-verification-profile/dev-note:
+  en: b75c8458928b72b9
+  zh: 02cbcc6baa338b07

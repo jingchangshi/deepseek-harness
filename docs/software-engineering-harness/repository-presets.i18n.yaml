@@ -1,0 +1,31 @@
+# Bilingual-pair consistency record for repository-presets.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/repository-presets.md
+/repository-presets:
+  en: dae3701399d87550
+  zh: 582708f6505ee66a
+/repository-presets/summary:
+  en: 3f0e5cc2056bd658
+  zh: 41a11deef76cc0f5
+/repository-presets/table-of-contents:
+  en: bc84899c25732cae
+  zh: b1ab380225c225cd
+/repository-presets/preset-files:
+  en: ed1b9170f4f612ab
+  zh: 04191ab5d6094fbf
+/repository-presets/initialization:
+  en: 96dcd38b8712a294
+  zh: 29006064a74fb9e1
+/repository-presets/ownership-and-identity:
+  en: 1b2079447cb18e65
+  zh: 71c1557cae84f892
+/repository-presets/ascend-preset:
+  en: 65ae02bea8fcdf2f
+  zh: b052646eb9b2de25
+/repository-presets/repository-knowledge:
+  en: 92859a0c4b5472c1
+  zh: e6a4f6eaf6bcabb4
+/repository-presets/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

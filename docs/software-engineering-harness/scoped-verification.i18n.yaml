@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for scoped-verification.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/scoped-verification.md
+/scoped-verification:
+  en: 51feb8598b77138f
+  zh: 1a373b99cb70cbe7
+/scoped-verification/summary:
+  en: 4a37607e6ab04dd7
+  zh: ce01f97c3f3fa291
+/scoped-verification/table-of-contents:
+  en: 09c1d773339e0e9a
+  zh: ac2177813f6f63b3
+/scoped-verification/instance-identity:
+  en: 7bb1cfe6cc670e2a
+  zh: 2ad568ff8a58ebe4
+/scoped-verification/execution-and-evidence:
+  en: faae5240401c3b47
+  zh: 4aa809cf9cb08eba
+/scoped-verification/acceptance:
+  en: b2a259485cd4ec27
+  zh: 0b3bcab49bf8cfef
+/scoped-verification/persistence:
+  en: 02659e65db34351c
+  zh: 28faa2f357317e76
+/scoped-verification/dev-note:
+  en: b75c8458928b72b9
+  zh: 45e76642489dcc3c

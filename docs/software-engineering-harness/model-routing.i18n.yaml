@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for model-routing.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/model-routing.md
+/model-routing:
+  en: fdd933514fabe26f
+  zh: 7598c8f77fc7c45a
+/model-routing/fixed-tools:
+  en: 7432f286714e19f2
+  zh: 19e0aaabb47b915e
+/model-routing/validation:
+  en: a81ccfa72d38d7cf
+  zh: 5df7072ebd5e87bf
+/model-routing/deployment-values:
+  en: e82bb90ed71b02b7
+  zh: 47ab131490045e49
+/model-routing/bounded-worker-fallback:
+  en: 1189b4e0e94ac0f1
+  zh: f1048722f08af7e4
+/model-routing/dev-note:
+  en: b75c8458928b72b9
+  zh: 02cbcc6baa338b07

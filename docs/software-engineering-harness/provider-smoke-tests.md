@@ -16,7 +16,7 @@ A failed-route summary projects durable `llm/retry` and error `turn/end` records
 
 Real mode verifies each route from the durable Session that owns it. A delegated role runs in a child Session, so the child's `request/header` supplies `provider-resolves`, `model-resolves`, and `reasoning-routed`, while the root Session supplies the fixed role tool that dispatched it; a child Session is one whose header names another Session of the same run in `parentSession`. Tool results pair only with a call of the same Session and call id, so a parent `read` or an unrelated Session's successful `read` cannot qualify a role. Background execution and structured output remain `NOT_RUN` because fixed role tools disable background execution and no configured role requires structured output. Missing deployment inputs never qualify a production route.
 
-Role qualification uses the primary route. Route qualification covers each distinct configured route and effort, including `company-fallback` even when the primary succeeds. Fallback qualification changes only the candidate's model options and preserves the fixed role tool, persona, result requirements, and tool policy. Require passing provider, model, effort, completion, tool-use, and child-dispatch evidence before enabling the route in production. This is an operator deployment requirement; runtime admission checks configuration and policy, not a saved smoke receipt.
+Role qualification uses the primary route. Route qualification covers each distinct configured route and effort, including `worker-fallback` even when the primary succeeds. Fallback qualification changes only the candidate's model options and preserves the fixed role tool, persona, result requirements, and tool policy. Require passing provider, model, effort, completion, tool-use, and child-dispatch evidence before enabling the route in production. This is an operator deployment requirement; runtime admission checks configuration and policy, not a saved smoke receipt.
 
 ### Check Semantics
 
@@ -36,7 +36,7 @@ A failed route reports a `failureClass` naming the first failing stage: `PROCESS
 
 ## Required Inputs
 
-The deployment owner must provide the company gateway URL and credential, exact company model IDs and effort spellings, and the SUB2API URL and credential. Architect and Reviewer use `DSH_ARCHITECT_MODEL_ID`; their durable request headers must report `openai`, that resolved ID, and `DSH_OPENAI_HIGH_EFFORT`. The GLM primary resolves `DSH_COMPANY_CHALLENGER_MODEL_ID`; the separately qualified Qwen fallback resolves `DSH_COMPANY_FALLBACK_MODEL_ID`. The arbiter model ID remains optional while Arbiter is disabled.
+The deployment owner sets `DSH_MAGPIE_GATEWAY_URL` and the selected credential environment variable when authentication is required. Smoke registration uses the validated deployment provider definitions, including overridden API, URL and credential variable name. The Magpie model template declares API-confirmed IDs and endpoint-specific adapters. Architect and Reviewer use `codex/gpt-6.1-sol`; primary workers use DeepSeek, secondary workers use MiMo, and Qwen and GLM are separately qualified fallback routes. Arbiter remains disabled.
 
 ## Dev Note
 

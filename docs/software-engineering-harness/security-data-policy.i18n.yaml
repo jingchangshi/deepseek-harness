@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for security-data-policy.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/security-data-policy.md
+/security-and-data-policy:
+  en: 33fabdbecba056fd
+  zh: e22b884b484cf3eb
+/security-and-data-policy/sensitive-input:
+  en: 9a5c6a64aca0b979
+  zh: 7db2693cb5a97c54
+/security-and-data-policy/secrets:
+  en: 1b5861feaa6f9a1a
+  zh: 9ab786e13c2ba8d1
+/security-and-data-policy/scope:
+  en: 962fe79199ac55ad
+  zh: 0d3629cef41566ea
+/security-and-data-policy/dev-note:
+  en: b75c8458928b72b9
+  zh: 02cbcc6baa338b07

@@ -1,0 +1,40 @@
+# Bilingual-pair consistency record for task-protocol.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/task-protocol.md
+/engineering-task-protocol:
+  en: 7fad520c10bffcba
+  zh: d7219c2b3e5861f9
+/engineering-task-protocol/summary:
+  en: 8f0341ec0f57467d
+  zh: 6006d933d48be48c
+/engineering-task-protocol/table-of-contents:
+  en: 1325aec90074f298
+  zh: 5c210e40f0c266ff
+/engineering-task-protocol/repository-files:
+  en: 5aba1a8114522071
+  zh: 17186a04c7ec5ad6
+/engineering-task-protocol/state-transitions:
+  en: fdc542b8f5efaec7
+  zh: 7696262c3c401893
+/engineering-task-protocol/revisions-and-writers:
+  en: 3518b529adec6e98
+  zh: 61fbb347902f0df1
+/engineering-task-protocol/verification-and-review:
+  en: 195a295696a957d1
+  zh: fdab50e4aeb27bef
+/engineering-task-protocol/acceptance:
+  en: 21b96faae106ffa4
+  zh: b43467233ed73a59
+/engineering-task-protocol/cli:
+  en: 035665849cc323ae
+  zh: 2671bab1c6755b3b
+/engineering-task-protocol/recovery:
+  en: 11e8ed8898f7b6a5
+  zh: b1a7cf565b97c99c
+/engineering-task-protocol/further-exploration:
+  en: 4aab01501381e17f
+  zh: af076c9ae1de5fcf
+/engineering-task-protocol/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

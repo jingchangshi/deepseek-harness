@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for tilelang-integration.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/tilelang-integration.md
+/tilelang-integration:
+  en: 74bf623cfa76de53
+  zh: a1866dc74165d6ac
+/tilelang-integration/summary:
+  en: ab2b92b3fad55d89
+  zh: c4ff94f7fdfd44cb
+/tilelang-integration/table-of-contents:
+  en: 4300ca92de041a89
+  zh: c7ced7def534df22
+/tilelang-integration/knowledge-sources:
+  en: 2bc9b24ff1678a92
+  zh: 7bfed8fc91a050fb
+/tilelang-integration/environment:
+  en: 9f679a4a01a5d5e3
+  zh: 80041a3195f59556
+/tilelang-integration/verification-commands:
+  en: 55e32f47c9ef3d20
+  zh: 02155fac77cd726b
+/tilelang-integration/acceptance-tiers:
+  en: 5421dd0256023129
+  zh: a6e665af2c418bbd
+/tilelang-integration/dev-note:
+  en: f57f41760d6a74fe
+  zh: a316f660216a96f6

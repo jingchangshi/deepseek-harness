@@ -29,7 +29,7 @@ Named `engineering` and `engineering-run` profiles load an engineering runtime f
 
 The runtime baseline is tag `dsh-v0.2.1-alpha.1`. The freeze manifest requires its tag and commit reference to resolve identically, verifies that this baseline is an ancestor of the harness branch, and checks the toolchain and listed file hashes. Harness commits may follow the release tag; `HEAD` need not equal that tag. The manifest owns exact versions and hashes.
 
-DSH remains an installed orchestration runtime. The project adds profile overlays, repository configuration, deterministic CLI code, schemas, and documentation. It does not change `packages/core/agent-loop`, any DSH service contract, or released Session data.
+DSH remains an installed orchestration runtime. The project adds profile overlays, repository configuration, deterministic CLI code, schemas, and documentation. Engineering orchestration stays outside the agent loop. The tool execution API exposes the sequence of an existing logged call for durable invocation receipts; it does not add or change released Session fields.
 
 <a id="responsibility-split"></a>
 ## Responsibility split
@@ -113,7 +113,7 @@ The bootstrap fixes the Coordinator to its deployment route even when a UI reque
 
 Only the two Scouts run concurrently. Other roles run in sequence under step and role-call budgets. Exactly one active writer lease may exist for a task. Read-only roles do not receive write tools; the Implementer's write executor rejects `.agent`, `.git`, outside-root paths, and symlink aliases. The Implementer may also hold the platform shell tool, whose starting working directory is confined by that same rule; the command body itself stays the deployment sandbox's responsibility. Required project commands remain owned by the deterministic driver.
 
-[Model routing](model-routing.md) defines a single configured fallback for the read-only secondary Scout and Challenger, after the failed child is quiescent. Candidate attempts share one logical role invocation and repository revision; Implementer never changes models through fallback. Architect and Reviewer resolve the deployment's `DSH_ARCHITECT_MODEL_ID`.
+[Model routing](model-routing.md) configures DeepSeek primary workers and MiMo secondary workers through Magpie, with one Qwen or GLM fallback per worker. A fallback requires child quiescence; Implementer cannot switch after a potentially mutating tool starts. Coordinator, Architect, and Reviewer use GPT-6.1-Sol.
 
 <a id="task-protocol"></a>
 ## Task protocol

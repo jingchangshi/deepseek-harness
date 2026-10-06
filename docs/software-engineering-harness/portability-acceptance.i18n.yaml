@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for portability-acceptance.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/portability-acceptance.md
+/repository-independent-engineering-acceptance:
+  en: 47464a9f9bb91546
+  zh: 70ac8a4eb8dd5f4d
+/repository-independent-engineering-acceptance/summary:
+  en: fabb0fb77fb2268a
+  zh: 82f2320d1be76ef2
+/repository-independent-engineering-acceptance/table-of-contents:
+  en: 9523fbe931a8591f
+  zh: f4a8d178505a54d7
+/repository-independent-engineering-acceptance/source-baseline:
+  en: c850d51f52de4782
+  zh: 37d9e9fa2cdde074
+/repository-independent-engineering-acceptance/executable-oracle:
+  en: 1df6a845dbb0514d
+  zh: d3bc6ffe0cdf099a
+/repository-independent-engineering-acceptance/coverage-limits:
+  en: 3e1ecb83e07c3a0d
+  zh: a7b3be106e37c8c7
+/repository-independent-engineering-acceptance/verification-commands:
+  en: dcfec334372fb24e
+  zh: 687c6c0064b4e53f
+/repository-independent-engineering-acceptance/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

@@ -29,7 +29,7 @@
 
 运行时基线是 tag `dsh-v0.2.1-alpha.1`。Freeze manifest 要求 tag 和 commit reference 解析到同一 commit，验证该基线是 harness 分支的祖先，并检查工具链和清单中的文件哈希。Harness commit 可以位于版本 tag 之后，`HEAD` 不必等于该 tag。准确版本和哈希统一由清单维护。
 
-DSH 始终是已安装的 orchestration runtime。项目仅新增 profile overlay、repository 配置、确定性 CLI 代码、schema 和文档，不修改 `packages/core/agent-loop`、任何 DSH service contract 或已发布的 Session 数据。
+DSH 始终是已安装的 orchestration runtime。项目仅新增 profile overlay、repository 配置、确定性 CLI 代码、schema 和文档，Engineering orchestration 保留在 agent loop 外。Tool execution API 提供现有 logged call 的序号，用于 durable invocation receipt；它不新增或修改已发布的 Session 字段。
 
 <a id="responsibility-split"></a>
 ## 职责划分
@@ -113,7 +113,7 @@ docs/software-engineering-harness/
 
 只有两个 Scout 并行运行，其他角色在 step 和 role-call budget 下依次运行。每个任务最多存在一个 active writer lease。Read-only role 不获得 write tool；Implementer 的 write executor 拒绝 `.agent`、`.git`、root 外路径和 symlink alias。Implementer 还可持有平台 shell tool，其起始 working directory 受同一规则约束；命令内容本身由 deployment sandbox 负责。Required project command 始终由 deterministic driver 持有。
 
-[模型路由](model-routing.zh.md)定义只读 secondary Scout 和 Challenger 在失败子 agent 静止后的单一配置 fallback。候选尝试共享一次逻辑角色调用和仓库 revision；Implementer 不得通过 fallback 切换模型。Architect 和 Reviewer 解析部署的 `DSH_ARCHITECT_MODEL_ID`。
+[模型路由](model-routing.zh.md) 通过 Magpie 配置 DeepSeek 主要 worker 和 MiMo 次要 worker，每个 worker 具有一个 Qwen 或 GLM 备用。Fallback 要求子 agent 完成清理；Implementer 在可能修改仓库的工具启动后不得切换。Coordinator、Architect 和 Reviewer 使用 GPT-6.1-Sol。
 
 <a id="task-protocol"></a>
 ## 任务协议

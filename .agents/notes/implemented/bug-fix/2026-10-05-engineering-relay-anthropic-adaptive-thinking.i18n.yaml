@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-10-05-engineering-relay-anthropic-adaptive-thinking.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-05-engineering-relay-anthropic-adaptive-thinking.md
+/agent-note-anthropic-adaptive-thinking-for-the-engineering-relay:
+  en: 18985072c4b2779c
+  zh: 99756147c122fdff
+/agent-note-anthropic-adaptive-thinking-for-the-engineering-relay/problem:
+  en: 3be78c9d2c169a5e
+  zh: 49a3d8b4d404c9d1
+/agent-note-anthropic-adaptive-thinking-for-the-engineering-relay/decision:
+  en: fec1caa4cd83fadb
+  zh: ee0cd4e6b92068cf
+/agent-note-anthropic-adaptive-thinking-for-the-engineering-relay/alternatives-considered:
+  en: e315fcb20609ecda
+  zh: 0ef8f5f3ed311511
+/agent-note-anthropic-adaptive-thinking-for-the-engineering-relay/consequences:
+  en: f46295259ed6dcc3
+  zh: 0a1bc26235614fb7
+/agent-note-anthropic-adaptive-thinking-for-the-engineering-relay/testing:
+  en: 5f3c6095c51b627d
+  zh: 12669158d9cfd425

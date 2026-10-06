@@ -16,7 +16,7 @@ Mock 模式是确定性的 CI 证据。它在无网络访问时覆盖 provider �
 
 Real 模式从拥有该 role 的持久化 Session 验证每条 route。delegated role 运行于 child Session，因此 child 的 `request/header` 提供 `provider-resolves`、`model-resolves` 与 `reasoning-routed`，而 root Session 提供调度它的固定 role tool；若某 Session header 的 `parentSession` 指向同一次运行中的另一 Session，则该 Session 为 child。tool result 仅与同一 Session 且同一 call id 的 call 配对，因此 parent 的 `read` 或无关 Session 的成功 `read` 都不能验收该 role。由于固定 role tool 禁用 background execution，且没有已配置角色要求 structured output，这两项保持 `NOT_RUN`。缺少部署输入绝不表示生产路由通过资格验证。
 
-角色资格验证使用主路由。路由资格验证覆盖每个不同的配置路由与 effort，包括主路由成功时仍单独验证的 `company-fallback`。Fallback 资格验证只替换候选的模型选项，保留固定角色工具、persona、结果要求和工具策略。在生产中启用路由前，必须取得 provider、model、effort、completion、tool-use 和 child-dispatch 的通过证据。这属于部署负责人的要求；runtime 准入验证配置和策略，不读取已保存的 smoke 回执。
+角色资格验证使用主路由。路由资格验证覆盖每个不同的配置路由与 effort，包括主路由成功时仍单独验证的 `worker-fallback`。Fallback 资格验证只替换候选的模型选项，保留固定角色工具、persona、结果要求和工具策略。在生产中启用路由前，必须取得 provider、model、effort、completion、tool-use 和 child-dispatch 的通过证据。这属于部署负责人的要求；runtime 准入验证配置和策略，不读取已保存的 smoke 回执。
 
 ### Check 语义
 
@@ -36,7 +36,7 @@ Real 模式从拥有该 role 的持久化 Session 验证每条 route。delegated
 
 ## 所需输入
 
-部署负责人必须提供公司网关 URL 与凭据、精确公司模型 ID 与 effort 拼写，以及 SUB2API URL 与凭据。Architect 和 Reviewer 使用 `DSH_ARCHITECT_MODEL_ID`；持久化 request header 必须记录 `openai`、该变量解析后的 ID 和 `DSH_OPENAI_HIGH_EFFORT`。GLM 主模型解析 `DSH_COMPANY_CHALLENGER_MODEL_ID`；独立验证的 Qwen fallback 解析 `DSH_COMPANY_FALLBACK_MODEL_ID`。Arbiter 被禁用时，其模型 ID 仍为可选。
+部署所有者设置 `DSH_MAGPIE_GATEWAY_URL`，并在需要认证时提供所选择的凭据环境变量。Smoke 注册使用经过验证的部署 provider 声明，包括覆盖后的 API、URL 和凭据变量名。Magpie 模型模板声明通过 API 确认的 ID 及端点专用 adapter。Architect 和 Reviewer 使用 `codex/gpt-6.1-sol`；主要 worker 使用 DeepSeek，次要 worker 使用 MiMo，Qwen 和 GLM 是需单独验证资格的备用路由。Arbiter 保持禁用。
 
 ## Dev Note
 

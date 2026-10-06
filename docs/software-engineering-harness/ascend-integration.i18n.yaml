@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for ascend-integration.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/ascend-integration.md
+/ascendnpu-ir-integration:
+  en: bba43ed359804329
+  zh: 377d2fa58824852a
+/ascendnpu-ir-integration/summary:
+  en: 5da0fbcd85ba4977
+  zh: c0ffa7044ba290a4
+/ascendnpu-ir-integration/table-of-contents:
+  en: 8e676c6f1779e570
+  zh: 4c0f7d389bed8ff2
+/ascendnpu-ir-integration/environment:
+  en: fe36465e7f142ff3
+  zh: 91ae4bcf0b9ee3c9
+/ascendnpu-ir-integration/verification-commands:
+  en: fa8b42bd4c7340b3
+  zh: cd85c8c36de560f7
+/ascendnpu-ir-integration/acceptance-tiers:
+  en: a655942f0bbb2c75
+  zh: 3c121ae3bbebbbe9
+/ascendnpu-ir-integration/dev-note:
+  en: be68aa0f7dac6109
+  zh: eb39f9eb5802833b

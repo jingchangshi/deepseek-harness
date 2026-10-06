@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for acceptance-plan.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/acceptance-plan.md
+/frozen-engineering-harness-acceptance-plan:
+  en: f85645295c2319ad
+  zh: 1e61e605ea09324d
+/frozen-engineering-harness-acceptance-plan/summary:
+  en: 756951778bdd645e
+  zh: 798c5361f2352499
+/frozen-engineering-harness-acceptance-plan/table-of-contents:
+  en: 75cb1eb4e8fc4320
+  zh: 8fedb30487f1a934
+/frozen-engineering-harness-acceptance-plan/evidence-rules:
+  en: d4ce4161a8d0da66
+  zh: faa32f6d615f9c23
+/frozen-engineering-harness-acceptance-plan/stage-a-architecture:
+  en: 00e49d4d0ab5cf36
+  zh: 9d4f7cdd7714afb6
+/frozen-engineering-harness-acceptance-plan/stage-b-state-machine:
+  en: 2da33a0e3d18e8ad
+  zh: 8c3934b625eea412
+/frozen-engineering-harness-acceptance-plan/stage-c-pinned-dsh-profile:
+  en: 1540abd48b1d9b4b
+  zh: b20d61a9d44f4701
+/frozen-engineering-harness-acceptance-plan/stage-d-model-routing:
+  en: 4ed20b40487f9f25
+  zh: c53afc1ca8474044
+/frozen-engineering-harness-acceptance-plan/stage-e-orchestration:
+  en: 3105cfe4bf52925a
+  zh: bef54511ae03f939
+/frozen-engineering-harness-acceptance-plan/stage-f-verification-profiles:
+  en: 6d34a1247d3c0989
+  zh: a11e8b9d8f2e8bca
+/frozen-engineering-harness-acceptance-plan/stage-g-failure-and-recovery:
+  en: 72b04f1712b09e35
+  zh: 34e8c1403363a24e
+/frozen-engineering-harness-acceptance-plan/stage-h-ascendnpu-ir-integration:
+  en: 4aab4f2ae7d43feb
+  zh: 587010f5d73784b1
+/frozen-engineering-harness-acceptance-plan/stage-i-freeze:
+  en: c07809d9ed328d3b
+  zh: bcfc870dcd34659b
+/frozen-engineering-harness-acceptance-plan/external-gates:
+  en: 21b44ff96f368f31
+  zh: 78c96d3d3eee21c9
+/frozen-engineering-harness-acceptance-plan/further-exploration:
+  en: dbf4ab5e85735446
+  zh: e4f3d378ffa60584
+/frozen-engineering-harness-acceptance-plan/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

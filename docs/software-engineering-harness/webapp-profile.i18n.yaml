@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for webapp-profile.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/webapp-profile.md
+/web-application-verification-profile:
+  en: adc1e5f4d1ce2213
+  zh: f9108477301ba5cf
+/web-application-verification-profile/configure-a-project:
+  en: 0b523ead00e7f020
+  zh: 0180c627b48d4d65
+/web-application-verification-profile/acceptance:
+  en: 2758d082e8eb63ad
+  zh: 517a1e465b75d871
+/web-application-verification-profile/example:
+  en: f4fe4f5af4350806
+  zh: d19ab7b555dcbffd
+/web-application-verification-profile/dev-note:
+  en: b75c8458928b72b9
+  zh: 02cbcc6baa338b07

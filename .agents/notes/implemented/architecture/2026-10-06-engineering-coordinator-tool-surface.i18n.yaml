@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-10-06-engineering-coordinator-tool-surface.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-06-engineering-coordinator-tool-surface.md
+/agent-note-engineering-coordinator-tool-surface:
+  en: 808854913d878749
+  zh: 64b3b520675b7e01
+/agent-note-engineering-coordinator-tool-surface/problem:
+  en: b88dff7e1ad46b22
+  zh: 427fffaadd404210
+/agent-note-engineering-coordinator-tool-surface/decision:
+  en: eb57e4667c5dd52e
+  zh: 29509cd68d993bbf
+/agent-note-engineering-coordinator-tool-surface/alternatives-considered:
+  en: d9a18f35600bbe88
+  zh: 32d193fa94506b3b
+/agent-note-engineering-coordinator-tool-surface/consequences:
+  en: 931c66b18c63ff89
+  zh: b8adb2bfa1ee676b
+/agent-note-engineering-coordinator-tool-surface/testing:
+  en: 6ac2e6b033fb206c
+  zh: 36f84fec42ec8c29

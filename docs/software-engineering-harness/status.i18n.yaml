@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for status.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/status.md
+/frozen-engineering-harness-status:
+  en: cd9770b3682e3778
+  zh: c5f2926f782eb819
+/frozen-engineering-harness-status/summary:
+  en: 2bb8d96d72c58df2
+  zh: eaa59a2693758ac7
+/frozen-engineering-harness-status/stage-status:
+  en: f836d06caca536be
+  zh: 44e7b9b1c516f5ec
+/frozen-engineering-harness-status/stage-a-evidence:
+  en: 208a90fed8561add
+  zh: efa6d5eab306a3b9
+/frozen-engineering-harness-status/external-evidence:
+  en: 9ffc1db8346ed7e2
+  zh: 2d04dd74ce24d0f1
+/frozen-engineering-harness-status/deployment-qualification:
+  en: ef4d538f1aed54b8
+  zh: 9ede02ccda2b1c2c
+/frozen-engineering-harness-status/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

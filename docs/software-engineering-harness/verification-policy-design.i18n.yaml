@@ -1,0 +1,34 @@
+# Bilingual-pair consistency record for verification-policy-design.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/verification-policy-design.md
+/verification-policy-design:
+  en: 4eb85f49c39298d0
+  zh: b7c26d1345060997
+/verification-policy-design/summary:
+  en: 146b88b3c501a06c
+  zh: 8cc2ddbf78771edc
+/verification-policy-design/table-of-contents:
+  en: 5df71d4abdbe66fa
+  zh: 7ec3cfcca7cd753a
+/verification-policy-design/policy-ownership:
+  en: 9524fe77d563edf5
+  zh: ffbf174053233d4d
+/verification-policy-design/required-instances:
+  en: 6c3daade249bfc70
+  zh: 77eb561f433ddded
+/verification-policy-design/identity-inputs:
+  en: e5f398b231a60771
+  zh: c995f44f68feadb5
+/verification-policy-design/source-sealing:
+  en: ab960aa2d2f819f4
+  zh: dd2260dd54b48eff
+/verification-policy-design/acceptance-and-recovery:
+  en: 81f58dd2956f4b4b
+  zh: 2c88291d7bf37f75
+/verification-policy-design/compatibility:
+  en: a5f76ef08ba3502c
+  zh: a730f6fb111199d5
+/verification-policy-design/dev-note:
+  en: b75c8458928b72b9
+  zh: 45e76642489dcc3c
