@@ -38,7 +38,7 @@
     ".agent/schemas/verification-v3.schema.json": "fee0dab9e511a19192d3484e4f083b6fe7bed1552fd967d2049a9d75b051b5ad",
     ".agent/schemas/verification.schema.json": "1f43ed79d611b86538321d56093334e83730396a159f531e9a8d8ce0f5961b47",
     "package.json": "5cb0df570d6ec922bb54cdd13810d977706dbfeb237a173d4ae1df09c64ecaf1",
-    "pnpm-lock.yaml": "e257d48647863559f34a53da8e86a48128099269da30d660b6042f9636fb792d",
+    "pnpm-lock.yaml": "2b54acf2af165f30f52bee80c427a2db6b6842ab508793d4206361775be0edf4",
     "tools/agent/agentctl.mjs": "1bff2ba8734aab006030f42e6afe42700f24ede89ca57338e5db84be877d270c",
     "tools/agent/install.mjs": "e9caa887b26585954a959c8368634ade1b699eeefdb7312f19a94cd3edd5a076",
     "tools/agent/launch.mjs": "4e8dc9d6f0488a8a88cced1a7f45cce0dafdbcf7fc69150de3342c0f685bb0d2",
