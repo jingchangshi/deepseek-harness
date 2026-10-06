@@ -29,7 +29,7 @@ kind: "package-library"
 
 ### 一次运行提供什么
 
-一次调用启动并驱动一个一次性子 agent。调用兑现意味着子 agent 已发布到 `ctx.agents`，调用方拥有返回的运行；启动被拒绝时，未发布的创建已经完全停稳，因此不会有创建到一半的子 agent 存活。运行暴露子 agent 的 id 与在线 agent、一个 `result` promise，以及一个 `dispose()`——它会停止循环、移除 agent 与会话，并撤销作用域内的注册。
+一次调用启动并驱动一个一次性子 agent。调用兑现意味着子 agent 已发布到 `ctx.agents`，调用方拥有返回的运行；启动被拒绝时，未发布的创建已经完全停稳，因此不会有创建到一半的子 agent 存活。运行暴露子 agent 的 id 与在线 agent、一个 `result` promise，以及一个 `dispose()`——它会停止循环、移除 agent 与会话，并撤销作用域内的注册。失败轮次还会返回包含已识别错误代码和可用 HTTP 状态的诊断；任意其他代码变为 `UNKNOWN`，原始消息保留在子 Session 中。该固定格式诊断低于结果的 4096 字节限制，不复制凭据、工具输入或 provider 响应正文。
 
 ### 唯一输入
 

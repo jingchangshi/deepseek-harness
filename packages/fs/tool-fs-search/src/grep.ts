@@ -98,6 +98,34 @@ export function parseGrepArgs(args: { pattern: string; path?: string; include?: 
 }
 
 /**
+ * Syntax the default ripgrep engine rejects and only its PCRE2 engine compiles:
+ * backreferences, named-group and property escapes, look-around, inline PCRE2
+ * directives, and POSIX character classes.
+ *
+ * Detection is deliberately conservative. A false positive runs the pattern
+ * under PCRE2, which still evaluates every construct the default engine
+ * supports; a false negative reproduces the "look-around is not supported"
+ * rejection the caller would otherwise have to read and act on.
+ */
+const PCRE2_ESCAPE_SYNTAX = /\\[1-9]|\\[pP]\{/
+const PCRE2_GROUP_SYNTAX = /\(\?(?:[=!]|<[=!]|P[<=])|\(\?[imsx]|\[\[:/
+
+/**
+ * Whether a pattern needs ripgrep's PCRE2 engine. The packaged binary ships
+ * with PCRE2 compiled in, so the tool selects the engine rather than returning
+ * ripgrep's rejection for the caller to translate into a second call.
+ *
+ * Backreferences are tested on the raw pattern; group and class constructs are
+ * tested after every escape pair is removed, so an escaped literal (`\\(?=`)
+ * is not read as look-around by the default engine's own rules.
+ * @param pattern - the model-supplied ripgrep regular expression.
+ * @returns true when the pattern uses syntax the default engine cannot compile.
+ */
+export function requiresPcre2(pattern: string): boolean {
+  return PCRE2_ESCAPE_SYNTAX.test(pattern) || PCRE2_GROUP_SYNTAX.test(pattern.replace(/\\./g, ''))
+}
+
+/**
  * Build the fixed line-oriented `rg --json` argv for one `grep` call. Every
  * model-controlled value ({@link GrepInput.pattern}, {@link GrepInput.path},
  * {@link GrepInput.include}) is a plain argv element — no shell layer exists,
@@ -105,11 +133,17 @@ export function parseGrepArgs(args: { pattern: string; path?: string; include?: 
  * and the target behind `--`, so a leading-dash value can never be parsed as
  * a flag.
  *
+ * `--pcre2` is selected automatically for a pattern using look-around,
+ * backreferences, or inline PCRE2 directives ({@link requiresPcre2}), so a
+ * caller writes the expression it means instead of reacting to an engine
+ * diagnostic. The flag precedes `--regexp`, and PCRE2 remains a superset of
+ * the default engine's syntax for the constructs this tool accepts.
+ *
  * @param input - the validated arguments.
  * @returns the complete ripgrep argument vector (excluding the binary itself).
  */
 export function buildGrepCommand(input: GrepInput): string[] {
-  const parts = ['--json', `--regexp=${input.pattern}`]
+  const parts = requiresPcre2(input.pattern) ? ['--json', '--pcre2', `--regexp=${input.pattern}`] : ['--json', `--regexp=${input.pattern}`]
   if (input.include !== undefined) parts.push(`--glob=${input.include}`)
   if (input.path !== undefined) parts.push('--', input.path)
   return parts

@@ -1,0 +1,81 @@
+schemaVersion: 1
+runtimeTag: dsh-v0.2.1-alpha.1
+providers:
+  magpie:
+    api: ${DSH_MAGPIE_API:-openai-completions}
+    baseURL: ${DSH_MAGPIE_GATEWAY_URL}
+    apiKeyEnv: ${DSH_MAGPIE_API_KEY_ENV:-MAGPIE_API_KEY}
+  magpie-responses:
+    api: ${DSH_MAGPIE_RESPONSES_API:-openai-responses}
+    baseURL: ${DSH_MAGPIE_GATEWAY_URL}
+    apiKeyEnv: ${DSH_MAGPIE_API_KEY_ENV:-MAGPIE_API_KEY}
+  company:
+    api: ${DSH_COMPANY_API:-openai-completions}
+    baseURL: ${DSH_COMPANY_GATEWAY_URL}
+    apiKeyEnv: DSH_COMPANY_GATEWAY_API_KEY
+routes:
+  worker:
+    displayName: Primary Worker
+    provider: ${DSH_WORKER_PROVIDER:-magpie}
+    model: ${DSH_WORKER_MODEL_ID:-group/auto-deepseek-v4-1-flash}
+    reasoningEfforts:
+      low: low
+      medium: low
+      high: high
+      max: max
+    maxDataClass: internal
+    externalRelay: true
+    costClass: standard
+  worker-secondary:
+    displayName: Secondary Worker
+    provider: ${DSH_SECONDARY_WORKER_PROVIDER:-magpie}
+    model: ${DSH_SECONDARY_WORKER_MODEL_ID:-opencode-go/mimo-v2.6-flash}
+    reasoningEfforts:
+      medium: null
+      high: null
+      max: null
+    maxDataClass: internal
+    externalRelay: true
+    costClass: standard
+  worker-fallback:
+    displayName: Worker Fallback
+    provider: ${DSH_WORKER_FALLBACK_PROVIDER:-magpie}
+    model: ${DSH_WORKER_FALLBACK_MODEL_ID:-trae-cn/qwen3.8-flash}
+    reasoningEfforts:
+      medium: null
+      high: null
+      max: null
+    maxDataClass: internal
+    externalRelay: true
+    costClass: standard
+  worker-secondary-fallback:
+    displayName: Secondary Worker Fallback
+    provider: ${DSH_SECONDARY_WORKER_FALLBACK_PROVIDER:-magpie}
+    model: ${DSH_SECONDARY_WORKER_FALLBACK_MODEL_ID:-trae-cn/glm-5.3-flash}
+    reasoningEfforts:
+      medium: null
+      high: null
+      max: null
+    maxDataClass: internal
+    externalRelay: true
+    costClass: standard
+  architecture:
+    displayName: Architecture
+    provider: ${DSH_ARCHITECT_PROVIDER:-magpie-responses}
+    model: ${DSH_ARCHITECT_MODEL_ID:-codex/gpt-6.1-sol}
+    reasoningEfforts:
+      medium: medium
+      high: high
+    maxDataClass: internal
+    externalRelay: true
+    costClass: premium
+  arbiter:
+    displayName: Arbiter
+    provider: ${DSH_ARBITER_PROVIDER:-magpie-responses}
+    model: ${DSH_ARBITER_MODEL_ID:-codex/gpt-6.1-sol}
+    reasoningEfforts:
+      medium: medium
+      high: high
+    maxDataClass: internal
+    externalRelay: true
+    costClass: premium

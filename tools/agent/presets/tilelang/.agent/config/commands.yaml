@@ -1,0 +1,63 @@
+runners:
+  source:
+    kind: local
+    workingDirectory: .
+  container:
+    kind: docker
+    executable: /usr/bin/docker
+    container: s00653124_build
+    user: shijingchang
+    home: /home/shijingchang
+    workingDirectory: '{{PROJECT_ROOT}}'
+commands:
+  source-syntax:
+    runner: source
+    executable: /usr/bin/python3
+    args: [.agent/scripts/tilelang-check.py, source-syntax, '{{PROJECT_ROOT}}']
+    env:
+      set: { PYTHONDONTWRITEBYTECODE: '1', PYTHONNOUSERSITE: '1' }
+      inherit: []
+    platforms: [linux, darwin]
+  build:
+    runner: container
+    executable: /bin/bash
+    args: [.agent/scripts/tilelang.sh, build, '{{PROJECT_ROOT}}']
+    env: &container-env
+      set:
+        PATH: /opt/cmake/bin:/usr/local/bin:/usr/bin:/bin
+        DSH_CANN_ENV: /home/shijingchang/CANN/cann/set_env.sh
+        DSH_CONDA_SH: /opt/miniconda3/etc/profile.d/conda.sh
+        DSH_CONDA_ENV: triton-py311
+        DSH_VENV_DIR: .venv
+        DSH_BUILD_DIR: build
+        DSH_BUILD_JOBS: '64'
+        DSH_BUILD_TIMEOUT_SECONDS: '1800'
+        DSH_CMAKE: /opt/cmake/bin/cmake
+        DSH_CACHE_DIR: /tmp/dsh-tilelang-cache
+      inherit: []
+    platforms: [linux]
+  backend-context:
+    runner: container
+    executable: /bin/bash
+    args: [.agent/scripts/tilelang.sh, backend-context, '{{PROJECT_ROOT}}']
+    env: *container-env
+    platforms: [linux]
+  semantic-regression:
+    runner: container
+    executable: /bin/bash
+    args: [.agent/scripts/tilelang.sh, semantic-regression, '{{PROJECT_ROOT}}']
+    env: *container-env
+    platforms: [linux]
+  ir-verify:
+    runner: container
+    executable: /bin/bash
+    args: [.agent/scripts/tilelang.sh, ir-verify, '{{PROJECT_ROOT}}']
+    env: *container-env
+    platforms: [linux]
+inputs:
+  - .agent/scripts/tilelang.sh
+  - .agent/scripts/tilelang-check.py
+scope:
+  repository: TileLang
+  targetBackends: { CUDA: NOT_RUN, ROCm: NOT_RUN, Metal: NOT_RUN, Ascend: NOT_RUN, LLVM: NOT_RUN, WebGPU: NOT_RUN, CuTeDSL: NOT_RUN }
+  validationLayers: [Python-DSL, TVM-TIRX, semantic-analysis, BackendContext, PassPipeline, Host-Codegen, Device-Codegen, ExecutionBackend, Build, Load, Launch]

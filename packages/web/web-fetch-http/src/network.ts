@@ -98,7 +98,7 @@ export async function resolvePublicAddresses(
       throw new WebError(`hostname "${hostname}" resolved to an invalid IP address`, 'WEB_PROVIDER_ERROR')
     }
     if (!isPublicIpAddress(entry.address)) {
-      throw new WebError(`URL hostname "${hostname}" resolves to a non-public IP address`, 'WEB_BLOCKED_URL')
+      throw new WebError(`URL hostname "${hostname}" resolves to a non-public IP address; this tool reaches only public internet hosts, so read a local service over the filesystem instead of fetching it`, 'WEB_BLOCKED_URL')
     }
     const translatedIpv4 = translatedIpv4Address(entry.address, nat64Prefixes)
     if (translatedIpv4 !== undefined && !isPublicIpAddress(translatedIpv4)) {

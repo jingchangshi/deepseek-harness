@@ -166,6 +166,17 @@ interface ToolArgsMap {
     /** The exact skill name from the available skills list. */
     name: string;
   } & Record<string, JsonValue>;
+  /** Read a bounded page of spilled text by its opaque locator, including locators inherited in a fork or received as context. Follow the returned byteOffset to continue within long lines. */
+  spill_read: {
+    /** Opaque full-result locator from the spill notice. Do not parse or make one up. */
+    locator: string;
+    /** 1-based first line to return. Defaults to 1. */
+    offset?: number;
+    /** Maximum number of lines to return. The spill backend applies its own cap when omitted. */
+    limit?: number;
+    /** Absolute UTF-8 byte cursor from the previous page; overrides offset. */
+    byteOffset?: number;
+  } & Record<string, JsonValue>;
   /** Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles. */
   subagent: {
     /** A short (3-5 word) description of the delegated task, for display. */
@@ -437,6 +448,18 @@ interface ToolOutputMap {
       description: string;
     };
     content: string;
+  };
+  spill_read: {
+    locator: string;
+    offset: number;
+    lines: {
+      number: number;
+      text: string;
+    }[];
+    totalLines: number;
+    bytes: number;
+    truncated: boolean;
+    nextByteOffset: number;
   };
   subagent: {
     kind: "background";

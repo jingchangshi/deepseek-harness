@@ -9,7 +9,7 @@ import type { PreToolDecision, ToolDefinition, ToolExecution, ToolExecutionInput
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionSeq, type SessionId } from '@deepseek-ai/dsh-session'
 
 const testToolSignal = new AbortController().signal
 
@@ -263,6 +263,33 @@ describe('restrict() over an inherited scope layer', () => {
 })
 
 describe('scoped execution dispatch', () => {
+  it.each([undefined, SessionSeq(42)])('preserves optional logged occurrence %s through policy, dispatch and result observation', async (loggedCallSeq) => {
+    const ctx = await mount()
+    const seen: Array<SessionSeq | undefined> = []
+    ctx.tools.register({
+      ...tool('capture'),
+      async execute(_args, exec) {
+        seen.push(exec.loggedCallSeq)
+        return 'captured'
+      },
+    })
+    ctx.on('tools/pre-execute', (exec, next) => {
+      seen.push(exec.loggedCallSeq)
+      return next()
+    })
+    ctx.on('tools/result', (exec) => {
+      seen.push(exec.loggedCallSeq)
+      expect(Object.isFrozen(exec)).toBe(true)
+    })
+    try {
+      const result = await ctx.tools.execute({ callId: ToolCallId('capture'), name: 'capture', arguments: {}, signal: testToolSignal, ...loggedCallSeq === undefined ? {} : { loggedCallSeq } })
+      expect(result.isError).toBe(false)
+      expect(seen).toEqual([loggedCallSeq, loggedCallSeq, loggedCallSeq])
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('an agent.ctx pre-execute listener gates only its own agent (and never subject-less calls)', async () => {
     const ctx = await mount()
     const { scope, key } = await mintAgentScope(ctx, 'a')

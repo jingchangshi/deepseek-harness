@@ -57,4 +57,11 @@ describe('spill seam', () => {
     await fiber.dispose()
     expect((ctx as Context & { spillStore?: unknown }).spillStore).toBeUndefined()
   })
+
+  it('keeps readText optional for a save-only backend', async () => {
+    const ctx = new Context()
+    await ctx.plugin(StubStore)
+    await expect(ctx.spillStore.readText({ locator: SpillLocator('/stub/web_fetch.txt') }))
+      .rejects.toThrow('spillStore.readText is not supported')
+  })
 })

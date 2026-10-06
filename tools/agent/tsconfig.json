@@ -1,0 +1,27 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rewriteRelativeImportExtensions": false,
+    "rootDir": ".",
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["runtime/**/*.ts", "src/**/*.ts", "tests/**/*.ts"],
+  "references": [
+    { "path": "../../packages/core/agent" },
+    { "path": "../../packages/core/agent-default-model" },
+    { "path": "../../packages/core/agent-loop" },
+    { "path": "../../packages/core/system-prompt" },
+    { "path": "../../packages/core/tools" },
+    { "path": "../../packages/llm/llm" },
+    { "path": "../../packages/llm/llm-pi-ai" },
+    { "path": "../../packages/subagent/subagent" },
+    { "path": "../../packages/subprocess/subprocess" },
+    { "path": "../../packages/subprocess/subprocess-local" },
+    { "path": "../../packages/test-support/agent-loop-testkit" },
+    { "path": "../../packages/test-support/loader-smoke" },
+    { "path": "../../packages/util/atomic-write" },
+    { "path": "../../vendor/cordis" },
+    { "path": "../../vendor/schemastery" }
+  ]
+}

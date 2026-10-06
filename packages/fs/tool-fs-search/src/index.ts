@@ -46,6 +46,7 @@ export {
   parseGrepMatches,
   presentGrepCall,
   presentGrepResult,
+  requiresPcre2,
 } from './grep.ts'
 export type { GrepInput, GrepToolCaps } from './grep.ts'
 export {

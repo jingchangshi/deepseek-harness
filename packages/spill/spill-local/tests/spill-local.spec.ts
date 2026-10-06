@@ -11,13 +11,13 @@
 
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, normalize } from 'node:path'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import type { SaveTextSpill } from '@deepseek-ai/dsh-spill'
+import { SpillLocator, type SaveTextSpill } from '@deepseek-ai/dsh-spill'
 import LocalSpillStore, {
   DEFAULT_ROOT_PREFIX,
   discoverDefaultRoots,
@@ -146,7 +146,233 @@ describe('LocalSpillStore service', () => {
     expect(dirname(ref.locator)).toBe(sessionDir(root, 'sess-1'))
     expect(readFileSync(ref.locator, 'utf8')).toBe('the full body')
     expect(ref.bytes).toBe(Buffer.byteLength('the full body', 'utf8'))
-    expect(ref.retrievalHint).toBe('Use read with offset/limit, or grep this path to search within it.')
+    expect(ref.retrievalHint).toBe('Use spill_read with this locator to retrieve the full content.')
+  })
+
+  it.skipIf(process.platform === 'win32')('rejects an unsafe configured root before creating a spill locator', async () => {
+    chmodSync(root, 0o777)
+    const ctx = new Context()
+    await ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0 })
+    await expect(ctx.spillStore.saveText(request())).rejects.toThrow('spill root must be private to the current user')
+    expect(readdirSync(sessionDir(root, 'sess-1'))).toEqual([])
+    await ctx.fiber.dispose()
+  })
+
+  it.skipIf(process.platform === 'win32')('rejects a session directory writable by other local users', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0 })
+    const dir = sessionDir(root, 'sess-1')
+    mkdirSync(dir, { recursive: true, mode: 0o755 })
+    chmodSync(dir, 0o755)
+    await expect(ctx.spillStore.saveText(request())).rejects.toThrow('session directory must be private')
+    await ctx.fiber.dispose()
+  })
+
+  it.skipIf(process.platform === 'win32')('rejects a symlink where the owning session directory must be', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0 })
+    const target = join(root, 'session-target')
+    mkdirSync(target, { recursive: true, mode: 0o700 })
+    symlinkSync(target, sessionDir(root, 'sess-1'), 'dir')
+    await expect(ctx.spillStore.saveText(request())).rejects.toThrow('session path is not a directory')
+    await ctx.fiber.dispose()
+  })
+
+  it('reads a bounded window back from a saved locator', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0 })
+    const content = 'one\n.two\r\nthree\nfour\n'
+    const ref = await ctx.spillStore.saveText({ ...request(), content })
+
+    const read = await ctx.spillStore.readText({ locator: ref.locator, offset: 2, limit: 2 })
+    expect(read.locator).toBe(ref.locator)
+    expect(read.path).toBe(ref.locator)
+    expect(read.offset).toBe(2)
+    expect(read.lines).toEqual([
+      { number: 2, text: '.two' },
+      { number: 3, text: 'three' },
+    ])
+    expect(read.totalLines).toBe(4)
+    expect(read.bytes).toBe(Buffer.byteLength(content, 'utf8'))
+    expect(read.truncated).toBe(true)
+
+    const all = await ctx.spillStore.readText({ locator: ref.locator })
+    expect(all.lines.map(line => line.number)).toEqual([1, 2, 3, 4])
+    expect(all.truncated).toBe(false)
+
+    const explicitBytes = await ctx.spillStore.readText({ locator: ref.locator, maxBytes: 4 })
+    expect(explicitBytes.lines).toEqual([{ number: 1, text: 'one' }])
+    await expect(ctx.spillStore.readText({ locator: ref.locator, maxBytes: 65537 }))
+      .resolves.toMatchObject({ truncated: false, bytes: Buffer.byteLength(content, 'utf8') })
+  })
+
+  it('caps a requested byte page at the configured backend limit', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0, readMaxBytes: 8 })
+    const content = '😀abcdefgh'
+    const ref = await ctx.spillStore.saveText({ ...request(), content })
+
+    const first = await ctx.spillStore.readText({ locator: ref.locator, maxBytes: 65536 })
+    expect(first.lines).toEqual([{ number: 1, text: '😀abcd' }])
+    expect(Buffer.byteLength(first.lines[0]!.text)).toBeLessThanOrEqual(8)
+    expect(first.truncated).toBe(true)
+    const second = await ctx.spillStore.readText({ locator: ref.locator, byteOffset: first.nextByteOffset, maxBytes: 65536 })
+    expect(second.lines).toEqual([{ number: 1, text: 'efgh' }])
+    expect(second.truncated).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
+  it('retrieves an inherited locator without changing its producing session namespace', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0 })
+    const ref = await ctx.spillStore.saveText(request())
+    expect((await ctx.spillStore.readText({ locator: ref.locator })).lines).toEqual([{ number: 1, text: 'the full body' }])
+    expect(dirname(ref.locator)).toBe(sessionDir(root, 'sess-1'))
+    await ctx.fiber.dispose()
+  })
+
+  it('pages oversized UTF-8 single lines without losing content or exceeding the byte cap', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0, readMaxBytes: 1027, readMaxLines: 2 })
+    const content = '😀界'.repeat(10000)
+    const ref = await ctx.spillStore.saveText({ ...request(), content })
+    let byteOffset = 0
+    let recovered = ''
+    for (let page = 0; page < 100; page += 1) {
+      const read = await ctx.spillStore.readText({ locator: ref.locator, byteOffset })
+      expect(read.lines).toHaveLength(1)
+      const text = read.lines[0]!.text
+      expect(Buffer.byteLength(text)).toBeLessThanOrEqual(1027)
+      expect(text).not.toContain('�')
+      recovered += text
+      expect(read.nextByteOffset).toBeGreaterThan(byteOffset)
+      byteOffset = read.nextByteOffset
+      if (!read.truncated) break
+    }
+    expect(recovered).toBe(content)
+    expect(byteOffset).toBe(Buffer.byteLength(content))
+    await expect(ctx.spillStore.readText({ locator: ref.locator, byteOffset: 1 })).rejects.toThrow('UTF-8 character boundary')
+    await expect(ctx.spillStore.readText({ locator: ref.locator, byteOffset: -1 })).rejects.toThrow('non-negative')
+    await expect(ctx.spillStore.readText({ locator: ref.locator, byteOffset: byteOffset + 1 })).rejects.toThrow('out of range')
+    await expect(ctx.spillStore.readText({ locator: ref.locator, limit: 3 })).rejects.toThrow('less than or equal to 2')
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects a locator outside the configured spill root', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0 })
+    await expect(ctx.spillStore.readText({ locator: SpillLocator('/etc/passwd') }))
+      .rejects.toThrow('outside the configured spill root')
+  })
+
+  it('rejects a relative locator', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0 })
+    await expect(ctx.spillStore.readText({ locator: SpillLocator('session-000000000000/000000000000-file') }))
+      .rejects.toThrow('must be an absolute path')
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects a path inside the root that is not a backend-owned spill artifact', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0 })
+    const dir = sessionDir(root, 'sess-1')
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+    const planted = join(dir, 'not-a-spill.txt')
+    writeFileSync(planted, 'not mine')
+    await expect(ctx.spillStore.readText({ locator: SpillLocator(planted) }))
+      .rejects.toThrow('does not name an owned spill artifact')
+  })
+
+  it('rejects a symlink planted under a session directory', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0 })
+    const dir = sessionDir(root, 'sess-1')
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+    const planted = join(dir, '000000000000-evil')
+    symlinkSync('/etc/passwd', planted)
+    await expect(ctx.spillStore.readText({ locator: SpillLocator(planted) }))
+      .rejects.toThrow('does not name a regular spill file')
+  })
+
+  it('rejects a hard-linked arbitrary file under a backend-named locator', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0 })
+    const dir = sessionDir(root, 'sess-1')
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
+    const outside = join(root, 'private.txt')
+    writeFileSync(outside, 'not a spill', { mode: 0o600 })
+    const planted = join(dir, '000000000000-evil')
+    linkSync(outside, planted)
+    await expect(ctx.spillStore.readText({ locator: SpillLocator(planted) })).rejects.toThrow('changed during retrieval')
+    await ctx.fiber.dispose()
+  })
+
+  it.skipIf(process.platform === 'win32')('rejects spill storage permissions that permit other users to read or replace content', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0 })
+    const ref = await ctx.spillStore.saveText(request())
+    try {
+      chmodSync(ref.locator, 0o644)
+      await expect(ctx.spillStore.readText({ locator: ref.locator })).rejects.toThrow('private to the current user')
+      chmodSync(ref.locator, 0o600)
+      chmodSync(dirname(ref.locator), 0o777)
+      await expect(ctx.spillStore.readText({ locator: ref.locator })).rejects.toThrow('private to the current user')
+    } finally {
+      chmodSync(dirname(ref.locator), 0o700)
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('reports empty files, invalid line windows, and caller cancellation', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0 })
+    const ref = await ctx.spillStore.saveText({ ...request(), content: '' })
+    const empty = await ctx.spillStore.readText({ locator: ref.locator })
+    expect(empty).toMatchObject({ lines: [], totalLines: 0, bytes: 0, truncated: false, nextByteOffset: 0 })
+    await expect(ctx.spillStore.readText({ locator: ref.locator, offset: 0 })).rejects.toThrow('positive safe integer')
+    await expect(ctx.spillStore.readText({ locator: ref.locator, limit: 1.5 })).rejects.toThrow('positive safe integer')
+    await expect(ctx.spillStore.readText({ locator: ref.locator, offset: 2 })).rejects.toThrow('out of range')
+    const controller = new AbortController()
+    controller.abort()
+    await expect(ctx.spillStore.readText({ locator: ref.locator, signal: controller.signal })).rejects.toThrow(/aborted/i)
+    await ctx.fiber.dispose()
+  })
+
+  it('preserves a UTF-8 BOM and rejects corrupted non-UTF-8 storage without expanding the byte budget', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0, readMaxBytes: 4 })
+    const ref = await ctx.spillStore.saveText({ ...request(), content: '\uFEFF😀' })
+    const first = await ctx.spillStore.readText({ locator: ref.locator })
+    expect(first.lines).toEqual([{ number: 1, text: '\uFEFF' }])
+    expect(first.nextByteOffset).toBe(3)
+    const next = await ctx.spillStore.readText({ locator: ref.locator, byteOffset: first.nextByteOffset })
+    expect(next.lines).toEqual([{ number: 1, text: '😀' }])
+    expect(next.truncated).toBe(false)
+    writeFileSync(ref.locator, Buffer.from([0xff]))
+    await expect(ctx.spillStore.readText({ locator: ref.locator })).rejects.toThrow(/UTF-8/i)
+    await ctx.fiber.dispose()
+  })
+
+  it('keeps a trailing carriage return until its line boundary is retrieved', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0 })
+    const ref = await ctx.spillStore.saveText({ ...request(), content: 'a\r\n' })
+    const first = await ctx.spillStore.readText({ locator: ref.locator, maxBytes: 2 })
+    expect(first.lines).toEqual([{ number: 1, text: 'a\r' }])
+    expect(first.nextByteOffset).toBe(2)
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects a symlinked session directory even when its target remains inside the root', async () => {
+    const ctx = new Context()
+    await ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0 })
+    const ref = await ctx.spillStore.saveText(request())
+    const alias = sessionDir(root, 'alias')
+    symlinkSync(dirname(ref.locator), alias, 'junction')
+    await expect(ctx.spillStore.readText({ locator: SpillLocator(join(alias, basename(ref.locator))) }))
+      .rejects.toThrow('session path is not a directory')
+    await ctx.fiber.dispose()
   })
 
   it('resolves a relative configured root to absolute', async () => {
@@ -256,7 +482,7 @@ function active(path: string): SweepRoot {
 describe('startup cleanup sweep', () => {
   it('deletes files older than the cutoff and keeps fresh ones', async () => {
     const dir = sessionDir(root, 'sess-1')
-    mkdirSync(dir, { recursive: true })
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
     const old = join(dir, 'old.txt'); writeAged(old, 'x', 40)
     const fresh = join(dir, 'fresh.txt'); writeAged(fresh, 'y', 1)
     await runSweep([active(root)])
@@ -266,7 +492,7 @@ describe('startup cleanup sweep', () => {
 
   it('keeps a file exactly at the boundary (only strictly-older expires)', async () => {
     const dir = sessionDir(root, 'sess-1')
-    mkdirSync(dir, { recursive: true })
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
     const requestedMs = Date.now() - 30 * DAY_MS
     const boundary = join(dir, 'boundary.txt')
     writeFileSync(boundary, 'x')
@@ -279,7 +505,7 @@ describe('startup cleanup sweep', () => {
 
   it('disabled (cleanupPeriodDays: 0) sweeps nothing', async () => {
     const dir = sessionDir(root, 'sess-1')
-    mkdirSync(dir, { recursive: true })
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
     const old = join(dir, 'old.txt'); writeAged(old, 'x', 400)
     await runSweep([active(root)], 0)
     expect(existsSync(old)).toBe(true)
@@ -288,8 +514,8 @@ describe('startup cleanup sweep', () => {
   it('prunes empty active session directories after deleting expired files', async () => {
     const emptied = sessionDir(root, 'emptied')
     const kept = sessionDir(root, 'kept')
-    mkdirSync(emptied, { recursive: true })
-    mkdirSync(kept, { recursive: true })
+    mkdirSync(emptied, { recursive: true, mode: 0o700 })
+    mkdirSync(kept, { recursive: true, mode: 0o700 })
     writeAged(join(emptied, 'a.txt'), 'x', 40)
     writeAged(join(kept, 'fresh.txt'), 'y', 1)
     await runSweep([active(root)])
@@ -299,7 +525,7 @@ describe('startup cleanup sweep', () => {
 
   it('skips a symlink INSIDE a session dir and non-session siblings', async () => {
     const dir = sessionDir(root, 'sess-1')
-    mkdirSync(dir, { recursive: true })
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
     // A symlink pointing at an old target must NOT be followed or deleted.
     const target = join(root, 'target.txt'); writeAged(target, 'keep', 40)
     const link = join(dir, 'link.txt'); symlinkSync(target, link)
@@ -318,7 +544,7 @@ describe('startup cleanup sweep', () => {
     // A `session-<12hex>`-NAMED symlink pointing at a directory of old files must
     // never be descended: lstat on the entry sees a link, so the target's files
     // are left intact and the link itself is not removed.
-    const victimDir = join(root, 'victim'); mkdirSync(victimDir, { recursive: true })
+    const victimDir = join(root, 'victim'); mkdirSync(victimDir, { recursive: true, mode: 0o700 })
     const victimOld = join(victimDir, 'old.txt'); writeAged(victimOld, 'x', 40)
     const linkName = `session-${'a'.repeat(12)}`
     const link = join(root, linkName); symlinkSync(victimDir, link)
@@ -330,7 +556,7 @@ describe('startup cleanup sweep', () => {
   it('skips a POSIX session directory writable by another local user', async () => {
     if (process.platform === 'win32') return
     const dir = sessionDir(root, 'sess-1')
-    mkdirSync(dir, { recursive: true })
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
     const old = join(dir, 'old.txt'); writeAged(old, 'x', 40)
     chmodSync(dir, 0o777)
     const warn = vi.fn()
@@ -342,12 +568,12 @@ describe('startup cleanup sweep', () => {
   it('sweeps only exact session-<12hex> names, not lookalikes', async () => {
     // `session-backup` and `session-<11hex>` match the old startsWith check but
     // are NOT backend-generated names; their old files must survive.
-    const backup = join(root, 'session-backup'); mkdirSync(backup, { recursive: true })
+    const backup = join(root, 'session-backup'); mkdirSync(backup, { recursive: true, mode: 0o700 })
     const backupOld = join(backup, 'old.txt'); writeAged(backupOld, 'x', 40)
-    const shortHex = join(root, `session-${'a'.repeat(11)}`); mkdirSync(shortHex, { recursive: true })
+    const shortHex = join(root, `session-${'a'.repeat(11)}`); mkdirSync(shortHex, { recursive: true, mode: 0o700 })
     const shortOld = join(shortHex, 'old.txt'); writeAged(shortOld, 'x', 40)
     // A real session dir alongside them IS swept, proving the sweep still runs.
-    const real = sessionDir(root, 'sess-1'); mkdirSync(real, { recursive: true })
+    const real = sessionDir(root, 'sess-1'); mkdirSync(real, { recursive: true, mode: 0o700 })
     const realOld = join(real, 'old.txt'); writeAged(realOld, 'x', 40)
     await runSweep([active(root)])
     expect(existsSync(backupOld)).toBe(true)
@@ -360,9 +586,9 @@ describe('startup cleanup sweep', () => {
     // emptied should have its outer directory removed too; the active root, even
     // when fully emptied, must survive (the live process still writes into it).
     const prior = mkdtempSync(join(tmpdir(), 'dsh-spill-'))
-    const priorDir = sessionDir(prior, 'old-sess'); mkdirSync(priorDir, { recursive: true })
+    const priorDir = sessionDir(prior, 'old-sess'); mkdirSync(priorDir, { recursive: true, mode: 0o700 })
     writeAged(join(priorDir, 'old.txt'), 'x', 40)
-    const activeDir = sessionDir(root, 'sess-1'); mkdirSync(activeDir, { recursive: true })
+    const activeDir = sessionDir(root, 'sess-1'); mkdirSync(activeDir, { recursive: true, mode: 0o700 })
     writeAged(join(activeDir, 'old.txt'), 'x', 40)
     try {
       await runSweep([{ path: prior, pruneWhenEmpty: true }, active(root)])
@@ -376,7 +602,7 @@ describe('startup cleanup sweep', () => {
 
   it('de-duplicates repeated roots and lets non-prunable status win', async () => {
     const dir = sessionDir(root, 'sess-1')
-    mkdirSync(dir, { recursive: true })
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
     writeAged(join(dir, 'old.txt'), 'x', 40)
     await sweepSpillRoots({
       roots: [
@@ -393,7 +619,7 @@ describe('startup cleanup sweep', () => {
 
   it('does NOT prune a discovered root that still holds a fresh file', async () => {
     const prior = mkdtempSync(join(tmpdir(), 'dsh-spill-'))
-    const priorDir = sessionDir(prior, 'sess'); mkdirSync(priorDir, { recursive: true })
+    const priorDir = sessionDir(prior, 'sess'); mkdirSync(priorDir, { recursive: true, mode: 0o700 })
     writeAged(join(priorDir, 'fresh.txt'), 'y', 1)
     try {
       await runSweep([{ path: prior, pruneWhenEmpty: true }])
@@ -411,10 +637,10 @@ describe('startup cleanup sweep', () => {
     const fakeTmp = mkdtempSync(join(tmpdir(), 'dsh-faketmp-'))
     const priorDefault = mkdtempSync(join(fakeTmp, DEFAULT_ROOT_PREFIX))
     const priorDir = sessionDir(priorDefault, 'old-sess')
-    mkdirSync(priorDir, { recursive: true })
+    mkdirSync(priorDir, { recursive: true, mode: 0o700 })
     const priorOld = join(priorDir, 'old.txt'); writeAged(priorOld, 'x', 40)
     const cfgDir = sessionDir(root, 'sess-1')
-    mkdirSync(cfgDir, { recursive: true })
+    mkdirSync(cfgDir, { recursive: true, mode: 0o700 })
     const cfgOld = join(cfgDir, 'old.txt'); writeAged(cfgOld, 'x', 40)
     class Discovering extends LocalSpillStore {
       protected override defaultRootsBase(): string { return fakeTmp }
@@ -441,7 +667,7 @@ describe('startup cleanup sweep', () => {
     const fakeTmp = mkdtempSync(join(tmpdir(), 'dsh-faketmp-'))
     const activeDefault = mkdtempSync(join(fakeTmp, DEFAULT_ROOT_PREFIX))
     const dir = sessionDir(activeDefault, 'sess-1')
-    mkdirSync(dir, { recursive: true })
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
     const old = join(dir, 'old.txt'); writeAged(old, 'x', 40)
     class Discovering extends LocalSpillStore {
       protected override defaultRootsBase(): string { return fakeTmp }
@@ -464,7 +690,7 @@ describe('startup cleanup sweep', () => {
     const alias = join(root, 'configured-root')
     symlinkSync(activeDefault, alias, process.platform === 'win32' ? 'junction' : 'dir')
     const dir = sessionDir(activeDefault, 'sess-1')
-    mkdirSync(dir, { recursive: true })
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
     const old = join(dir, 'old.txt'); writeAged(old, 'x', 40)
     try {
       const roots = await gatherSweepRoots(alias, () => {}, fakeTmp)
@@ -489,7 +715,7 @@ describe('startup cleanup sweep', () => {
     const unsafeRoot = join(unsafeParent, 'configured')
     mkdirSync(unsafeRoot, { recursive: true, mode: 0o700 })
     const dir = sessionDir(unsafeRoot, 'sess-1')
-    mkdirSync(dir, { recursive: true })
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
     const old = join(dir, 'old.txt'); writeAged(old, 'x', 40)
     chmodSync(unsafeParent, 0o777)
     const warn = vi.fn()
@@ -501,7 +727,7 @@ describe('startup cleanup sweep', () => {
 
   it('does not block activation but is awaited on disposal (quiescence)', async () => {
     const dir = sessionDir(root, 'sess-1')
-    mkdirSync(dir, { recursive: true })
+    mkdirSync(dir, { recursive: true, mode: 0o700 })
     const old = join(dir, 'old.txt'); writeAged(old, 'x', 40)
 
     // Hold the sweep open behind a barrier we control.

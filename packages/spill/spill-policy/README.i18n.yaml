@@ -9,8 +9,8 @@
   en: e3d75c128bb2f4b9
   zh: 15daa9f8f3efaabd
 /deepseek-ai-dsh-spill-policy/summary:
-  en: 225c013f0f230c37
-  zh: 30634801496c205f
+  en: f742e01d3bdff724
+  zh: b075390f29a72d31
 /deepseek-ai-dsh-spill-policy/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -21,17 +21,17 @@
   en: a5d85ae7f7962b9e
   zh: 73c44a9413c3c8cf
 /deepseek-ai-dsh-spill-policy/use-this-package/what-the-model-sees:
-  en: 7cb5bba705975712
-  zh: 26adbdee1252d2bb
+  en: 31b6c4a8df556d7d
+  zh: 906dc834f07fd7b4
 /deepseek-ai-dsh-spill-policy/use-this-package/which-results-are-affected:
-  en: c419117e6b5f84f8
-  zh: 1a43afb623346603
+  en: b4a79363bcbeff4a
+  zh: de07895aa8fb6475
 /deepseek-ai-dsh-spill-policy/use-this-package/best-effort-failure-behavior:
   en: b4d94d99a8a9e52f
   zh: d5cec6295cbf5ef6
 /deepseek-ai-dsh-spill-policy/use-this-package/the-durable-log-copy:
-  en: b72e6e88ada5a957
-  zh: 5c6167651618738a
+  en: e0e4ee9ecbd9ab8e
+  zh: c1470d1070074841
 /deepseek-ai-dsh-spill-policy/understand-the-implementation:
   en: bb7cedc768113c0e
   zh: ca05828dfe63b233

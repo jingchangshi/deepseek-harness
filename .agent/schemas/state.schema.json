@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://deepseek-harness.local/agent/state.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taskId", "state", "revision", "workRevision", "fixAttempts", "writer", "updatedAt"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "taskId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "state": { "enum": ["NEW", "BASELINED", "INVESTIGATED", "PLAN_FROZEN", "IMPLEMENTING", "VERIFYING", "VERIFIED", "REVIEWING", "REVIEWED", "ACCEPTED", "REPLAN", "BLOCKED"] },
+    "revision": { "type": "integer", "minimum": 0 },
+    "workRevision": { "type": "integer", "minimum": 0 },
+    "fixAttempts": { "type": "integer", "minimum": 0, "maximum": 2 },
+    "writer": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["role", "token", "baseRevision"],
+          "properties": {
+            "role": { "const": "implementer" },
+            "token": { "type": "string", "minLength": 1 },
+            "baseRevision": { "type": "integer", "minimum": 0 }
+          }
+        }
+      ]
+    },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "blocker": { "type": "string", "minLength": 1 }
+  }
+}

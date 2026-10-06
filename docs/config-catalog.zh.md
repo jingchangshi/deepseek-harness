@@ -2928,6 +2928,10 @@ export interface Config {
 ```ts config-catalog
 /** Plugin config (all optional — `static Config` supplies the defaults). */
 export interface Config {
+  /** Maximum returned lines per retrieval; defaults to 2000. */
+  readMaxLines?: number
+  /** Maximum returned UTF-8 content bytes per retrieval; defaults to 65536, at least 4. */
+  readMaxBytes?: number
   /**
    * Root directory for spill files. Omitted uses a lazily-created private
    * (0700) per-process directory under the OS temp dir — the safe default for
@@ -2955,13 +2959,15 @@ export interface Config {
 ## `@deepseek-ai/dsh-spill-policy`
 
 - `inject`: `tools`
-- `source`: [`packages/spill/spill-policy/src/index.ts:25`](../packages/spill/spill-policy/src/index.ts)
+- `source`: [`packages/spill/spill-policy/src/index.ts:26`](../packages/spill/spill-policy/src/index.ts)
 
 ```ts config-catalog
 /** Optional result-retention budget. */
 export interface Config {
   /** Maximum estimated tokens in a retained result, including image descriptors and omission notices. Omitted disables retention. */
   maxInlineTokens?: number
+  /** Maximum UTF-8 bytes of one model-visible `spill_read` result, including rendered metadata. */
+  readMaxOutputBytes?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-spill-policy -->
@@ -3568,7 +3574,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-fs-search`
 
 - `inject`: `tools` · `systemPrompt` · `subprocess`
-- `source`: [`packages/fs/tool-fs-search/src/index.ts:73`](../packages/fs/tool-fs-search/src/index.ts)
+- `source`: [`packages/fs/tool-fs-search/src/index.ts:74`](../packages/fs/tool-fs-search/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config; over-cap glob sampling is an explicit deployment choice and the remaining fields have defaults. */
@@ -4019,7 +4025,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tools`
 
 - `inject`: `systemPrompt`
-- `source`: [`packages/core/tools/src/index.ts:674`](../packages/core/tools/src/index.ts)
+- `source`: [`packages/core/tools/src/index.ts:735`](../packages/core/tools/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: how the registered tools are presented to the model. */

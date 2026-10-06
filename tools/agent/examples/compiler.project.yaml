@@ -1,0 +1,9 @@
+adapters:
+  build: { executable: node, args: ['-e', 'process.exit(0)'] }
+  unit: { executable: node, args: ['-e', 'process.exit(0)'] }
+  ir-verify: { executable: node, args: ['-e', 'process.exit(0)'] }
+  reference: { executable: node, args: ['-e', 'process.exit(0)'] }
+scope:
+  fixture: synthetic-compiler
+  targets: { A5: PASS, A3: NOT_RUN }
+  modes: { PureAIV: PASS, MixCV: NOT_RUN }

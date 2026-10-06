@@ -1,0 +1,4 @@
+seed = const 6
+factor = const 7
+product = mul seed factor
+ret product

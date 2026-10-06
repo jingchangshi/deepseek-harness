@@ -3,7 +3,7 @@ import { lstat, readdir, realpath, rmdir, unlink } from 'node:fs/promises'
 import type { Stats } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { DEFAULT_ROOT_PREFIX, isErrno } from './store.ts'
+import { DEFAULT_ROOT_PREFIX, isErrno, SESSION_DIR_RE } from './store.ts'
 
 /**
  * A backend-generated default root name: `dsh-spill-` plus the 6-character
@@ -13,14 +13,6 @@ import { DEFAULT_ROOT_PREFIX, isErrno } from './store.ts'
  * mistaken for a backend root to sweep.
  */
 const DEFAULT_ROOT_RE = new RegExp(`^${DEFAULT_ROOT_PREFIX}[A-Za-z0-9]{6}$`)
-
-/**
- * A backend-generated session directory name: `session-` plus the 12 lowercase
- * hex characters {@link sessionDir} derives from `sha256(sessionId)`. The sweep
- * only descends into entries of this EXACT shape, so an unrelated
- * `session-backup` directory under a shared configured root is never swept.
- */
-const SESSION_DIR_RE = /^session-[0-9a-f]{12}$/
 
 /** An existing root resolved to one stable filesystem identity. */
 interface ResolvedRoot {

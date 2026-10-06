@@ -597,6 +597,8 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   SkillViewOptions: 'skills.md',
   SkillSummary: 'skills.md',
   SaveTextSpill: 'spill.md',
+  ReadTextSpill: 'spill.md',
+  SpillRead: 'spill.md',
   SpillRef: 'spill.md',
   ContinuableCreateRequest: 'subagent.md',
   ContinuableCreateSpec: 'subagent.md',

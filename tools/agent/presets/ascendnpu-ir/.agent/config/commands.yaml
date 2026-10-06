@@ -1,0 +1,50 @@
+runners:
+  container:
+    kind: docker
+    executable: /usr/bin/docker
+    container: s00653124_build
+    user: shijingchang
+    home: /home/shijingchang
+    workingDirectory: '{{PROJECT_ROOT}}'
+commands:
+  build:
+    runner: container
+    executable: /bin/bash
+    args: [.agent/scripts/ascend.sh, build, '{{PROJECT_ROOT}}']
+    env: &container-env
+      set:
+        PATH: /opt/cmake/bin:/usr/local/bin:/usr/bin:/bin
+        DSH_CANN_ENV: /home/shijingchang/CANN/cann/set_env.sh
+        DSH_CONDA_SH: /opt/miniconda3/etc/profile.d/conda.sh
+        DSH_CONDA_ENV: triton-py311
+        DSH_BUILD_DIR: build
+        DSH_BUILD_JOBS: '64'
+        DSH_BUILD_TIMEOUT_SECONDS: '1800'
+        DSH_CACHE_DIR: /tmp/dsh-ascendnpu-ir-cache
+      inherit: []
+    platforms: [linux]
+  unit:
+    runner: container
+    executable: /bin/bash
+    args: [.agent/scripts/ascend.sh, unit, '{{PROJECT_ROOT}}']
+    env: *container-env
+    platforms: [linux]
+  ir-verify:
+    runner: container
+    executable: /bin/bash
+    args: [.agent/scripts/ascend.sh, ir-verify, '{{PROJECT_ROOT}}']
+    env: *container-env
+    platforms: [linux]
+  reference:
+    runner: container
+    executable: /bin/bash
+    args: [.agent/scripts/ascend.sh, reference, '{{PROJECT_ROOT}}']
+    env: *container-env
+    platforms: [linux]
+inputs:
+  - .agent/scripts/ascend.sh
+  - .agent/scripts/ascend-lit.py
+scope:
+  integration: AscendNPU-IR
+  targets: { A5: NOT_RUN, A3: NOT_RUN }
+  modes: { PureAIV: NOT_RUN, MixCV: NOT_RUN }

@@ -1,0 +1,9 @@
+schemaVersion: 1
+profile: pebble-ir-lab
+adapter: .agent/adapters/pebble.yaml
+verificationPolicy: .agent/config/pebble-policy.yaml
+knowledge: .agent/config/pebble-knowledge.yaml
+dataClass: public
+maxSteps: 30
+maxRoleCalls: 10
+commandTimeoutMs: 30000

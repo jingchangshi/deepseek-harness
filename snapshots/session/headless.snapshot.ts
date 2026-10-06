@@ -1,6 +1,7 @@
 /** Recorded-session replay through the shipped headless `dsh` profile. */
 
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
+import { prepareEngineeringWorkspace } from './engineering-harness/prepare.mjs'
 import { cp, copyFile, mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -475,6 +476,7 @@ async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<v
 }
 
 const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
+  'engineering-harness': prepareEngineeringWorkspace,
   async 'windows-acl-skill'(cwd) {
     const target = join(cwd, '.dsh', 'skills', 'diagnose-windows-sandbox-acl', 'SKILL.md')
     await mkdir(dirname(target), { recursive: true })
@@ -606,20 +608,23 @@ async function verifySessionQuerySpill(log: string, spillRoot: string, locatorRo
   const events = parseSessionLog(log)
   const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
   const readResult = results.find(result => result.toolCallId === 'call_session_query_spill')
-  const verification = results.find(result => result.toolCallId === 'call_verify_session_query_spill')
+  const retrieved = results.find(result => result.toolCallId === 'call_verify_session_query_spill')
   expect(readResult?.isError).toBe(false)
-  expect(verification).toMatchObject({
-    isError: false,
-    content: [{ type: 'text', text: 'SPILL_CANONICAL_OK\n' }],
-  })
+  expect(retrieved?.isError).toBe(false)
+  const page = retrieved?.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
   const preview = readResult?.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
-  const locator = preview?.match(/Full formatted result stored at: (.+-session_event_read\.txt)\. Use read/)
+  const locator = preview?.match(/Full formatted result stored at: (.+-session_event_read\.txt)\. Use spill_read/)
   expect(locator).not.toBeNull()
   expect(locator?.[1]).toBeDefined()
   expect(locator![1]!.startsWith(locatorRoot + sep)).toBe(true)
   const full = await readFile(join(spillRoot, relative(locatorRoot, locator![1]!)), 'utf8')
   const json = full.match(/```json\n([\s\S]+)\n```/)
   expect(json).not.toBeNull()
+  const hiddenLine = full.split('\n').find(line => line.includes('"name": "session_event_search"'))
+  expect(hiddenLine).toBeDefined()
+  expect(preview).not.toContain(hiddenLine)
+  expect(page).toContain(hiddenLine)
+  expect(page).toMatch(/\(Partial content of \d+ lines\. Use byteOffset=\d+ to continue\.\)/)
   const header = events.find(event => event.type === 'request/header')
   expect(header).toBeDefined()
   expect(JSON.parse(json![1]!)).toEqual(header)
@@ -775,6 +780,13 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
 
   const childPrompts = new Map<number, string>()
   const childSchemas = new Map<number, unknown[][]>()
+  const childHeaders = new Map<number, unknown[]>()
+  const fixtureNames = sessionFixtureNames(await readdir(scenario.dir))
+  const childIndexes = new Set([...(scenario.manifest.header.childSystemPrompts ?? []), ...(scenario.manifest.header.childToolSchemas ?? [])])
+  for (const index of childIndexes) {
+    const fixture = await readFile(join(scenario.dir, fixtureNames[index]!), 'utf8')
+    childHeaders.set(index, normalizedHeaders(fixture, fixtureContext(fixture)))
+  }
   for (const index of scenario.manifest.header.childSystemPrompts ?? []) {
     childPrompts.set(index, await readFile(join(scenario.dir, `system-prompt.${index}.expected.md`), 'utf8'))
   }
@@ -793,7 +805,7 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
     }
     for (const [index, header] of headers.entries()) {
       const selectedSchemas = childSchemas.get(logIndex)?.[index]
-      const base = reconstructed[index] ?? reconstructed[0]
+      const base = childHeaders.get(logIndex)?.[index] ?? reconstructed[index] ?? reconstructed[0]
       const expected = selectedSchemas === undefined ? base : { ...base as JsonObject, tools: selectedSchemas }
       expect(header, `${scenario.name}: request header ${index + 1}`).toEqual(expected)
     }
@@ -1114,6 +1126,10 @@ describe('headless recorded-session snapshots', () => {
         : source)
 
       let actualLogs: SessionLog[] = []
+      // Git and workflow files belong to this fixture's controller, not its requested source change.
+      const ignoredRootEntries = scenario.name === 'engineering-harness'
+        ? [...RUNTIME_WORKSPACE_ENTRIES, '.agent', '.git']
+        : RUNTIME_WORKSPACE_ENTRIES
       let initialWorkspace: WorkspaceSnapshotEntry[] | undefined
       let finalWorkspace: WorkspaceSnapshotEntry[] | undefined
       const spillRoot = await mkdtemp(join(tmpdir(), 'acp-snap-spill-'))
@@ -1126,6 +1142,8 @@ describe('headless recorded-session snapshots', () => {
           tempDirPrefix: 'dsh-log-snap-',
           ...(scenario.manifest.workspace?.parent === 'outside-temp' ? { tempDirParent: outsideTempWorkspaceParent() } : {}),
           binScript: dshBin,
+          // The engineering integration is installed from a pinned source checkout.
+          ...(scenario.name === 'engineering-harness' ? { mode: 'src' as const } : {}),
           sourceImport: 'tsx/esm',
           configPath: join(baseComposition.dir, 'cordis.yml'),
           binArgs: [
@@ -1177,7 +1195,7 @@ describe('headless recorded-session snapshots', () => {
             }
             await seedWorkspace(scenario, cwd)
             initialWorkspace = await captureWorkspaceSnapshot(cwd, {
-              ignoredRootEntries: RUNTIME_WORKSPACE_ENTRIES,
+              ignoredRootEntries,
             })
           },
           inspect: async (cwd) => {
@@ -1212,7 +1230,7 @@ describe('headless recorded-session snapshots', () => {
               await verifyBackgroundConfinementFailure(actualLogs[0]!.content, cwd)
             }
             finalWorkspace = await captureWorkspaceSnapshot(cwd, {
-              ignoredRootEntries: RUNTIME_WORKSPACE_ENTRIES,
+              ignoredRootEntries,
             })
           },
         })

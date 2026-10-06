@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-将过大的文字和图片结果限制在共享的估算 token 预算内。模型收到按原顺序保留的首尾内容，以及完整结果文件的路径。图片保存在附件存储中，结果文件记录其可读取路径。省略 `maxInlineTokens` 会禁用策略，无法保存可恢复内容时保留原结果。
+将过大的文字和图片结果限制在共享的估算 token 预算内。模型收到首尾预览和完整结果的定位信息。插件始终注册 `spill_read`；后端验证定位信息并应用行数和字节上限，`byteOffset` 支持继续读取超长行。继承的有效定位信息仍可取回。省略 `maxInlineTokens` 只禁用保留策略。取回页面不再次 spill。
 
 ## 目录
 
@@ -51,14 +51,14 @@ kind: "package-reference"
 ```text
 <retained head/tail preview>
 
-(Omitted N bytes. Full formatted result stored at: /…/session-…/…-web_fetch.txt. Use read with offset/limit, or grep this path to search within it.)
+(Omitted N bytes. Full formatted result stored at: /…/session-…/…-web_fetch.txt. Use spill_read with this locator to retrieve the full content.)
 ```
 
-提示也会报告省略的图片数量。预算容不下预览时允许只返回提示；连提示也超出上限时保留原内容。完整结果文件保存全部已接受文字，并在每张图片的位置记录附件路径，模型可先用 `read` 读取，再用 `read_image` 查看。图片字节不复制到这个文件中。本地附件对象的持久保存独立于 spill 文件清理。
+提示也报告省略的图片数量。预览无法容纳时可以只显示提示；连提示也超过上限时保留原始内联内容。结果文件保存全部已接受文本与图片位置的附件地址；先用 `spill_read` 取回，再用 `read_image` 查看图片。附件字节不复制到文件中，其持久保存独立于 spill 清理。
 
 ### 哪些结果会受影响
 
-策略接受文字和图片序列。预算内结果、`read`、被阻止的决策、值替换以及其他内容块类型会原样通过。纯文本嵌套结果只限制日志副本。提供方或工具在此前应用的限制无法在这里恢复。
+策略接受文字和图片序列。预算内结果、直接 `read` 结果、被阻止的决策、值替换以及其他内容块类型原样通过。直接和嵌套的 `spill_read` 页面始终原样通过。提供方或工具此前应用的限制无法在此恢复。
 
 ### 尽力而为的故障行为
 
@@ -66,7 +66,7 @@ kind: "package-reference"
 
 ### 持久日志副本
 
-PTC 程序收到完整的规范值。含图片的子结果在转发给模型前设定上限；全部图片被省略时，模型仍会收到保留的文字和读取提示。分发日志使用相同的保留内容。纯文本子调用的日志，包括 `read`，异步设定上限，不延迟程序获取返回值。
+PTC 程序收到完整的规范值。图片子结果在转发给模型前设定上限，省略的图片保留取回提示。纯文本子调用的日志（包括 `read`）设定上限，但不延迟程序值。`spill_read` 日志跳过保留策略，保持页面可用。
 
 -----
 

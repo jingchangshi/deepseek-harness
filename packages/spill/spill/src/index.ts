@@ -5,20 +5,20 @@
  * subclass {@link SpillStore} and register as the `spillStore` service;
  * `@deepseek-ai/dsh-spill-local` (host filesystem) is the first.
  *
- * The Service Definition is deliberately minimal: `saveText` and nothing else. It owns NO
- * retention policy (that is `@deepseek-ai/dsh-output-retention`), NO tool-result
- * replacement (that is `@deepseek-ai/dsh-spill-policy`), and NO retrieval or
- * search API. The backend supplies the locator and retrieval hint appropriate
- * for its storage substrate.
+ * The Service Definition is deliberately minimal: `saveText`, plus an optional
+ * `readText` retrieval capability. It owns NO retention policy (that is
+ * `@deepseek-ai/dsh-output-retention`), NO tool-result replacement (that is
+ * `@deepseek-ai/dsh-spill-policy`), and NO search API. The backend supplies the
+ * locator and retrieval hint appropriate for its storage substrate.
  *
  * @module @deepseek-ai/dsh-spill
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
-import type { SaveTextSpill, SpillRef } from './types.ts'
+import type { ReadTextSpill, SaveTextSpill, SpillRead, SpillRef } from './types.ts'
 
 export { SpillLocator } from './types.ts'
-export type { SaveTextSpill, SpillOwner, SpillRef, SpillSource } from './types.ts'
+export type { ReadTextSpill, SaveTextSpill, SpillOwner, SpillRead, SpillReadLine, SpillRef, SpillSource } from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -30,7 +30,9 @@ declare module '@deepseek-ai/cordis' {
  * Abstract spill storage service. Subclass, implement {@link saveText}, and load
  * the subclass as a plugin — it registers as `ctx.spillStore` (one
  * implementation per context; loading a second throws, cordis' standard
- * duplicate-service behavior).
+ * duplicate-service behavior). {@link readText} is an optional retrieval
+ * capability: the base implementation rejects, so existing save-only subclasses
+ * keep compiling and remain valid.
  *
  * Semantics every implementation must honor:
  * - {@link saveText} persists the FULL `content` verbatim and returns an opaque
@@ -53,6 +55,19 @@ export abstract class SpillStore extends Service {
    * @returns the saved artifact's {@link SpillRef}; rejects on a storage failure.
    */
   abstract saveText(input: SaveTextSpill): Promise<SpillRef>
+
+  /**
+   * Read a bounded window of text back from a saved artifact locator. Optional:
+   * a backend that cannot retrieve its locators keeps the base rejection.
+   *
+   * @param _input - saved bearer locator, optional line or byte cursor, and cancellation signal.
+   * @returns the structured read result; rejects on an invalid locator, an
+   *   unsupported backend or a storage read failure. Inherited locators remain readable. Pages
+   *   must bound UTF-8 content bytes even within one line and return a continuation cursor.
+   */
+  readText(_input: ReadTextSpill): Promise<SpillRead> {
+    return Promise.reject(new Error(`spillStore.readText is not supported by ${this.constructor.name}`))
+  }
 }
 
 export default SpillStore

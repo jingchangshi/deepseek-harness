@@ -1,0 +1,14 @@
+schemaVersion: 1
+defaultTier: development
+allowedTiers: [development, presubmit, qualification]
+alwaysRequired: []
+tiers:
+  development:
+    - { name: build, scope: {} }
+    - { name: unit, scope: {} }
+    - { name: ir-verify, scope: {} }
+  presubmit:
+    - { name: reference, scope: {} }
+  qualification:
+    - { name: hardware-runtime, scope: {} }
+impactRules: []

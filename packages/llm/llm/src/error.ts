@@ -50,6 +50,15 @@ export const EMPTY_RESPONSE_CODE = 'EMPTY_RESPONSE'
  */
 export const INVALID_CREDENTIAL_CODE = 'INVALID_CREDENTIAL'
 
+/**
+ * Canonical provider-neutral code for a provider or gateway policy refusal: the
+ * request reached the endpoint and was declined for a policy reason rather than
+ * a request defect. Distinct from `INVALID_REQUEST` because the fix differs —
+ * the same bytes may succeed on another model or route, while repeating the
+ * identical route cannot help. Deliberately outside the default retryable set.
+ */
+export const POLICY_REFUSAL_CODE = 'POLICY_REFUSAL'
+
 /** Structured codes and plain phrases that explicitly name a context bound being exceeded. */
 const STRUCTURED_CONTEXT_OVERFLOW = new RegExp(
   String.raw`(?:^|[^a-z0-9])context[\s_-](?:length|window)[\s_-]`

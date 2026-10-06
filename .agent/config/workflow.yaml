@@ -1,0 +1,9 @@
+schemaVersion: 1
+provider: spawn
+maxDepth: 1
+maxConcurrentAgents: 3
+maxTotalAgents: 12
+minimumFanout: 2
+boundedFixRounds: 2
+ralphEnabled: false
+arbiterEnabled: false

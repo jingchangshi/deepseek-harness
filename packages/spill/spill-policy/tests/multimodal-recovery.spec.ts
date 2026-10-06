@@ -152,13 +152,9 @@ describe('multimodal recovery through real providers', () => {
     expect(omitted.isError).toBe(false)
     expect(textOf(omitted.content)).toContain('Omitted 1 images.')
     expect(await requestImages(omitted.content)).toEqual([])
-    const locator = /Full formatted result stored at: (.+?)\. Use read/.exec(textOf(omitted.content))?.[1]
+    const locator = /Full formatted result stored at: (.+?)\. Use spill_read/.exec(textOf(omitted.content))?.[1]
     if (locator === undefined) throw new Error('missing complete result locator')
-    const full = await readFile(locator, 'utf8')
-    expect(full.startsWith(LONG)).toBe(true)
-    expect(full.endsWith(LONG)).toBe(true)
-    expect(full).not.toContain('base64')
-    const read = await execute('read', { file_path: locator, offset: 600, limit: 8 })
+    const read = await execute('spill_read', { locator, offset: 600, limit: 8 })
     expect(read.isError).toBe(false)
     const address = /\[Image: ("[^"\n]+")/.exec(textOf(read.content))?.[1]
     if (address === undefined) throw new Error('read did not expose the omitted image address')

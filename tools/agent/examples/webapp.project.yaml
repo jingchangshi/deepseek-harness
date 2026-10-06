@@ -1,0 +1,8 @@
+adapters:
+  typecheck: { executable: node, args: ['-e', 'process.exit(0)'] }
+  lint: { executable: node, args: ['-e', 'process.exit(0)'] }
+  unit: { executable: node, args: ['-e', 'process.exit(0)'] }
+  e2e: { executable: node, args: ['-e', 'process.exit(0)'] }
+  build: { executable: node, args: ['-e', 'process.exit(0)'] }
+scope:
+  fixture: synthetic-webapp

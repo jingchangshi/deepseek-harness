@@ -1,0 +1,7 @@
+schemaVersion: 1
+profile: compiler
+adapter: .agent/adapters/local.yaml
+dataClass: internal
+maxSteps: 40
+maxRoleCalls: 30
+commandTimeoutMs: 120000

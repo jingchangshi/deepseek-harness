@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for architecture.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/architecture.md
+/frozen-multi-model-engineering-harness-architecture:
+  en: 374e01f7317518cd
+  zh: 4422ad15a5555868
+/frozen-multi-model-engineering-harness-architecture/summary:
+  en: 503c3ee2c96dd127
+  zh: 9b31ac5116b990ac
+/frozen-multi-model-engineering-harness-architecture/table-of-contents:
+  en: de925cfde3e89132
+  zh: b76f8855e78ceab2
+/frozen-multi-model-engineering-harness-architecture/pinned-basis:
+  en: 6350b21d745387cf
+  zh: 22997e20a6815798
+/frozen-multi-model-engineering-harness-architecture/responsibility-split:
+  en: 7e1e45b1451dd334
+  zh: 48b570b35c2f901d
+/frozen-multi-model-engineering-harness-architecture/dsh-findings:
+  en: 9f8cf3cf82a7bb47
+  zh: 5a79d613a03903d4
+/frozen-multi-model-engineering-harness-architecture/system-structure:
+  en: 735d5ec32939e89e
+  zh: d6917d9fd6f6b256
+/frozen-multi-model-engineering-harness-architecture/role-routing:
+  en: 0a6cae83a4a1d08c
+  zh: dc0ed2ac82464fab
+/frozen-multi-model-engineering-harness-architecture/task-protocol:
+  en: a8e66540a6ecf3d5
+  zh: 13b8add0f087250b
+/frozen-multi-model-engineering-harness-architecture/execution-policy:
+  en: 46ea01265b863d7f
+  zh: 4cb33eb2c9566f7e
+/frozen-multi-model-engineering-harness-architecture/verification-and-acceptance:
+  en: 7ef5615c0c751cd1
+  zh: 26f72d061797da99
+/frozen-multi-model-engineering-harness-architecture/data-policy:
+  en: 4a2e50bb347b8952
+  zh: 6538c971cf7d13cf
+/frozen-multi-model-engineering-harness-architecture/failure-and-recovery:
+  en: e9d5d3c71001eb2f
+  zh: c00eb87850f59f77
+/frozen-multi-model-engineering-harness-architecture/implementation-stages:
+  en: 367de132f46a04a4
+  zh: d443339db37ff695
+/frozen-multi-model-engineering-harness-architecture/further-exploration:
+  en: d55f450fb24dd4ce
+  zh: 0e45b547640bcd16
+/frozen-multi-model-engineering-harness-architecture/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

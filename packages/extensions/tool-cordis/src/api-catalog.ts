@@ -2779,13 +2779,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'spillStore',
     summary: 'Abstract spill storage service.',
-    description: 'Abstract spill storage service. Subclass, implement saveText, and load the subclass as a plugin — it registers as `ctx.spillStore` (one implementation per context; loading a second throws, cordis\' standard duplicate-service behavior).\n\nSemantics every implementation must honor:\n\n- saveText persists the FULL `content` verbatim and returns an opaque locator, exact byte length, and model-facing retrieval guidance.\n- Storage is scoped by the request\'s SaveTextSpill.owner session; the backend chooses a private (not world-readable) location and a collision-free name derived from — never equal to — the caller\'s `suggestedName`.\n- `saveText` REJECTS on a real storage failure (permissions, ENOSPC, backend unavailable); the caller decides how to degrade (the spill policy treats a rejection as best-effort and keeps the inline result).',
+    description: 'Abstract spill storage service. Subclass, implement saveText, and load the subclass as a plugin — it registers as `ctx.spillStore` (one implementation per context; loading a second throws, cordis\' standard duplicate-service behavior). readText is an optional retrieval capability: the base implementation rejects, so existing save-only subclasses keep compiling and remain valid.\n\nSemantics every implementation must honor:\n\n- saveText persists the FULL `content` verbatim and returns an opaque locator, exact byte length, and model-facing retrieval guidance.\n- Storage is scoped by the request\'s SaveTextSpill.owner session; the backend chooses a private (not world-readable) location and a collision-free name derived from — never equal to — the caller\'s `suggestedName`.\n- `saveText` REJECTS on a real storage failure (permissions, ENOSPC, backend unavailable); the caller decides how to degrade (the spill policy treats a rejection as best-effort and keeps the inline result).',
     methods: [
       {
         signature: 'abstract saveText(input: SaveTextSpill): Promise<SpillRef>',
         description: 'Persist `input.content` to a session-scoped spill artifact.',
         parameters: [{ name: 'input', description: 'the owner, caller-supplied source fields, suggested name, and full text to save.' }],
         returns: 'the saved artifact\'s {@link SpillRef}; rejects on a storage failure.',
+      },
+      {
+        signature: 'readText(_input: ReadTextSpill): Promise<SpillRead>',
+        description: 'Read a bounded window of text back from a saved artifact locator. Optional: a backend that cannot retrieve its locators keeps the base rejection.',
+        parameters: [{ name: '_input', description: 'saved bearer locator, optional line or byte cursor, and cancellation signal.' }],
+        returns: 'the structured read result; rejects on an invalid locator, an unsupported backend or a storage read failure. Inherited locators remain readable. Pages must bound UTF-8 content bytes even within one line and return a continuation cursor.',
       },
     ],
   },
@@ -6289,6 +6295,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ReadResultView {\n    card: \'read\';\n    title?: string;\n    path: string;\n    offset: number;\n    lines: ReadFileLine[];\n    totalLines: number;\n    lang?: string;\n    content?: ContentBlock[];\n}',
   },
   {
+    name: 'ReadTextSpill',
+    declaration: 'export interface ReadTextSpill {\n    locator: SpillLocator;\n    offset?: number;\n    limit?: number;\n    byteOffset?: number;\n    maxBytes?: number;\n    signal?: AbortSignal;\n}',
+  },
+  {
     name: 'ReasoningBlock',
     declaration: 'export interface ReasoningBlock {\n    type: \'reasoning\';\n    text: string;\n}',
   },
@@ -7357,6 +7367,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SpillOwner {\n    sessionId: SessionId;\n}',
   },
   {
+    name: 'SpillRead',
+    declaration: 'export interface SpillRead {\n    locator: SpillLocator;\n    path: string;\n    offset: number;\n    lines: SpillReadLine[];\n    totalLines: number;\n    bytes: number;\n    truncated: boolean;\n    nextByteOffset: number;\n}',
+  },
+  {
+    name: 'SpillReadLine',
+    declaration: 'export interface SpillReadLine {\n    number: number;\n    text: string;\n}',
+  },
+  {
     name: 'SpillRef',
     declaration: 'export interface SpillRef {\n    locator: SpillLocator;\n    bytes: number;\n    retrievalHint: string;\n}',
   },
@@ -7806,7 +7824,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolExecutionInput',
-    declaration: 'export interface ToolExecutionInput {\n    readonly callId: ToolCallId;\n    readonly rootCallId?: ToolCallId;\n    readonly name: string;\n    readonly schema?: ToolSchema;\n    readonly arguments: unknown;\n    readonly agent?: Agent;\n    readonly parent?: ToolExecutionToken;\n    readonly signal: AbortSignal;\n}',
+    declaration: 'export interface ToolExecutionInput {\n    readonly callId: ToolCallId;\n    readonly loggedCallSeq?: SessionSeq;\n    readonly rootCallId?: ToolCallId;\n    readonly name: string;\n    readonly schema?: ToolSchema;\n    readonly arguments: unknown;\n    readonly agent?: Agent;\n    readonly parent?: ToolExecutionToken;\n    readonly signal: AbortSignal;\n}',
   },
   {
     name: 'ToolExecutionMode',

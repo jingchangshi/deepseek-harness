@@ -1,0 +1,4 @@
+.agent/tasks/
+.agent/AUTO_RUN*
+.agent/executions.jsonl
+task.runtime/

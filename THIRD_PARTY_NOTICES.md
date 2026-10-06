@@ -222,6 +222,7 @@ External packages **directly declared** for development, tests, types, or toolin
 | [`@vitest/spy`](https://github.com/vitest-dev/vitest) | MIT |
 | [`@yao-pkg/pkg`](https://github.com/yao-pkg/pkg) | MIT |
 | [`@yarnpkg/cli-dist`](https://github.com/yarnpkg/berry) | BSD-2-Clause |
+| [`ajv-formats`](https://github.com/ajv-validator/ajv-formats) | MIT |
 | [`app-builder-lib`](https://github.com/electron-userland/electron-builder) | MIT |
 | [`cos-nodejs-sdk-v5`](https://github.com/tencentyun/cos-nodejs-sdk-v5) | ISC |
 | [`cytoscape`](https://github.com/cytoscape/cytoscape.js) | MIT |

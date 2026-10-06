@@ -28,6 +28,7 @@ import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
 import {
   buildGlobCommand,
   buildGrepCommand,
+  requiresPcre2,
   formatGrepMatches,
   parseGrepMatches,
   presentGlobCall,
@@ -366,6 +367,25 @@ describe('command construction (plain argv)', () => {
       .toEqual(['--json', '--regexp=x', '--glob=*.{ts,tsx}', '--', '-leading-dash'])
   })
 
+  it('grep: selects --pcre2 for look-around, backreferences, and POSIX classes', () => {
+    // The packaged rg ships with PCRE2, and the model should write the pattern
+    // it means rather than translating an engine rejection into a second call.
+    expect(buildGrepCommand({ pattern: '^bishengir/(?!.*\\.cache)' }))
+      .toEqual(['--json', '--pcre2', '--regexp=^bishengir/(?!.*\\.cache)'])
+    expect(buildGrepCommand({ pattern: '(\\w+)\\1' })).toEqual(['--json', '--pcre2', '--regexp=(\\w+)\\1'])
+    expect(buildGrepCommand({ pattern: '[[:alpha:]]+' })).toEqual(['--json', '--pcre2', '--regexp=[[:alpha:]]+'])
+  })
+
+  it('grep: keeps the default engine for patterns it already accepts', () => {
+    for (const pattern of ['plain', 'foo.*bar', '^void |addPass(create)', '\\.cache', 'a{2,3}', '[a-z]+']) {
+      expect(buildGrepCommand({ pattern })).toEqual(['--json', `--regexp=${pattern}`])
+    }
+    // An escaped look-around literal is a valid default-engine pattern, not a
+    // reason to switch engines.
+    expect(requiresPcre2('\\(?=')).toBe(false)
+    expect(requiresPcre2('(?=x)')).toBe(true)
+  })
+
   it.each([
     ['a command-substitution pattern', '$(rm -rf /)'],
     ['a backtick pattern', '`touch pwned`'],
@@ -573,6 +593,32 @@ describe('exit semantics and failure classification', () => {
     expect(result.error).toMatchObject({ info: { code: 'SEARCH_INVALID_PATTERN' } })
   })
 
+  it('bounds permission noise even when a mixed regex diagnostic keeps invalid-pattern classification', async () => {
+    const { ctx, subprocess } = await setup()
+    const permissions = ['a', 'b', 'c', 'd', 'e'].map(path => `rg: /tmp/${path}: Permission denied (os error 13)`)
+    subprocess.handler = () => runResult('', {
+      exitCode: 2,
+      stderr: { text: [...permissions, 'rg: regex parse error: unclosed group'].join('\n') },
+    })
+    const result = await call(ctx, 'grep', { pattern: '(' })
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_INVALID_PATTERN' } })
+    expect(text(result)).toContain('could not read 5 path(s)')
+    expect(text(result)).toContain('regex parse error')
+    expect(text(result)).not.toContain('Permission denied (os error 13)')
+  })
+
+  it('folds permission noise from CRLF stderr without retaining carriage returns', async () => {
+    const { ctx, subprocess } = await setup()
+    subprocess.handler = () => runResult('', {
+      exitCode: 2,
+      stderr: { text: 'rg: /tmp/a: Permission denied (os error 13)\r\nrg: /tmp/b: IO error: no such device\r\n' },
+    })
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(text(result)).toContain('could not read 1 path(s)')
+    expect(text(result)).toContain('IO error: no such device')
+    expect(text(result)).not.toContain('\r')
+  })
+
   it('other nonzero exits are SEARCH_FAILED carrying the stderr excerpt', async () => {
     const { ctx, subprocess } = await setup()
     subprocess.handler = () => runResult('', { exitCode: 2, stderr: { text: 'rg: missing.dir: IO error: no such file or directory' } })
@@ -589,6 +635,54 @@ describe('exit semantics and failure classification', () => {
     expect(text(result)).toContain('exit 3')
   })
 
+  it('folds many unreadable paths into one bounded summary line', async () => {
+    const { ctx, subprocess } = await setup()
+    const lines = ['a', 'b', 'c', 'd', 'e'].map(path => `rg: /tmp/${path}: Permission denied (os error 13)`)
+    subprocess.handler = () => runResult('', { exitCode: 2, stderr: { text: [lines[0]!, '', ...lines.slice(1)].join('\n') } })
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
+    expect(text(result)).toContain('could not read 5 path(s)')
+    expect(text(result)).toContain('and 2 more')
+    expect(text(result)).not.toContain('os error 13')
+  })
+
+  it('keeps a single IO-error diagnostic visible beside folded permission noise', async () => {
+    const { ctx, subprocess } = await setup()
+    subprocess.handler = () => runResult('', {
+      exitCode: 2,
+      stderr: { text: 'rg: /tmp/x: Permission denied (os error 13)\nrg: /tmp/y: IO error: no such device' },
+    })
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(text(result)).toContain('could not read 1 path(s)')
+    expect(text(result)).toContain('Other diagnostics:')
+    expect(text(result)).toContain('IO error: no such device')
+    expect(text(result)).not.toContain('Permission denied (os error 13)')
+  })
+
+  it('keeps both permission noise and mixed diagnostics bounded and visible', async () => {
+    const { ctx, subprocess } = await setup()
+    const permissionLines = ['a', 'b', 'c', 'd', 'e'].map(path => `rg: /tmp/${path}: Permission denied (os error 13)`)
+    const otherLines = [
+      'rg: /tmp/x: IO error: no such device',
+      'rg: /tmp/y: IO error: connection reset by peer',
+      'rg: /tmp/z: IO error: not a directory',
+      'rg: /tmp/u: IO error: invalid argument',
+      'rg: /tmp/v: IO error: read-only file system',
+      'rg: /tmp/w: IO error: too many open files',
+    ]
+    subprocess.handler = () => runResult('', { exitCode: 2, stderr: { text: [...permissionLines, ...otherLines].join('\n') } })
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
+    expect(text(result)).toContain('could not read 5 path(s)')
+    expect(text(result)).toContain('and 2 more')
+    expect(text(result)).toContain('Other diagnostics:')
+    expect(text(result)).toContain('IO error: no such device')
+    expect(text(result)).toContain('IO error: read-only file system')
+    expect(text(result)).toContain('[... 1 more diagnostic(s) omitted]')
+    expect(text(result)).not.toContain('IO error: too many open files')
+    expect(text(result)).not.toContain('Permission denied (os error 13)')
+  })
+
   it('truncated stderr gains a truncation note and stderr.spillPath is never read', async () => {
     const { ctx, subprocess } = await setup()
     subprocess.handler = () => runResult('', {
@@ -597,6 +691,32 @@ describe('exit semantics and failure classification', () => {
     })
     const result = await call(ctx, 'grep', { pattern: 'x' })
     expect(text(result)).toContain('tail of diagnostics [stderr truncated]')
+  })
+
+  it('keeps stderr truncation independent from diagnostic folding', async () => {
+    const { ctx, subprocess } = await setup()
+    const permissions = ['a', 'b', 'c'].map(path => `rg: /tmp/${path}: Permission denied (os error 13)`)
+    const diagnostics = Array.from({ length: 6 }, (_, index) => `rg: /tmp/${index}: IO error: diagnostic-${index}`)
+    subprocess.handler = () => runResult('', {
+      exitCode: 2,
+      stderr: { text: [...permissions, ...diagnostics].join('\n'), lossy: true },
+    })
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(text(result)).toContain('[stderr truncated]')
+    expect(text(result)).toContain('Other diagnostics:')
+  })
+
+  it('keeps the truncation marker when only permission noise remains after folding', async () => {
+    const { ctx, subprocess } = await setup()
+    const permissions = ['a', 'b'].map(path => `rg: /tmp/${path}: Permission denied (os error 13)`)
+    subprocess.handler = () => runResult('', {
+      exitCode: 2,
+      stderr: { text: permissions.join('\n'), lossy: true },
+    })
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(text(result)).toContain('could not read 2 path(s)')
+    expect(text(result)).toContain('[stderr truncated]')
+    expect(text(result)).not.toContain('Other diagnostics:')
   })
 
   it('a signal kill (not timeout, not abort) is SEARCH_FAILED', async () => {

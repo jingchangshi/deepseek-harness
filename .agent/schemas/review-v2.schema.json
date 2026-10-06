@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://deepseek-harness.local/agent/review-v2.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "taskRevision",
+    "workRevision",
+    "decision",
+    "summary",
+    "findings",
+    "identity"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
+    "taskId": {
+      "type": "string"
+    },
+    "taskRevision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "workRevision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "decision": {
+      "enum": [
+        "ACCEPT",
+        "FIX_BOUNDED",
+        "REPLAN",
+        "BLOCKED"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "blocker": {
+      "type": "string",
+      "minLength": 1
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempt",
+        "sourceTreeDigest",
+        "verificationPolicyDigest",
+        "repositoryProfileDigest",
+        "requiredSetDigest"
+      ],
+      "properties": {
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sourceTreeDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "verificationPolicyDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "repositoryProfileDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "requiredSetDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    }
+  }
+}

@@ -8,7 +8,7 @@ spill 存储[能力 seam](../../.agents/notes/implemented/architecture/2026-07-0
 
 ## 保存请求
 
-`saveText` 是唯一的服务操作：原样持久保存 `content`，并返回不透明的定位符、后端提供的检索提示和精确字节数。请求携带保存时的存储命名空间（`owner`）、描述性的生产者来源信息（`source`，绝非访问控制）以及后端可用作命名提示而非路径的 `suggestedName`。工具来源标识实际工具调用；会话引用来源标识被捕获的源会话，而其归属是接收上下文的目标会话。
+`saveText` 原样持久保存 `content`，并返回不透明的定位符、后端提供的检索提示和精确字节数。请求携带保存时的存储命名空间（`owner`）、描述性的生产者来源信息（`source`，绝非访问控制）以及后端可用作命名提示而非路径的 `suggestedName`。工具来源标识实际工具调用；会话引用来源标识被捕获的源会话，而其归属是接收上下文的目标会话。
 
 ```ts type-equiv
 /** One request to persist text to a spill artifact. */
@@ -87,9 +87,11 @@ type SpillLocator = Branded<'SpillLocator'>
 
 ## 服务
 
-`SpillStore`（`ctx.spillStore`，定义于 [`packages/spill/spill/src/index.ts`](../../packages/spill/spill/src/index.ts)）是只有一个方法的抽象服务：`saveText(input) → Promise<SpillRef>`。它持久保存完整的 `content`，并在实际存储失败（权限、ENOSPC、后端不可用）时拒绝。该 seam 只负责存储：不负责保留策略、工具结果替换或检索／搜索 API。
+`SpillStore`（`ctx.spillStore`，定义于 [`packages/spill/spill/src/index.ts`](../../packages/spill/spill/src/index.ts)）提供 `saveText(input) → Promise<SpillRef>` 和可选的 `readText(input) → Promise<SpillRead>`。保存原样持久化完整 `content`，并在存储失败时拒绝。基础 reader 拒绝不支持的检索；实现该能力的 provider 拥有 locator 解析与读取限制。保留策略和工具结果替换仍由消费方负责。
 
-本地后端（[dsh-spill-local](../../packages/spill/spill-local)）写入 `<root>/session-<hash>/<random>-<safeName>`：根目录是已配置或延迟创建的私有（0700）目录，会话子目录采用 `sha256(sessionId)`，并通过排他且仅所有者可访问的写入（`open(path, 'wx', 0o600)`）防止预先植入的符号链接重定向写入。其 `locator` 是本地路径，`retrievalHint` 则告知模型在该路径上使用 `read` 或 `grep`。策略消费方（[dsh-spill-policy](../../packages/spill/spill-policy)）会把超过 `maxInlineTokens` 的图文结果替换为按原顺序保留的首尾内容和 spill 地址；该过程尽力而为：保存失败时保留原始内联结果，而不会把成功的调用变成 `isError`。
+本地后端（[dsh-spill-local](../../packages/spill/spill-local)）使用私有目录和排他、仅所有者可访问的文件，写入 `<root>/session-<hash>/<random>-<safeName>`。Locator 是持有者能力，包括 fork 或 session-reference context 继承的定位符；保存时的归属不是访问控制列表。检索验证 backend 路径范围，并拒绝 symlink 和 hardlink。指引声明使用 [dsh-spill-policy](../../packages/spill/spill-policy) 提供的 `spill_read`，不假设 Session 文件系统能够读取本地路径。保留仍是尽力而为：保存失败时保留原始内联结果。
+
+`ReadTextSpill` 携带原样 `locator`、可选的一基行号 `offset` 和行数 `limit`、用于继续读取的可选绝对 UTF-8 `byteOffset`，以及取消 `signal`。字节游标覆盖行偏移。`SpillRead` 返回 locator 和诊断路径、首行偏移、带行号的行片段、精确 `totalLines` 与 `bytes`、`truncated` 和 `nextByteOffset`。本地读取应用 `readMaxLines` 和 `readMaxBytes`；字节续读使超大单行仍可恢复。`spill_read` 结果不会再次 spill，因此声明的分页操作始终可用。
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -103,7 +105,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.spillStore` — `SpillStore` (abstract seam)
 
-Abstract spill storage service. Subclass, implement saveText, and load the subclass as a plugin — it registers as `ctx.spillStore` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+Abstract spill storage service. Subclass, implement saveText, and load the subclass as a plugin — it registers as `ctx.spillStore` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior). readText is an optional retrieval capability: the base implementation rejects, so existing save-only subclasses keep compiling and remain valid.
 
 Semantics every implementation must honor:
 
@@ -118,6 +120,17 @@ Semantics every implementation must honor:
  * @returns the saved artifact's {@link SpillRef}; rejects on a storage failure.
  */
 abstract saveText(input: SaveTextSpill): Promise<SpillRef>
+
+/**
+ * Read a bounded window of text back from a saved artifact locator. Optional:
+ * a backend that cannot retrieve its locators keeps the base rejection.
+ *
+ * @param _input - saved bearer locator, optional line or byte cursor, and cancellation signal.
+ * @returns the structured read result; rejects on an invalid locator, an
+ *   unsupported backend or a storage read failure. Inherited locators remain readable. Pages
+ *   must bound UTF-8 content bytes even within one line and return a continuation cursor.
+ */
+readText(_input: ReadTextSpill): Promise<SpillRead>
 ```
 
 Source: [`packages/spill/spill/src/index.ts`](../../packages/spill/spill/src/index.ts)

@@ -116,6 +116,66 @@ function stderrExcerpt(stderrText: string, truncated: boolean): string {
   return truncated ? `${text} [stderr truncated]` : text
 }
 
+/** One `rg: <path>: ... Permission denied (os error 13)` diagnostic line. */
+const PERMISSION_LINE = /^rg: (.*?): (?:IO error for operation on .*?: )?Permission denied \(os error 13\)$/
+
+/** How many named paths to keep in the folded permission summary. */
+const PERMISSION_PATH_LIMIT = 3
+
+/** How many non-permission diagnostic lines to keep beside the folded permission summary. */
+const OTHER_DIAGNOSTIC_LINE_LIMIT = 5
+
+/**
+ * Replace an unreadable-target stderr tail with a bounded summary naming the
+ * first few paths. When meaningful non-permission diagnostics appear beside
+ * the permission noise, both classes stay visible: permission lines fold to
+ * the same bounded summary, and the remaining diagnostics are retained under
+ * their own bounded section instead of being hidden behind a raw stderr tail.
+ *
+ * `rg` exits 2 for one unreadable subdirectory and prints one line per path,
+ * so a search rooted at a shared directory (the spill or temp root, say)
+ * reports hundreds of lines of host noise and buries the actual result. The
+ * paths are still what makes the failure actionable, so the first few are
+ * kept and the remainder counted.
+ * @param stderr - the trimmed stderr tail, already excerpted.
+ * @returns the replacement summary, or the input when the tail has no permission failures.
+ */
+function foldPermissionNoise(stderr: string): string {
+  const truncated = stderr.endsWith(' [stderr truncated]')
+  const source = truncated ? stderr.slice(0, -' [stderr truncated]'.length) : stderr
+  const lines = source.split('\n')
+  const paths: string[] = []
+  const otherDiagnostics: string[] = []
+  for (const line of lines) {
+    if (line.trim() === '') continue
+    // ripgrep normally emits LF, but a provider can preserve CRLF stderr.
+    // Remove only the line terminator so diagnostic text remains unchanged.
+    const normalizedLine = line.endsWith('\r') ? line.slice(0, -1) : line
+    const match = PERMISSION_LINE.exec(normalizedLine)
+    if (match === null) {
+      otherDiagnostics.push(normalizedLine)
+    } else {
+      paths.push(String(match[1]))
+    }
+  }
+  // A tail with no permission failures is not permission noise at all: keep
+  // every original diagnostic so a lone IO error, launch message, or parser
+  // message stays verbatim.
+  if (paths.length === 0) return stderr
+  const shown = paths.slice(0, PERMISSION_PATH_LIMIT).map(path => `\`${path}\``).join(', ')
+  const remainder = paths.length - PERMISSION_PATH_LIMIT
+  const summary = `ripgrep could not read ${String(paths.length)} path(s) under the search root: ${shown}`
+    + `${remainder > 0 ? ` and ${String(remainder)} more` : ''}. Search a narrower path it can read, or exclude the unreadable directories.`
+  if (otherDiagnostics.length === 0) return truncated ? `${summary} [stderr truncated]` : summary
+
+  const shownDiagnostics = otherDiagnostics.slice(0, OTHER_DIAGNOSTIC_LINE_LIMIT)
+  const omitted = otherDiagnostics.length - shownDiagnostics.length
+  const otherLines = shownDiagnostics.map(line => `  ${line}`)
+  if (omitted > 0) otherLines.push(`  [... ${String(omitted)} more diagnostic(s) omitted]`)
+  const folded = `${summary}\n\nOther diagnostics:\n${otherLines.join('\n')}`
+  return truncated ? `${folded} [stderr truncated]` : folded
+}
+
 /**
  * Classify a nonzero-exit `rg` run into the search error vocabulary. There is
  * no shell layer, so an exit 127 or shell "command not found" text cannot
@@ -123,10 +183,11 @@ function stderrExcerpt(stderrText: string, truncated: boolean): string {
  */
 function classifyRunFailure(toolName: string, exitCode: number, stderrText: string, stderrTruncated: boolean): SearchError {
   const stderr = stderrExcerpt(stderrText, stderrTruncated)
-  if (/regex parse error|error parsing glob/i.test(stderr)) {
-    return new SearchError(`${toolName} pattern rejected by ripgrep: ${stderr}`, 'SEARCH_INVALID_PATTERN')
+  const diagnostic = stderr.length > 0 ? foldPermissionNoise(stderr) : ''
+  if (/regex parse error|error parsing glob/i.test(diagnostic)) {
+    return new SearchError(`${toolName} pattern rejected by ripgrep: ${diagnostic}`, 'SEARCH_INVALID_PATTERN')
   }
-  return new SearchError(`${toolName} search failed (exit ${exitCode})${stderr.length > 0 ? `: ${stderr}` : ''}`, 'SEARCH_FAILED')
+  return new SearchError(`${toolName} search failed (exit ${exitCode})${diagnostic.length > 0 ? `: ${diagnostic}` : ''}`, 'SEARCH_FAILED')
 }
 
 /**

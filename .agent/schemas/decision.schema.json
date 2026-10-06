@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://deepseek-harness.local/agent/decision.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taskId", "taskRevision", "workRevision", "decision", "acceptedAt", "verificationStatus", "reviewDecision"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "taskId": { "type": "string" },
+    "taskRevision": { "type": "integer", "minimum": 1 },
+    "workRevision": { "type": "integer", "minimum": 1 },
+    "decision": { "const": "ACCEPTED" },
+    "acceptedAt": { "type": "string", "format": "date-time" },
+    "verificationStatus": { "const": "PASS" },
+    "reviewDecision": { "const": "ACCEPT" }
+  }
+}

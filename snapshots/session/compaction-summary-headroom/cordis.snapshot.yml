@@ -1,5 +1,6 @@
-# The summary output cap inherits the 1,800-token headroom. A 1,000-token
-# request output reservation lowers the proactive trigger to 5,582 tokens.
+# The 8,569-token window includes the 187-token spill_read schema allowance.
+# The 1,800-token headroom sets a 6,769-token trigger; a 1,000-token output
+# reservation lowers it to 5,769.
 
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek-api-key'
@@ -27,5 +28,5 @@
             name: DeepSeek
             models:
               - id: deepseek-v4-flash
-                contextWindow: 8382
+                contextWindow: 8569
                 defaultMaxTokens: 1000

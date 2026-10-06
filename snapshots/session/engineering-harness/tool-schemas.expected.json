@@ -1,0 +1,109 @@
+{
+  "initial": [
+    {
+      "name": "engineering_recover",
+      "description": "Release interrupted work and explicitly replan one task, requiring stopped-work confirmation only when engineering_run requests it.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "Exact interrupted task identifier."
+          },
+          "confirmedStopped": {
+            "type": "boolean",
+            "description": "Set true after stopped-work confirmation when engineering_run returns requiresStopConfirmation=true; otherwise set false."
+          }
+        },
+        "required": [
+          "taskId",
+          "confirmedStopped"
+        ]
+      }
+    },
+    {
+      "name": "engineering_run",
+      "description": "Implement or resume a development requirement in the current Session repository using isolated Scouts, Architect, Challenger, one Implementer, command verification and independent Reviewer. Returns authoritative acceptance or a concrete blocker.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string",
+            "description": "Complete requirement for a new task, or changed scope for a task already in REPLAN. Omit when resuming."
+          },
+          "taskId": {
+            "type": "string",
+            "description": "Existing task identifier when explicitly resuming it. An empty string is treated as omitted for a new task."
+          }
+        }
+      }
+    },
+    {
+      "name": "engineering_status",
+      "description": "Read durable engineering task states in this Session repository without starting work.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "description": "Optional task identifier. An empty string is treated as omitted and lists all tasks."
+          }
+        }
+      }
+    },
+    {
+      "name": "get_goal",
+      "description": "Read the current session goal, including the id and revision that update_goal requires.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "update_goal",
+      "description": "Update the current goal.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "goal_id": {
+            "type": "string",
+            "description": "Exact id returned by get_goal."
+          },
+          "revision": {
+            "type": "number",
+            "description": "Exact positive revision returned by get_goal."
+          },
+          "action": {
+            "type": "string",
+            "description": "edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count.",
+            "enum": [
+              "edit",
+              "pause",
+              "resume",
+              "complete",
+              "blocked"
+            ]
+          },
+          "objective": {
+            "type": "string",
+            "description": "Replacement objective; valid only with action edit."
+          },
+          "max_goal_rounds": {
+            "type": "number",
+            "description": "Replacement cap; valid only with action edit."
+          },
+          "blocked_reason": {
+            "type": "string",
+            "description": "Required only with action blocked: the concrete condition that persisted across rounds and blocks progress."
+          }
+        },
+        "required": [
+          "goal_id",
+          "revision",
+          "action"
+        ]
+      }
+    }
+  ],
+  "changes": []
+}

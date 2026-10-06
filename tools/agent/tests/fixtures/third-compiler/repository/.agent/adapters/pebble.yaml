@@ -1,0 +1,34 @@
+runners:
+  node-local:
+    kind: local
+    workingDirectory: .
+commands:
+  parse:
+    runner: node-local
+    executable: '{{NODE_EXECUTABLE}}'
+    args: [scripts/check.mjs, parse]
+    env: {set: {PEBBLE_FIXTURE: '1'}, inherit: []}
+    terminationTimeoutMs: 5000
+    outputLimitBytes: 8192
+  stack:
+    runner: node-local
+    executable: '{{NODE_EXECUTABLE}}'
+    args: [scripts/check.mjs, emit, stack]
+    env: {set: {PEBBLE_FIXTURE: '1'}, inherit: []}
+    terminationTimeoutMs: 5000
+    outputLimitBytes: 8192
+  register:
+    runner: node-local
+    executable: '{{NODE_EXECUTABLE}}'
+    args: [scripts/check.mjs, emit, register]
+    env: {set: {PEBBLE_FIXTURE: '1'}, inherit: []}
+    terminationTimeoutMs: 5000
+    outputLimitBytes: 8192
+  reference:
+    runner: node-local
+    executable: '{{NODE_EXECUTABLE}}'
+    args: [scripts/check.mjs, reference]
+    env: {set: {PEBBLE_FIXTURE: '1'}, inherit: []}
+    terminationTimeoutMs: 5000
+    outputLimitBytes: 8192
+scope: {compiler: pebble, language: integer-ssa}

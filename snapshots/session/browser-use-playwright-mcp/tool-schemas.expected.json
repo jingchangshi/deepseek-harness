@@ -447,6 +447,34 @@
       }
     },
     {
+      "name": "spill_read",
+      "description": "Read a bounded page of spilled text by its opaque locator, including locators inherited in a fork or received as context. Follow the returned byteOffset to continue within long lines.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "locator": {
+            "type": "string",
+            "description": "Opaque full-result locator from the spill notice. Do not parse or make one up."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "1-based first line to return. Defaults to 1."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of lines to return. The spill backend applies its own cap when omitted."
+          },
+          "byteOffset": {
+            "type": "integer",
+            "description": "Absolute UTF-8 byte cursor from the previous page; overrides offset."
+          }
+        },
+        "required": [
+          "locator"
+        ]
+      }
+    },
+    {
       "name": "subagent",
       "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles.",
       "parameters": {

@@ -1,0 +1,21 @@
+schemaVersion: 1
+defaultTier: presubmit
+allowedTiers: [development, presubmit, qualification]
+alwaysRequired:
+  - name: parse
+    scope: {dialect: pebble}
+tiers:
+  development: []
+  presubmit:
+    - name: codegen
+      scope: {target: stack, width: 32}
+    - name: codegen
+      scope: {target: register, width: 32}
+  qualification:
+    - name: hardware
+      scope: {device: pebble-board}
+impactRules:
+  - paths: [compiler/**, programs/**]
+    require:
+      - name: reference
+        scope: {semantics: integer-arithmetic}

@@ -66,6 +66,28 @@ function toStopReason(reason: TurnEndReason | undefined): SubagentStopReason {
   }
 }
 
+const DIAGNOSTIC_ERROR_CODES = new Set([
+  'AUTH', 'MISSING_CREDENTIAL', 'RATE_LIMIT', 'QUOTA_EXCEEDED', 'INVALID_REQUEST',
+  'POLICY_REFUSAL', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'CONTEXT_WINDOW_EXCEEDED',
+  'EMPTY_RESPONSE', 'PI_AI_ERROR', 'ABORTED', 'UNKNOWN',
+])
+
+/** Closed error categories and HTTP status exclude provider bodies, tool data, and credentials. */
+function turnFailureDiagnostic(reason: TurnEndReason | undefined): string | undefined {
+  if (reason?.kind !== 'error') return undefined
+  const failure = reason.error
+  const code = DIAGNOSTIC_ERROR_CODES.has(failure.code) ? failure.code : 'UNKNOWN'
+  // pi-ai preserves its HTTP status only as a leading message token.
+  const prefix = failure.code === 'PI_AI_ERROR'
+    ? /^(?:HTTP\s+)?([45]\d{2})(?:\s|$)/i.exec(failure.message.slice(0, 128))?.[1]
+    : undefined
+  const status = failure.status ?? (prefix === undefined ? undefined : Number(prefix))
+  const http = status !== undefined && Number.isInteger(status) && status >= 400 && status <= 599
+    ? `; HTTP status: ${status}`
+    : ''
+  return `In-process subagent failure (code: ${code}${http}). Inspect the child Session for details.`
+}
+
 /** Extra inputs the spawn and fork providers supply to the shared driver. */
 export interface InProcessRunOptions {
   /** Completed-turn seed for fork, or undefined for a fresh spawn. */
@@ -99,7 +121,8 @@ function attachDescriptorAppend(childCtx: Context, descriptor: SubagentDescripto
  * child's initial turn.
  * @param request - the trusted typed start request, including its required signal.
  * @param options - the optional fork seed.
- * @returns a published holder-owned run.
+ * @returns a published holder-owned run; failed turns include bounded diagnostics
+ *   with recognized error codes and HTTP status, excluding raw error messages.
  */
 export async function startInProcessRun(
   request: ResolvedSubagentStartRequest,
@@ -228,11 +251,13 @@ function readResult(
   // Disposal can tear the owner down before the loop records its ordinary
   // `aborted` end, yielding `disposed` instead.
   const stopReason: SubagentStopReason = cancelled && recorded !== 'completed' ? 'aborted' : recorded
+  const diagnostic = turnFailureDiagnostic(lastEnd?.data.reason)
+  const result = { output, stopReason, ...diagnostic === undefined ? {} : { diagnostic } }
   if (structured !== undefined) {
     if (structured.captured !== undefined) {
-      return { output, structured: structured.captured.value, stopReason }
+      return { ...result, structured: structured.captured.value }
     }
     if (stopReason === 'completed') return { output, stopReason: cancelled ? 'aborted' : 'error' }
   }
-  return { output, stopReason }
+  return result
 }

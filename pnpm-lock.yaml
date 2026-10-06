@@ -8897,6 +8897,12 @@ importers:
       '@deepseek-ai/dsh-spill':
         specifier: workspace:*
         version: link:../../spill/spill
+      '@deepseek-ai/dsh-spill-local':
+        specifier: workspace:*
+        version: link:../../spill/spill-local
+      '@deepseek-ai/dsh-spill-policy':
+        specifier: workspace:*
+        version: link:../../spill/spill-policy
       '@deepseek-ai/dsh-subprocess':
         specifier: workspace:*
         version: link:../../subprocess/subprocess

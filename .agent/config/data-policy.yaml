@@ -1,0 +1,19 @@
+schemaVersion: 1
+classes:
+  public: 0
+  internal: 1
+  sensitive: 2
+sensitiveInputs:
+  allowedKinds:
+    - synthetic
+    - anonymized
+    - explicitly-approved
+  approvalRequiredFields:
+    - source
+    - route
+    - approver
+    - expiresAt
+forbiddenCommittedPatterns:
+  - private-key
+  - bearer-token
+  - api-key

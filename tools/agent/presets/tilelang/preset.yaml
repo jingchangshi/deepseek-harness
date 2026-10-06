@@ -1,0 +1,11 @@
+schemaVersion: 1
+id: tilelang
+version: 2.0.0
+files:
+  - .agent/config/project.yaml
+  - .agent/config/knowledge.yaml
+  - .agent/config/commands.yaml
+  - .agent/config/verification-policy.yaml
+  - .agent/profiles/tilelang.yaml
+  - .agent/scripts/tilelang.sh
+  - .agent/scripts/tilelang-check.py

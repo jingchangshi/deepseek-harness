@@ -1,0 +1,80 @@
+schemaVersion: 1
+roles:
+  coordinator:
+    route: architecture
+    reasoningEffort: ${DSH_ARCHITECT_REASONING_EFFORT:-medium}
+    maxTokens: 32768
+    personaFile: .agent/roles/coordinator.md
+    writable: false
+    allowPremium: true
+    toolPolicy: coordinator
+  architect:
+    route: architecture
+    reasoningEffort: ${DSH_ARCHITECT_REASONING_EFFORT:-medium}
+    maxTokens: 32768
+    toolName: ask_architect
+    personaFile: .agent/roles/architect.md
+    writable: false
+    allowPremium: true
+    toolPolicy: read-only
+  scout-primary:
+    route: worker
+    fallbackRoutes:
+      - worker-fallback
+    reasoningEffort: medium
+    maxTokens: 16384
+    toolName: ask_scout_primary
+    personaFile: .agent/roles/scout.md
+    writable: false
+    toolPolicy: read-only
+  scout-secondary:
+    route: worker-secondary
+    fallbackRoutes:
+      - worker-secondary-fallback
+      - worker-fallback
+    reasoningEffort: high
+    maxTokens: 16000
+    toolName: ask_scout_secondary
+    personaFile: .agent/roles/scout.md
+    writable: false
+    toolPolicy: read-only
+  implementer:
+    route: worker
+    fallbackRoutes:
+      - worker-fallback
+    reasoningEffort: max
+    maxTokens: 32000
+    toolName: run_implementer
+    personaFile: .agent/roles/implementer.md
+    writable: true
+    toolPolicy: writer
+  challenger:
+    route: worker-secondary
+    fallbackRoutes:
+      - worker-secondary-fallback
+      - worker-fallback
+    reasoningEffort: max
+    maxTokens: 16000
+    toolName: ask_challenger
+    personaFile: .agent/roles/challenger.md
+    writable: false
+    toolPolicy: read-only
+  reviewer:
+    route: architecture
+    reasoningEffort: ${DSH_REVIEWER_REASONING_EFFORT:-medium}
+    maxTokens: 32768
+    toolName: ask_reviewer
+    personaFile: .agent/roles/reviewer.md
+    writable: false
+    allowPremium: true
+    toolPolicy: read-only
+  arbiter:
+    route: arbiter
+    reasoningEffort: ${DSH_ARBITER_REASONING_EFFORT:-medium}
+    maxTokens: 16384
+    toolName: ask_arbiter
+    personaFile: .agent/roles/arbiter.md
+    writable: false
+    enabled: false
+    allowPremium: true
+    toolPolicy: read-only

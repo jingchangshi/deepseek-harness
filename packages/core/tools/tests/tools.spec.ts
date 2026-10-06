@@ -11,6 +11,7 @@ import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@de
 import ToolRuntime, {
   defineContentToolFixture, defineTool, JsonSchemaError, parameterSchemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
   TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH,
+  suggestToolNames,
   type InferArgs, type ParameterSchemaSpec, type PreToolDecision, type PostToolDecision,
   type JsonSchemaNode, type ToolDefinition, type ToolDispatchExecution, type ToolExecutionResult, type ToolExecutionToken,
 } from '@deepseek-ai/dsh-tools'
@@ -740,6 +741,29 @@ describe('ToolRuntime', () => {
     expect(err.name).toBe('ToolNotFoundError')
     expect(err.code).toBe('UNKNOWN_TOOL')
     expect(err.message).toBe('unknown tool "ghost"')
+  })
+
+  it('names the closest callable tools when the requested name is unknown', async () => {
+    const ctx = await setup()
+    ctx.tools.register(echoTool)
+    const result = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('typo'), name: 'Echo', arguments: {} })
+    expect(result.isError).toBe(true)
+    expect(result.error?.message).toBe('unknown tool "Echo"; did you mean `echo`?')
+  })
+
+  it('matches unknown tool names case-first, then by bounded edit distance', () => {
+    // A model trained on another harness emits `Read`/`Grep`; exact case
+    // variants sort ahead of a merely similar name.
+    // The exact case variant sorts ahead of the merely-near `red`, and the
+    // distant `write` is not a candidate at all.
+    expect(suggestToolNames('Read', ['read', 'red', 'write'])).toEqual(['read', 'red'])
+    expect(suggestToolNames('Greb', ['read', 'grep', 'glob'])).toEqual(['grep'])
+    // A short name tolerates only one edit; distant names and the identity
+    // match itself contribute nothing.
+    expect(suggestToolNames('xx', ['aa', 'bb'])).toEqual([])
+    expect(suggestToolNames('echo', ['echo'])).toEqual([])
+    // The list is bounded so a denial stays a short, actionable line.
+    expect(suggestToolNames('red', ['read', 'red', 'reed', 'road', 'rod']).length).toBeLessThanOrEqual(3)
   })
 
   it('lets a tools/pre-execute listener deny a call (permission pattern)', async () => {

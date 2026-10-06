@@ -1,0 +1,33 @@
+- id: llm-deepseek
+  disabled: true
+- id: llm-pi-ai
+  disabled: true
+- id: plugin-package-inventory-deepseek
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: hmr
+  disabled: true
+- id: session-title
+  disabled: true
+- insert:
+    - id: llm-replay
+      name: '@deepseek-ai/dsh-llm-replay'
+      config:
+        providers:
+          - id: fixture
+            models:
+              - { id: coordinator, reasoningEfforts: [low, medium, high, max], defaultReasoningEffort: medium }
+              - { id: scout-primary, reasoningEfforts: [low, medium, high, max], defaultReasoningEffort: medium }
+              - { id: scout-secondary, reasoningEfforts: [low, medium, high, max], defaultReasoningEffort: medium }
+              - { id: worker-fallback, reasoningEfforts: [low, medium, high, max], defaultReasoningEffort: medium }
+              - { id: architect, reasoningEfforts: [low, medium, high, max], defaultReasoningEffort: medium }
+              - { id: challenger, reasoningEfforts: [low, medium, high, max], defaultReasoningEffort: medium }
+              - { id: implementer, reasoningEfforts: [low, medium, high, max], defaultReasoningEffort: medium }
+              - { id: reviewer, reasoningEfforts: [low, medium, high, max], defaultReasoningEffort: medium }
+    - id: engineering-snapshot
+      name: ./fixture.mjs
+      config:
+        record: false

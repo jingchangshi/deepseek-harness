@@ -37,6 +37,7 @@ kind: "package-reference"
   config:
     sampleOverCapGlobResults: false
 - name: '@deepseek-ai/dsh-spill-local'
+- name: '@deepseek-ai/dsh-spill-policy'
 ```
 
 `sampleOverCapGlobResults` 是必填项且没有回退值：部署必须显式选择超过上限时的排序约定。格式化 spill 成功时，两种模式都会在 spill 产物中保留完整排序列表。
@@ -74,7 +75,7 @@ Node 部署在受支持的 macOS、Linux 与 Windows 目标上获得 `@vscode/ri
 
 ### 失败与恢复
 
-搜索失败携带本包定义的错误码：`SEARCH_INVALID_PATTERN`（ripgrep 拒绝正则或 glob）、`SEARCH_FAILED`（启动失败、目标不可访问、信号终止或 `--json` 输出格式错误）、`SEARCH_RAW_OUTPUT_OVERFLOW`（原始输出超过上限）与 `SEARCH_ABORTED`（协作式超时或调用方取消）。退出 0 表示成功且有结果，退出 1 表示成功的空搜索；模型参数错误仍是普通工具参数错误。
+搜索失败携带 `SEARCH_INVALID_PATTERN`、`SEARCH_FAILED`、`SEARCH_RAW_OUTPUT_OVERFLOW` 或 `SEARCH_ABORTED`。退出 0 表示成功且有结果，退出 1 表示空搜索成功。权限失败折叠为包含路径名的有界摘要，其他诊断仍同时显示。即使 ripgrep 找到匹配，退出 2 也报告失败，不将这些匹配表示为完整结果。
 
 -----
 

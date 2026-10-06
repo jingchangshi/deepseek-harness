@@ -1,0 +1,321 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://deepseek-harness.local/agent/plan-v2.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "taskRevision",
+    "workRevision",
+    "problemStatement",
+    "hypotheses",
+    "selectedApproach",
+    "rejectedAlternatives",
+    "invariants",
+    "expectedComponents",
+    "implementationScope",
+    "falsificationTests",
+    "acceptanceGates",
+    "unresolvedAssumptions",
+    "intentDigest",
+    "binding"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
+    "taskId": {
+      "type": "string"
+    },
+    "taskRevision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "workRevision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "problemStatement": {
+      "type": "string",
+      "minLength": 1
+    },
+    "hypotheses": {
+      "$ref": "#/definitions/nonEmptyStrings"
+    },
+    "selectedApproach": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rejectedAlternatives": {
+      "$ref": "#/definitions/nonEmptyStrings"
+    },
+    "invariants": {
+      "$ref": "#/definitions/nonEmptyStrings"
+    },
+    "expectedComponents": {
+      "$ref": "#/definitions/nonEmptyStrings"
+    },
+    "implementationScope": {
+      "$ref": "#/definitions/nonEmptyStrings"
+    },
+    "falsificationTests": {
+      "$ref": "#/definitions/nonEmptyStrings"
+    },
+    "acceptanceGates": {
+      "$ref": "#/definitions/nonEmptyStrings"
+    },
+    "unresolvedAssumptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "statement",
+          "acceptanceBlocking"
+        ],
+        "properties": {
+          "statement": {
+            "type": "string",
+            "minLength": 1
+          },
+          "acceptanceBlocking": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "intentDigest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseline",
+        "verificationPolicyDigest",
+        "repositoryProfileDigest",
+        "requirements",
+        "extras",
+        "preset",
+        "attempt",
+        "seal"
+      ],
+      "properties": {
+        "baseline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "head",
+            "files",
+            "dirtyPaths",
+            "sourceTreeDigest"
+          ],
+          "properties": {
+            "head": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "files": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "dirtyPaths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "sourceTreeDigest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          }
+        },
+        "verificationPolicyDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "repositoryProfileDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "requirements": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tier",
+            "instances"
+          ],
+          "properties": {
+            "tier": {
+              "enum": [
+                "development",
+                "presubmit",
+                "qualification"
+              ]
+            },
+            "instances": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "sources"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "sources": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "extras": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "scope"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "scope": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "preset": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "schemaVersion",
+                "id",
+                "version",
+                "digest"
+              ],
+              "properties": {
+                "schemaVersion": {
+                  "const": 1
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "version": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "digest": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "seal": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "attempt",
+                "sourceTreeDigest",
+                "verificationPolicyDigest",
+                "repositoryProfileDigest",
+                "requiredSetDigest"
+              ],
+              "properties": {
+                "attempt": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "sourceTreeDigest": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "verificationPolicyDigest": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "repositoryProfileDigest": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "requiredSetDigest": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "verificationExtras": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "scope"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "scope": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "nonEmptyStrings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

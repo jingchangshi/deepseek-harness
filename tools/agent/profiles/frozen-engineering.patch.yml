@@ -1,0 +1,208 @@
+# Fixed-role overlay for the repository engineering harness.
+- id: tool-subagent
+  disabled: true
+
+- id: tool-subagent-fork
+  disabled: true
+
+- id: agent-default-model
+  config:
+    provider: !!js process.env.DSH_ARCHITECT_PROVIDER || 'magpie-responses'
+    model: !!js process.env.DSH_ARCHITECT_MODEL_ID || 'codex/gpt-6.1-sol'
+    reasoningEffort: !!js process.env.DSH_ARCHITECT_REASONING_EFFORT || 'medium'
+
+- id: llm-pi-ai
+  config:
+    providers: !!js >-
+      (() => {
+        const providers = {
+          magpie: {
+            displayName: 'Magpie',
+            apiKeyEnv: process.env.DSH_MAGPIE_API_KEY_ENV || 'MAGPIE_API_KEY',
+            api: process.env.DSH_MAGPIE_API || 'openai-completions',
+            baseURL: process.env.DSH_MAGPIE_GATEWAY_URL || '${DSH_MAGPIE_GATEWAY_URL}',
+            models: [],
+          },
+          'magpie-responses': {
+            displayName: 'Magpie Responses',
+            apiKeyEnv: process.env.DSH_MAGPIE_API_KEY_ENV || 'MAGPIE_API_KEY',
+            api: process.env.DSH_MAGPIE_RESPONSES_API || 'openai-responses',
+            baseURL: process.env.DSH_MAGPIE_GATEWAY_URL || '${DSH_MAGPIE_GATEWAY_URL}',
+            models: [],
+          },
+          company: {
+            displayName: 'Company',
+            apiKeyEnv: 'DSH_COMPANY_GATEWAY_API_KEY',
+            api: process.env.DSH_COMPANY_API || 'openai-completions',
+            baseURL: process.env.DSH_COMPANY_GATEWAY_URL || '${DSH_COMPANY_GATEWAY_URL}',
+            models: [],
+          },
+        };
+        const routes = [
+          ['DSH_WORKER', 'magpie', 'group/auto-deepseek-v4-1-flash', { off: null, low: 'low', medium: 'low', high: 'high', max: 'max' }, 32000],
+          ['DSH_SECONDARY_WORKER', 'magpie', 'opencode-go/mimo-v2.6-flash', false, 16000],
+          ['DSH_WORKER_FALLBACK', 'magpie', 'trae-cn/qwen3.8-flash', false, 32000],
+          ['DSH_SECONDARY_WORKER_FALLBACK', 'magpie', 'trae-cn/glm-5.3-flash', false, 16000],
+          ['DSH_ARCHITECT', 'magpie-responses', 'codex/gpt-6.1-sol', { off: null, medium: 'medium', high: 'high' }, 32768],
+          ['DSH_ARBITER', 'magpie-responses', 'codex/gpt-6.1-sol', { off: null, medium: 'medium', high: 'high' }, 16384],
+        ];
+        const modelRoutes = new Map();
+        const effortSignature = efforts => JSON.stringify(efforts === false ? false : Object.entries(efforts).sort(([left], [right]) => left.localeCompare(right)));
+        for (const [prefix, defaultProvider, defaultModel, reasoningEfforts, maxTokens] of routes) {
+          const providerId = process.env[prefix + '_PROVIDER'] || defaultProvider;
+          const provider = providers[providerId];
+          if (!provider) throw new Error(prefix + '_PROVIDER references unknown provider ' + providerId);
+          const id = process.env[prefix + '_MODEL_ID'] || defaultModel;
+          const key = JSON.stringify([providerId, id]);
+          const previous = modelRoutes.get(key);
+          const signature = effortSignature(reasoningEfforts);
+          if (previous && previous.signature !== signature) throw new Error(prefix + ' and ' + previous.prefix + ' use the same provider/model with conflicting reasoningEfforts; use identical mappings or select different models');
+          modelRoutes.set(key, { prefix, signature });
+          if (!provider.models.some(model => model.id === id)) provider.models.push({ id, reasoningEfforts, maxTokens });
+        }
+        return providers;
+      })()
+
+- id: workflow-ptc
+  config:
+    provider: spawn
+    maxConcurrentAgents: 3
+    maxTotalAgents: 12
+
+- insert:
+    - id: role-architect
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: ask_architect
+        enableRunInBackground: false
+        agentOptions:
+          provider: !!js process.env.DSH_ARCHITECT_PROVIDER || 'magpie-responses'
+          model: !!js process.env.DSH_ARCHITECT_MODEL_ID || 'codex/gpt-6.1-sol'
+          reasoningEffort: !!js process.env.DSH_ARCHITECT_REASONING_EFFORT || 'medium'
+          maxTokens: 32768
+        persona: >-
+          Produce an evidence-backed design. Read the repository, identify invariants and falsification checks, state unresolved assumptions, and do not modify files or claim acceptance.
+        toolFilter:
+          allow: [read, read_image, spill_read, glob, grep, web_fetch, web_search]
+        maxDepth: 1
+
+    - id: role-scout-primary
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: ask_scout_primary
+        enableRunInBackground: false
+        agentOptions:
+          provider: !!js process.env.DSH_WORKER_PROVIDER || 'magpie'
+          model: !!js process.env.DSH_WORKER_MODEL_ID || 'group/auto-deepseek-v4-1-flash'
+          reasoningEffort: medium
+          maxTokens: 16384
+        persona: >-
+          Investigate only the assigned question. Cite repository paths and observed behavior, separate facts from hypotheses, report uncertainty, and do not modify files.
+        toolFilter:
+          allow: [read, read_image, spill_read, glob, grep, web_fetch, web_search]
+        maxDepth: 1
+
+    - id: role-scout-secondary
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: ask_scout_secondary
+        enableRunInBackground: false
+        agentOptions:
+          provider: !!js process.env.DSH_SECONDARY_WORKER_PROVIDER || 'magpie'
+          model: !!js process.env.DSH_SECONDARY_WORKER_MODEL_ID || 'opencode-go/mimo-v2.6-flash'
+          maxTokens: 16000
+        persona: >-
+          Investigate only the assigned question. Cite repository paths and observed behavior, separate facts from hypotheses, report uncertainty, and do not modify files.
+        toolFilter:
+          allow: [read, read_image, spill_read, glob, grep, web_fetch, web_search]
+        maxDepth: 1
+
+    - id: role-implementer-posix
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: !!js process.platform === 'win32'
+      config:
+        provider: spawn
+        toolName: run_implementer
+        enableRunInBackground: false
+        agentOptions:
+          provider: !!js process.env.DSH_WORKER_PROVIDER || 'magpie'
+          model: !!js process.env.DSH_WORKER_MODEL_ID || 'group/auto-deepseek-v4-1-flash'
+          reasoningEffort: max
+          maxTokens: 32000
+        persona: >-
+          Implement only the frozen plan and current bounded-fix objective. Hold the repository writer lease before changing files, preserve unrelated work, run focused checks, and report evidence without changing task state directly.
+        toolFilter:
+          allow: [read, read_image, spill_read, glob, grep, web_fetch, web_search, bash, write, edit]
+        maxDepth: 1
+
+    - id: role-implementer-windows
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: !!js process.platform !== 'win32'
+      config:
+        provider: spawn
+        toolName: run_implementer
+        enableRunInBackground: false
+        agentOptions:
+          provider: !!js process.env.DSH_WORKER_PROVIDER || 'magpie'
+          model: !!js process.env.DSH_WORKER_MODEL_ID || 'group/auto-deepseek-v4-1-flash'
+          reasoningEffort: max
+          maxTokens: 32000
+        persona: >-
+          Implement only the frozen plan and current bounded-fix objective. Hold the repository writer lease before changing files, preserve unrelated work, run focused checks, and report evidence without changing task state directly.
+        toolFilter:
+          allow: [read, read_image, spill_read, glob, grep, web_fetch, web_search, pwsh, write, edit]
+        maxDepth: 1
+
+    - id: role-challenger
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: ask_challenger
+        enableRunInBackground: false
+        agentOptions:
+          provider: !!js process.env.DSH_SECONDARY_WORKER_PROVIDER || 'magpie'
+          model: !!js process.env.DSH_SECONDARY_WORKER_MODEL_ID || 'opencode-go/mimo-v2.6-flash'
+          maxTokens: 16000
+        persona: >-
+          Try to falsify the frozen plan or implementation with concrete counterexamples. Inspect code and evidence without modifying files, and distinguish defects from missing evidence.
+        toolFilter:
+          allow: [read, read_image, spill_read, glob, grep, web_fetch, web_search]
+        maxDepth: 1
+
+    - id: role-reviewer
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: ask_reviewer
+        enableRunInBackground: false
+        agentOptions:
+          provider: !!js process.env.DSH_ARCHITECT_PROVIDER || 'magpie-responses'
+          model: !!js process.env.DSH_ARCHITECT_MODEL_ID || 'codex/gpt-6.1-sol'
+          reasoningEffort: !!js process.env.DSH_REVIEWER_REASONING_EFFORT || 'medium'
+          maxTokens: 32768
+        persona: >-
+          Review independently from the implementer conversation. Check the frozen plan and deterministic verification artifacts, report findings, and never override a failed or incomplete required check.
+        toolFilter:
+          allow: [read, read_image, spill_read, glob, grep, web_fetch, web_search]
+        maxDepth: 1
+
+    - id: role-arbiter
+      name: '@deepseek-ai/dsh-tool-subagent'
+      disabled: true
+      config:
+        provider: spawn
+        toolName: ask_arbiter
+        enableRunInBackground: false
+        agentOptions:
+          provider: !!js process.env.DSH_ARBITER_PROVIDER || 'magpie-responses'
+          model: !!js process.env.DSH_ARBITER_MODEL_ID || 'codex/gpt-6.1-sol'
+          reasoningEffort: !!js process.env.DSH_ARBITER_REASONING_EFFORT || 'medium'
+          maxTokens: 16384
+        persona: >-
+          Resolve only an explicitly escalated disagreement from supplied evidence. Do not edit files or accept work with failed, missing, NOT_RUN, or INCOMPLETE required checks.
+        toolFilter:
+          allow: [read, read_image, spill_read, glob, grep]
+        maxDepth: 1

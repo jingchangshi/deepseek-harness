@@ -1,5 +1,5 @@
 ---
-description: "The local filesystem spill backend: how spilled text is saved to private session-scoped files and retrieved with read or grep."
+description: "The local spill backend: save session-private text and retrieve bounded pages with spill_read."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-spill-local` saves a caller's oversized text to a private, session-scoped file on the host filesystem and returns that file's path as the locator, with retrieval guidance telling the model to read or grep it. Mount it whenever a composition needs spill storage on the same machine the agent runs on. Files are private to the current user, names are unpredictable, and each session's files group under a stable directory, so a shared root cannot leak output or be redirected by a planted symlink. Configuration selects the root and the startup-cleanup retention period; previews and spill decisions live in other packages.
+`dsh-spill-local` saves oversized text in local session-private files and returns opaque locators. With `spill_read` from `dsh-spill-policy`, a session holding a locator retrieves byte-bounded pages, including oversized single lines and inherited locators. Names are unpredictable, files use 0600 permissions, and session directories use 0700 permissions. Configuration controls the root, retrieval limits, and startup cleanup age.
 
 ## Table of Contents
 
@@ -41,13 +41,15 @@ Loading the plugin with no config is safe: files land in a lazily-created privat
 | Field | Default | Meaning |
 |---|---|---|
 | `root` | private 0700 temp dir | Root directory for spill files; set to keep them under a known location |
-| `cleanupPeriodDays` | `30` | File age in days before the one-shot startup cleanup may delete it; `0` disables cleanup |
+| `cleanupPeriodDays` | `30` | File age threshold for startup cleanup; `0` disables cleanup |
+| `readMaxLines` | `2000` | Maximum returned lines per page |
+| `readMaxBytes` | `65536` | Maximum returned UTF-8 content bytes per page; at least 4 |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-spill-local) is the exhaustive source for every accepted field.
 
 ### What you get back
 
-Each `saveText` call writes the full text to a fresh file and returns three fields: `locator` (the file path), `bytes` (the exact UTF-8 byte count), and `retrievalHint` — "Use read with offset/limit, or grep this path to search within it." A consumer shows that hint to the model, which can then read or search the file with its ordinary file tools.
+`saveText` returns `locator`, exact UTF-8 `bytes`, and guidance naming `spill_read`. The model passes the locator unchanged, and the tool requires a calling session. The locator grants retrieval without requiring the caller to match the producing session. `offset` is 1-based and `limit` bounds lines; `byteOffset` overrides the line offset and resumes at the previous page's `nextByteOffset`. The backend clamps a requested byte limit to `readMaxBytes`, so retrieval remains available when the tool permits larger pages. Long lines remain recoverable across pages without splitting UTF-8 characters.
 
 ### Where files land
 
@@ -136,6 +138,6 @@ This Dev Note is working context for maintainers: open directions. It is explici
 
 #### Future: workspace-confinement interplay
 
-The retrieval model assumes the model's `read`/`grep` tools can inspect the returned path even when the spill directory is outside the session working directory. A future workspace-confinement policy must either allow local spill paths explicitly or use a non-file spill backend.
+`spill_read` does not require filesystem `read` or `grep` tools or session-workspace access. The backend rejects arbitrary paths, symbolic links, hard-linked files, and unsafe storage permissions while allowing inherited valid locators. It scans the complete file for exact totals while retaining only one byte-bounded page.
 
 </details>

@@ -78,3 +78,47 @@ export interface SpillRef {
   bytes: number
   retrievalHint: string
 }
+
+/** One request to read text back from a spilled artifact. */
+export interface ReadTextSpill {
+  /** The saved artifact's opaque locator, exactly as returned by {@link SpillStore.saveText}. */
+  locator: SpillLocator
+  /** 1-based first line to return; defaults to `1`. */
+  offset?: number
+  /** Maximum number of lines to return; the backend chooses the cap when omitted. */
+  limit?: number
+  /** Absolute UTF-8 byte cursor returned by a previous read; overrides the line offset. */
+  byteOffset?: number
+  /** Maximum UTF-8 content bytes for this page; the backend may apply a lower cap. */
+  maxBytes?: number
+  /** Cancellation signal for the backend's read; the caller owns forwarding and quiescence. */
+  signal?: AbortSignal
+}
+
+/** One numbered line returned from a spilled artifact. */
+export interface SpillReadLine {
+  /** 1-based line number within the artifact. */
+  number: number
+  /** Line text without its trailing newline. */
+  text: string
+}
+
+/** Structured text read from one spilled artifact. */
+export interface SpillRead {
+  /** The opaque locator that was read. */
+  locator: SpillLocator
+  /** Backend-specific path/address resolved from the locator, for diagnostics and non-model consumers. */
+  path: string
+  /** 1-based first returned line, resolved from the line or byte cursor. */
+  offset: number
+  /** Returned window of lines, already numbered. */
+  lines: SpillReadLine[]
+  /** Exact total line count in the artifact. */
+  totalLines: number
+  /** Exact UTF-8 byte length of the artifact. */
+  bytes: number
+  /** Whether the returned window ended before the artifact's last line. */
+  truncated: boolean
+  /** Absolute UTF-8 byte cursor for the next page, or the artifact size at EOF. */
+  nextByteOffset: number
+}

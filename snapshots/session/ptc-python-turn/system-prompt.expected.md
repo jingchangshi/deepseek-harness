@@ -357,6 +357,30 @@ class SkillOutput(TypedDict):
     resourceBase: NotRequired[SkillOutputResourceBase1 | SkillOutputResourceBase2 | SkillOutputResourceBase3]
     content: str
 
+class SpillReadArgs(TypedDict):
+    # Opaque full-result locator from the spill notice. Do not parse or make one up.
+    locator: str
+    # 1-based first line to return. Defaults to 1.
+    offset: NotRequired[int]
+    # Maximum number of lines to return. The spill backend applies its own cap when omitted.
+    limit: NotRequired[int]
+    # Absolute UTF-8 byte cursor from the previous page; overrides offset.
+    byteOffset: NotRequired[int]
+    # Additional keys beyond those declared are allowed.
+
+class SpillReadOutputLines(TypedDict):
+    number: int
+    text: str
+
+class SpillReadOutput(TypedDict):
+    locator: str
+    offset: int
+    lines: list[SpillReadOutputLines]
+    totalLines: int
+    bytes: int
+    truncated: bool
+    nextByteOffset: int
+
 class SubagentArgs(TypedDict):
     # A short (3-5 word) description of the delegated task, for display.
     description: str
@@ -543,6 +567,8 @@ class Tools(Protocol):
         """Send a message to an agent. A working agent receives it at its next step; an idle agent starts a new turn with it. Returns delivery confirmation, not the agent's answer."""
     async def skill(self, args: SkillArgs) -> SkillOutput:
         """Load the full instructions for a skill. Call it before acting on a task that names or clearly matches a skill in the session skill catalog."""
+    async def spill_read(self, args: SpillReadArgs) -> SpillReadOutput:
+        """Read a bounded page of spilled text by its opaque locator, including locators inherited in a fork or received as context. Follow the returned byteOffset to continue within long lines."""
     async def subagent(self, args: SubagentArgs) -> SubagentOutput1 | SubagentOutput2 | SubagentOutput3:
         """Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles."""
     async def subagent_fork(self, args: SubagentForkArgs) -> SubagentForkOutput1 | SubagentForkOutput2 | SubagentForkOutput3:

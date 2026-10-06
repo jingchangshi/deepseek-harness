@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for provider-smoke-tests.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/provider-smoke-tests.md
+/provider-smoke-tests:
+  en: c1f9523f2eed59ff
+  zh: 9301ccfd8dd934a5
+/provider-smoke-tests/mock-mode:
+  en: a241200c1349b56a
+  zh: d4cb7f4cca1e6cea
+/provider-smoke-tests/real-mode:
+  en: 2433bda42dd558d2
+  zh: 90f78e082557943f
+/provider-smoke-tests/real-mode/check-semantics:
+  en: e07edf48d37b9713
+  zh: b743408b0d7f18a1
+/provider-smoke-tests/required-inputs:
+  en: 58b56693e0032831
+  zh: 93615e00bfaec1ba
+/provider-smoke-tests/dev-note:
+  en: b75c8458928b72b9
+  zh: 02cbcc6baa338b07

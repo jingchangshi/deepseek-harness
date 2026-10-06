@@ -37,6 +37,7 @@ A subprocess backend, then the tools; the spill backend is optional and makes ca
   config:
     sampleOverCapGlobResults: false
 - name: '@deepseek-ai/dsh-spill-local'
+- name: '@deepseek-ai/dsh-spill-policy'
 ```
 
 `sampleOverCapGlobResults` is required and has no fallback: deployments choose the over-cap ordering contract explicitly. When formatted spill succeeds, both modes preserve the complete sorted list in the spill artifact.
@@ -74,7 +75,7 @@ Node deployments receive the `@vscode/ripgrep` platform package on supported mac
 
 ### Failures and recovery
 
-Search failures carry the package-owned codes `SEARCH_INVALID_PATTERN` (ripgrep rejected the regex or glob), `SEARCH_FAILED` (a failed launch, inaccessible target, signal kill, or malformed `--json` output), `SEARCH_RAW_OUTPUT_OVERFLOW` (raw output over the cap), and `SEARCH_ABORTED` (cooperative timeout or caller cancellation). Exit 0 is success with results and exit 1 is a successful empty search; model argument mistakes stay ordinary tool argument errors.
+Search failures carry `SEARCH_INVALID_PATTERN`, `SEARCH_FAILED`, `SEARCH_RAW_OUTPUT_OVERFLOW`, or `SEARCH_ABORTED`. Exit 0 is success with results and exit 1 is an empty success. Permission failures fold into a bounded named-path summary; other diagnostics remain visible alongside it. Even if ripgrep found matches, an exit 2 reports failure rather than presenting those matches as complete.
 
 -----
 

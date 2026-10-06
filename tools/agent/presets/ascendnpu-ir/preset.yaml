@@ -1,0 +1,10 @@
+schemaVersion: 1
+id: ascendnpu-ir
+version: 2.0.0
+files:
+  - .agent/config/project.yaml
+  - .agent/config/commands.yaml
+  - .agent/config/verification-policy.yaml
+  - .agent/profiles/compiler.yaml
+  - .agent/scripts/ascend.sh
+  - .agent/scripts/ascend-lit.py

@@ -1,0 +1,10 @@
+schemaVersion: 1
+profile: tilelang
+adapter: .agent/config/commands.yaml
+verificationPolicy: .agent/config/verification-policy.yaml
+acceptanceTier: development
+knowledge: .agent/config/knowledge.yaml
+dataClass: internal
+maxSteps: 40
+maxRoleCalls: 30
+commandTimeoutMs: 1800000

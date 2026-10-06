@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://deepseek-harness.local/agent/baseline.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taskId", "taskRevision", "repositoryHead", "dirty", "summary"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "taskId": { "type": "string" },
+    "taskRevision": { "type": "integer", "minimum": 1 },
+    "repositoryHead": { "type": "string", "minLength": 1 },
+    "dirty": { "type": "boolean" },
+    "summary": { "type": "string", "minLength": 1 }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://deepseek-harness.local/agent/task.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "title", "profile", "dataClass", "createdAt"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "title": { "type": "string", "minLength": 1 },
+    "profile": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*(?![\\s\\S])" },
+    "dataClass": { "enum": ["public", "internal", "sensitive"] },
+    "createdAt": { "type": "string", "format": "date-time" }
+  }
+}

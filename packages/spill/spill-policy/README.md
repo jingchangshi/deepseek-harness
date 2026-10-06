@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Keep oversized text and image results within a shared estimated token budget. The model receives ordered head/tail content and a path to the complete result. Images remain in attachment storage; the result file records their readable paths. Omitting `maxInlineTokens` disables retention, and recovery failures leave the original content visible.
+Bound oversized text and image results under a shared estimated token budget. Models receive head-tail previews and full-result locators. The plugin always registers `spill_read`; the backend validates locators and bounds lines and bytes, with `byteOffset` continuation for long lines. Inherited valid locators remain retrievable. Omitting `maxInlineTokens` disables retention only. Retrieved pages are never re-spilled.
 
 ## Table of Contents
 
@@ -51,14 +51,14 @@ Oversized results keep their original order. Each end receives half the budget r
 ```text
 <retained head/tail preview>
 
-(Omitted N bytes. Full formatted result stored at: /…/session-…/…-web_fetch.txt. Use read with offset/limit, or grep this path to search within it.)
+(Omitted N bytes. Full formatted result stored at: /…/session-…/…-web_fetch.txt. Use spill_read with this locator to retrieve the full content.)
 ```
 
-The notice also reports omitted image counts. A notice-only result is allowed when no preview fits; if the notice itself exceeds the cap, the original content stays visible. The full result file keeps all accepted text and an attachment path at each image position, so the model can use `read` and then `read_image`. Attachment bytes are not copied into this file. Local attachment objects persist independently of spill cleanup.
+The notice also reports omitted images. Notice-only output is allowed when no preview fits; if even the notice exceeds the cap, the original content remains inline. The result file keeps all accepted text and attachment addresses at image positions; retrieve it with `spill_read`, then use `read_image` for images. Attachment bytes are not copied into the file and persist independently of spill cleanup.
 
 ### Which results are affected
 
-The policy accepts text/image sequences. Results within budget, `read`, blocked decisions, value replacements, and other block types pass through. Text-only nested results are bounded only in their log copies. Provider or tool limits applied before this policy cannot be recovered here.
+The policy accepts text/image sequences. Results within budget, direct `read` results, blocked decisions, value replacements, and other block types pass through. Direct and nested `spill_read` pages always pass through unchanged. Provider or tool limits applied before this policy cannot be recovered here.
 
 ### Best-effort failure behavior
 
@@ -66,7 +66,7 @@ A missing owner or spill backend, failed storage, missing route image pricing, o
 
 ### The durable log copy
 
-PTC programs receive complete canonical values. Image-bearing sub-results are bounded before forwarding to the model; when every image is omitted, the model still receives the retained text and recovery notice. The dispatch log uses the same retained content. Text-only sub-call logs, including `read`, are bounded asynchronously without delaying program values.
+PTC programs receive complete canonical values. Image-bearing sub-results are bounded before forwarding to the model; omitted images retain their recovery notice. Text-only sub-call logs, including `read`, are bounded without delaying program values. `spill_read` logs bypass retention to preserve usable pages.
 
 -----
 

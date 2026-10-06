@@ -11,13 +11,16 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import LocalSpillStore from '@deepseek-ai/dsh-spill-local'
+import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { TOOL_ABORTED_BEFORE_DISPATCH, type ToolExecution } from '@deepseek-ai/dsh-tools'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
 
@@ -42,7 +45,7 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 }
 
 /** The fixture workspace as a session cwd, so relative paths resolve inside `dir`. */
-const agent = () => ({ session: { header: { id: 'session-int', cwd: dir } } })
+const agent = () => ({ session: { header: { id: SessionId('session-int'), cwd: dir } } })
 
 describe('search tools over the real subprocess service + the packaged rg', () => {
   beforeEach(async () => {
@@ -68,7 +71,73 @@ describe('search tools over the real subprocess service + the packaged rg', () =
   })
 
   afterEach(async () => {
-    await rm(dir, { recursive: true, force: true })
+    try {
+      await ctx.fiber.dispose()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it.each(['glob', 'grep'])('recovers omitted %s results through spill_read over the real filesystem', async (name) => {
+    const recovery = new Context()
+    try {
+      await recovery.plugin(SystemPrompt)
+      await recovery.plugin(ToolRuntime)
+      await recovery.plugin(LocalSubprocessRuntime)
+      await recovery.plugin(LocalSpillStore, { root: join(dir, 'spill'), cleanupPeriodDays: 0 })
+      await recovery.plugin(SpillPolicy, { maxInlineTokens: 96 })
+      await recovery.plugin(ToolFsSearch, { sampleOverCapGlobResults: false, globMaxResults: 1, grepMaxMatches: 1 })
+      const execute = (toolName: string, args: object) => recovery.tools.execute({
+        callId: ToolCallId(`recovery-${toolName}`), name: toolName, arguments: args,
+        agent: agent(), signal: testToolSignal,
+      } as ToolExecution)
+      const preview = await execute(name, { pattern: name === 'glob' ? '*.ts' : 'export const', path: 'src' })
+      expect(preview.isError).toBe(false)
+      const previewText = text(preview)
+      expect(previewText).toContain('Use spill_read with this locator to retrieve the full content.')
+      expect(recovery.tools.schemas().map(schema => schema.name)).toContain('spill_read')
+      const candidates = name === 'glob' ? [join('src', 'alpha.ts'), join('src', 'beta.ts')] : ['Line 1: export const alpha', 'Line 1: export const beta']
+      const omitted = candidates.find(candidate => !previewText.includes(candidate))
+      expect(omitted).toBeTypeOf('string')
+      const locator = /Full (?:formatted|sorted|grep) result stored at: (.+?)\. Use spill_read with this locator/.exec(previewText)?.[1]
+      expect(locator).toBeTypeOf('string')
+      const retrieved = await execute('spill_read', { locator })
+      expect(retrieved.isError).toBe(false)
+      expect(text(retrieved)).toContain(omitted!)
+      expect(text(retrieved)).not.toContain('Full formatted result stored at:')
+    } finally {
+      await recovery.fiber.dispose()
+    }
+  })
+
+  // Windows lacks POSIX mode bits; root bypasses the unreadable directories.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('bounds real permission noise while preserving missing-path diagnostics', async () => {
+    const lockedPaths = Array.from({ length: 12 }, (_, index) => `locked-${String(index).padStart(2, '0')}`)
+    await Promise.all(lockedPaths.map(async (path) => {
+      await mkdir(join(dir, path))
+      await writeFile(join(dir, path, 'secret.txt'), 'hidden\n')
+    }))
+    try {
+      for (const path of lockedPaths) await chmod(join(dir, path), 0o000)
+      const exec = { callId: ToolCallId('mixed-errors'), name: 'grep', arguments: {}, agent: agent(), signal: testToolSignal } as ToolExecution
+      const failure = await ToolFsSearch.runRipgrep(ctx, exec, 'grep', ['--json', '--regexp=hidden', '--', ...lockedPaths, 'missing'], 65536, 3000, 65536)
+        .catch((error: unknown) => error)
+      expect(failure).toBeInstanceOf(ToolFsSearch.SearchError)
+      if (!(failure instanceof ToolFsSearch.SearchError)) throw new Error('Expected the mixed filesystem errors to reject the search')
+      expect(failure.code).toBe('SEARCH_FAILED')
+      expect(failure.message).toContain('could not read 12 path(s)')
+      expect(failure.message).toContain('and 9 more')
+      const sampledPaths = [...failure.message.matchAll(/`([^`]+)`/g)].map(match => match[1])
+      expect(sampledPaths).toHaveLength(3)
+      expect(new Set(sampledPaths).size).toBe(3)
+      for (const path of sampledPaths) expect(lockedPaths).toContain(path)
+      expect(failure.message).toContain('Other diagnostics:')
+      expect(failure.message).toContain('missing:')
+      expect(failure.message).toContain('No such file or directory (os error 2)')
+      expect(failure.message).not.toContain('Permission denied (os error 13)')
+    } finally {
+      await Promise.all(lockedPaths.map(path => chmod(join(dir, path), 0o700)))
+    }
   })
 
   describe('glob', () => {
@@ -150,6 +219,30 @@ describe('search tools over the real subprocess service + the packaged rg', () =
       const result = await call('grep', { pattern: '(unclosed' })
       expect(result.isError).toBe(true)
       expect(result.error).toMatchObject({ info: { code: 'SEARCH_INVALID_PATTERN' } })
+    })
+
+    it('compiles look-around through PCRE2 instead of returning the engine rejection', async () => {
+      await writeFile(join(dir, 'pcre.txt'), 'keep-cache\nkeep-only\ndrop-only\n')
+      const result = await call('grep', { pattern: '^keep-(?!only)', path: 'pcre.txt' }, agent())
+      expect(result.isError).toBe(false)
+      expect(text(result)).toContain('Line 1: keep-cache')
+    })
+
+    it('folds an unreadable subtree into a bounded permission summary', async () => {
+      if (process.getuid?.() === 0) return // root bypasses the mode bits.
+      const locked = join(dir, 'locked')
+      await mkdir(locked)
+      await writeFile(join(locked, 'secret.txt'), 'hidden\n')
+      await chmod(locked, 0o000)
+      try {
+        const result = await call('grep', { pattern: 'hidden', path: '.' }, agent())
+        const message = result.error?.message ?? ''
+        expect(message).toContain('could not read 1 path(s)')
+        expect(message).toContain('locked')
+        expect(message).not.toContain('Permission denied (os error 13)')
+      } finally {
+        await chmod(locked, 0o700)
+      }
     })
 
     it('classifies a missing target as SEARCH_FAILED', async () => {

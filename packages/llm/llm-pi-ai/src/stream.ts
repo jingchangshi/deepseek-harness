@@ -9,7 +9,7 @@
  */
 
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, isContextWindowExceededError, isQuotaExceededError, LlmError, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
+import { CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, isContextWindowExceededError, isQuotaExceededError, LlmError, POLICY_REFUSAL_CODE, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, StreamChunk, TokenUsage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { isContextOverflow } from '@earendil-works/pi-ai/utils/overflow'
 import type { AssistantMessage, AssistantMessageEvent, Usage as PiUsage } from '@earendil-works/pi-ai'
@@ -39,7 +39,21 @@ export function mapUsage(usage: PiUsage): TokenUsage {
 // wrapper a bare `terminated`, so we are left pattern-matching terse words here.
 // If pi-ai ever forwards the original Error (or a fetch/dispatcher hook that lets
 // us capture the cause ourselves), classify on `code`/`cause` instead of text.
+/**
+ * Provider policy-refusal wording: an endpoint declining to serve a whole
+ * request on policy grounds rather than rejecting a defective body.
+ */
+const POLICY_REFUSAL = new RegExp(
+  String.raw`\b(?:usage polic(?:y|ies)|content polic(?:y|ies)|terms of service`
+  + String.raw`|commercial terms|acceptable use|automated systems flagged`
+  + String.raw`|refus(?:al|ed) to (?:generate|serve)|may violate)\b`,
+  'i',
+)
+
 function classifyPiAiError(message: string): string {
+  // Checked before the status patterns: a refusal commonly arrives with a 400
+  // status, and the actionable fix is another route rather than a corrected body.
+  if (POLICY_REFUSAL.test(message)) return POLICY_REFUSAL_CODE
   if (/\b(?:401|403)\b/.test(message)) return 'AUTH'
   if (isQuotaExceededError(message)) return QUOTA_EXCEEDED_CODE
   if (/\b429\b|rate.?limit/i.test(message)) return 'RATE_LIMIT'

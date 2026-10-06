@@ -1,0 +1,19 @@
+- id: llm-deepseek
+  disabled: true
+- id: llm-pi-ai
+  disabled: true
+- id: plugin-package-inventory-deepseek
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: hmr
+  disabled: true
+- id: session-title
+  disabled: true
+- insert:
+    - id: engineering-snapshot
+      name: ./fixture.mjs
+      config:
+        record: true

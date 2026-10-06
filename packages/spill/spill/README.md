@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-spill` lets plugins and tools save oversized text through the public `ctx.spillStore` API and receive an opaque locator, exact byte count, and retrieval guidance. Choose it when full results must remain retrievable without filling model context. Configure `dsh-spill-local` for local persistence, and add `dsh-spill-policy` when oversized tool results should become bounded previews. The API does not offer retention, replacement, retrieval, or search operations. A save rejects on storage failure, leaving the caller to keep the content inline or fail.
+`dsh-spill` defines `ctx.spillStore`: save complete text, return opaque locators, and optionally retrieve bounded pages. Locators grant retrieval to their holders, including inheritance through forks or context. Mount `dsh-spill-local` for local storage and `dsh-spill-policy` for the model-facing `spill_read` tool. This package owns no retention policy, result replacement, or search. Save-only backends explicitly reject `readText`.
 
 ## Table of Contents
 
@@ -55,7 +55,7 @@ const ref = await ctx.spillStore.saveText({
 })
 ```
 
-The returned `SpillRef` carries three fields: `locator`, an opaque model-facing handle the backend produces (a local file path for `dsh-spill-local`, possibly a URI or key for another backend); `bytes`, the exact UTF-8 byte count written; and `retrievalHint`, the guidance a consumer shows the model — for the local backend, read or grep the path. Consumers render the locator with the hint and never parse the locator itself.
+`SpillRef` contains an opaque `locator`, exact UTF-8 `bytes`, and `retrievalHint`. The local backend names `spill_read`, not arbitrary filesystem access. Consumers pass locators unchanged without parsing their paths or formats.
 
 ### Ownership and boundaries
 
@@ -80,7 +80,7 @@ This section explains the design decisions behind the service; the observable be
 The package is built on one separation and a deliberate minimum:
 
 - **Contract, implementation, and policy stay separate.** This package defines what a backend does (`saveText`); `dsh-spill-local` implements it; `dsh-spill-policy` decides when. Each concern evolves and swaps independently.
-- **One method, nothing else.** The seam owns no retention policy, no result replacement, and no retrieval or search API — those have owning packages.
+- **Save and optional retrieval.** `saveText` persists full text; `readText` returns a line- and UTF-8-byte-bounded page, exact total lines and bytes, and `nextByteOffset`. Save-only implementations retain the base rejection.
 - **Reject, never silently degrade at the seam.** The caller owns degradation; the seam reports real storage failures.
 
 ### Source map
@@ -132,7 +132,7 @@ No direct invalidation; the named consumer owns any request-prefix changes.
 
 These limits define when the spill storage service is incomplete on its own. They are current package constraints.
 
-- **No retrieval or deletion API** — consumers can only render the backend's locator and guidance; lifecycle and access semantics remain backend-specific.
+- **Retrieval is optional; deletion is not exposed** — save-only backends reject `readText`; artifact expiry remains backend-owned.
 - **Storage is not access control** — the owner session namespaces writes but does not authorize reads of a locator; each backend and retrieval consumer must enforce its own boundary.
 
 <a id="dev-note"></a>
@@ -145,7 +145,7 @@ This Dev Note is working context for maintainers: undecided directions and open 
 
 #### Future: executor spill-file integration
 
-The seam has only `saveText`; a save-file or link/copy path for existing executor spill files (for example normalizing bash temp files) and tool-owned spill for subagent rollouts remain deferred, per the [tool output spill decision](../../../.agents/notes/implemented/architecture/2026-07-08-tool-output-spill-files.md).
+The service exposes text saving and optional retrieval; saving or linking existing executor spill files and tool-owned subagent output remain deferred.
 
 #### Future: non-local backends and cleanup
 

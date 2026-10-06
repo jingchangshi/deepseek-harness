@@ -29,5 +29,5 @@
         locatorRoot: !!js process.env.DSH_SNAPSHOT_SPILL_LOCATOR_ROOT
 
 - insert:
-    - id: query-spill-verification-path
-      name: ./resolve-spill-command.mjs
+    - id: resolve-spill-read
+      name: ./resolve-spill-read.mjs

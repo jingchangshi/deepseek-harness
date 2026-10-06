@@ -1,5 +1,5 @@
 ---
-description: "本地文件系统 spill 后端：spill 文本如何保存到私有会话级文件，并用 read 或 grep 取回。"
+description: "本地 spill 后端：保存会话私有文本，并通过 spill_read 分页取回。"
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-spill-local` 把调用方的超大文本保存到宿主文件系统中私有的会话级文件，并以该文件路径作为定位信息返回，同时给出告诉模型读取或搜索它的取回指引。只要组合需要在 agent（智能体）运行所在的同一台机器上进行 spill 存储，就挂载它。文件对当前用户私有、名称不可预测，且每个会话的文件归入稳定的目录，因此共享根目录既不会泄露输出，也不会被预置的符号链接重定向。配置选择根目录与启动清理保留期；预览与 spill 决策由其他包负责。
+`dsh-spill-local` 将超大文本保存到本地会话私有文件，并返回不透明定位信息。配合 `dsh-spill-policy` 提供的 `spill_read`，持有定位信息的会话可以按字节上限分页取回全文，包括超长单行和继承的定位信息。文件名不可预测，文件权限为 0600，会话目录权限为 0700。配置控制根目录、读取上限与启动清理期限。
 
 ## 目录
 
@@ -41,13 +41,15 @@ kind: "package-reference"
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `root` | 私有 0700 临时目录 | spill 文件的根目录；设置后可将文件保存在已知位置 |
-| `cleanupPeriodDays` | `30` | 文件在一次性启动清理中可被删除前需经过的天数；`0` 禁用清理 |
+| `cleanupPeriodDays` | `30` | 启动清理的文件年龄阈值；`0` 禁用清理 |
+| `readMaxLines` | `2000` | 每页返回行数上限 |
+| `readMaxBytes` | `65536` | 每页返回文本的 UTF-8 字节上限；至少为 4 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-spill-local)是每个受支持字段的穷尽式真源。
 
 ### 你会得到什么
 
-每次 `saveText` 调用都会把完整文本写入一个新文件，并返回三个字段：`locator`（文件路径）、`bytes`（精确的 UTF-8 字节数）与 `retrievalHint`——"Use read with offset/limit, or grep this path to search within it."。消费方把该提示展示给模型，模型随后可以用其常规文件工具读取或搜索该文件。
+`saveText` 返回 `locator`、精确 UTF-8 字节数 `bytes` 和指向 `spill_read` 的取回指引。模型原样传递定位信息，工具要求调用会话存在。定位信息是取回凭据，不按请求会话与生产会话是否相同授权。`offset` 从 1 开始，`limit` 限制行数；`byteOffset` 覆盖行偏移，并使用前一页的 `nextByteOffset` 继续读取。后端将请求的字节上限限制在 `readMaxBytes` 内，因此工具允许更大页面时仍可取回内容。单行超过字节上限时也能分段读取，UTF-8 字符不会被切断。
 
 ### 文件存放位置
 
@@ -136,6 +138,6 @@ kind: "package-reference"
 
 #### 未来：工作区隔离的交互
 
-取回模型假定模型的 `read`/`grep` 工具可以检查返回的路径，即使 spill 目录在会话工作目录之外。未来的工作区隔离策略必须显式允许本地 spill 路径，或者改用非文件 spill 后端。
+`spill_read` 不要求文件系统 `read`、`grep` 工具或会话工作区访问权限。后端拒绝任意路径、符号链接、硬链接文件和不安全的存储权限，但允许继承的有效定位信息。后端扫描完整文件以取得精确总数，只保留一个按字节限制的页面。
 
 </details>

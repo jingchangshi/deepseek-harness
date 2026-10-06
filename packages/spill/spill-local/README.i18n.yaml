@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/spill/spill-local/README.md
 /:
-  en: 081da64c1be2d775
-  zh: cd51e86e3c5c49cf
+  en: 82e66cfa3becd35d
+  zh: 0c71b0d270daf02e
 /deepseek-ai-dsh-spill-local:
   en: 91630ef1d0319ea4
   zh: 0f5efea58fa94bec
 /deepseek-ai-dsh-spill-local/summary:
-  en: 1d8b50741c23fe72
-  zh: 9e3eb775ee92d964
+  en: fcbf863950c18d8c
+  zh: edec0ee0a3a38743
 /deepseek-ai-dsh-spill-local/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -18,11 +18,11 @@
   en: afebd49584624c46
   zh: d0655462bc01cfc7
 /deepseek-ai-dsh-spill-local/use-this-package/minimal-configuration:
-  en: a1ce98a82eac11cf
-  zh: 8d3abbbc081f1617
+  en: b59f7b3b9fa271ab
+  zh: bd768d4821edd3d0
 /deepseek-ai-dsh-spill-local/use-this-package/what-you-get-back:
-  en: c8aca7d0d3fe321e
-  zh: b7f7a168d3ca78e0
+  en: 101a48525ce2e5aa
+  zh: ff1c7212fc9ee519
 /deepseek-ai-dsh-spill-local/use-this-package/where-files-land:
   en: 32262a03c40c49df
   zh: 9a028fff66aed750
@@ -60,5 +60,5 @@
   en: a63e51f03bdb279f
   zh: 191a48d3bfc4a792
 /deepseek-ai-dsh-spill-local/known-limitations-and-deferred-work/dev-note/future-workspace-confinement-interplay:
-  en: 7cc389241a5b9a4c
-  zh: af4b8e65ed565ec6
+  en: 86d693b7689a567e
+  zh: ce97f7152fa93daf

@@ -900,6 +900,12 @@ describe('mapStopReason / mapUsage', () => {
   it('maps routable HTTP-ish error messages to stable codes', () => {
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 401: bad key' })))
       .toMatchObject({ kind: 'error', failure: { code: 'AUTH' } })
+    // A policy refusal arrives with a 400-class status; it is checked first so
+    // the caller learns the route cannot succeed, not that the body is wrong.
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: "This request was blocked as our automated systems flagged that it may violate Anthropic's Terms of Service restrictions on developing competing model products." })))
+      .toMatchObject({ kind: 'error', failure: { code: 'POLICY_REFUSAL' } })
+    expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 400: violates our usage policy' })))
+      .toMatchObject({ kind: 'error', failure: { code: 'POLICY_REFUSAL' } })
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 429: rate limit' })))
       .toMatchObject({ kind: 'error', failure: { code: 'RATE_LIMIT' } })
     expect(mapStopReason(assistant({ stopReason: 'error', errorMessage: 'HTTP 429: insufficient_quota' })))

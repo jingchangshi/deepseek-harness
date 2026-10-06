@@ -11,7 +11,7 @@ import type { ScopeKey, ScopeLayer, Scoped } from '@deepseek-ai/dsh-scope'
 import type { ToolCallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { UserMessage } from '@deepseek-ai/dsh-session'
+import type { SessionSeq, UserMessage } from '@deepseek-ai/dsh-session'
 import { assertNever, deepFreeze, snapshotJsonValue, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { PromptSection, ToolProviderResult } from '@deepseek-ai/dsh-system-prompt'
 import type { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
@@ -325,6 +325,8 @@ export type ToolExecutionToken = symbol & { readonly [toolExecutionTokenBrand]: 
  */
 export interface ToolExecutionInput {
   readonly callId: ToolCallId
+  /** Sequence of this occurrence's existing `tool/call` event; absent for unlogged direct or nested calls. */
+  readonly loggedCallSeq?: SessionSeq
   /**
    * Root model-requested call owning this execution tree. Callers omit it for
    * a root execution; nested dispatchers propagate the enclosing value.
@@ -513,16 +515,75 @@ export class ToolNotFoundError extends HarnessError {
    * @param reachableFrom - how the model reaches this tool instead, when the
    *   name IS visible and only the presentation denies calling it directly.
    *   Omitted for a name that is registered nowhere.
+   * @param suggestions - callable names in the caller's scope that resemble the
+   *   requested one. A model that asks for another harness's spelling
+   *   (`Read`, `Grep`, `Glob`) cannot tell a naming difference from a missing
+   *   capability, and the registry already knows the exact names it exposes.
    */
-  constructor(toolName: string, reachableFrom?: string) {
+  constructor(toolName: string, reachableFrom?: string, suggestions: readonly string[] = []) {
+    const hint = suggestions.length === 0
+      ? ''
+      : `; did you mean ${suggestions.map(name => `\`${name}\``).join(' or ')}?`
     super(
       reachableFrom === undefined
-        ? `unknown tool "${toolName}"`
+        ? `unknown tool "${toolName}"${hint}`
         : `unknown tool "${toolName}": ${reachableFrom}`,
       'UNKNOWN_TOOL',
     )
     this.name = 'ToolNotFoundError'
   }
+}
+
+/** Whether `name` differs from `candidate` only by ASCII case. */
+function sameIgnoringCase(name: string, candidate: string): boolean {
+  return name.length === candidate.length && name.toLowerCase() === candidate.toLowerCase()
+}
+
+/** Read one dynamic-programming cell that both loop bounds guarantee is filled. */
+function cell(values: readonly number[], index: number): number {
+  const value = values[index]
+  /* v8 ignore next -- both loop bounds confine the index to the filled row prefix */
+  if (value === undefined) throw new Error(`edit distance cell ${String(index)} is outside the row`)
+  return value
+}
+
+/** Levenshtein distance bounded at `limit`, so a distant pair costs the limit rather than the full matrix. */
+function editDistance(name: string, candidate: string, limit: number): number {
+  if (Math.abs(name.length - candidate.length) > limit) return limit + 1
+  let previous = Array.from({ length: candidate.length + 1 }, (_value, index) => index)
+  for (let row = 1; row <= name.length; row++) {
+    const current = [row]
+    for (let column = 1; column <= candidate.length; column++) {
+      const substitution = cell(previous, column - 1) + (name[row - 1] === candidate[column - 1] ? 0 : 1)
+      current[column] = Math.min(cell(previous, column) + 1, cell(current, column - 1) + 1, substitution)
+    }
+    if (Math.min(...current) > limit) return limit + 1
+    previous = current
+  }
+  return cell(previous, candidate.length)
+}
+
+/**
+ * Callable names that resemble one unknown request, best match first.
+ *
+ * Case-only differences come first because they are what a model trained on
+ * another harness produces (`Read` for `read`); a small edit distance covers
+ * the rest. The list is bounded so a denial stays a short, actionable line
+ * rather than a catalog.
+ * @param name - the unknown tool name the caller asked for.
+ * @param candidates - the callable names visible in the caller's scope.
+ * @returns up to three suggestions, or an empty list when nothing is close.
+ */
+export function suggestToolNames(name: string, candidates: Iterable<string>): string[] {
+  const similar: string[] = []
+  const near: string[] = []
+  const threshold = name.length <= 4 ? 1 : 2
+  for (const candidate of candidates) {
+    if (candidate === name) continue
+    if (sameIgnoringCase(name, candidate)) similar.push(candidate)
+    else if (editDistance(name.toLowerCase(), candidate.toLowerCase(), threshold) <= threshold) near.push(candidate)
+  }
+  return [...similar.sort(), ...near.sort()].slice(0, 3)
 }
 
 /** Thrown when a tool body or post-policy value violates its declared output. */
@@ -1252,6 +1313,20 @@ export class ToolRuntime extends Service {
   }
 
   /**
+   * Build one unknown-tool denial carrying the caller's closest callable names.
+   *
+   * The registry is the only place that knows both the requested name and the
+   * exact names the caller can reach, so the correction belongs here rather
+   * than in a model-facing convention the tools would each restate.
+   * @param name - the unregistered name the caller asked for.
+   * @param scope - the viewing scope whose visible names supply suggestions.
+   * @returns the denial to materialize as the tool result.
+   */
+  private unknownTool(name: string, scope?: ScopeKey): ToolNotFoundError {
+    return new ToolNotFoundError(name, undefined, suggestToolNames(name, this.view(scope).visible.keys()))
+  }
+
+  /**
    * Project visible definitions onto the allowlisted model-facing schema fields,
    * excluding execution and presentation callbacks.
    * @param scope - the viewing scope (the agent); omitted = the global view.
@@ -1392,6 +1467,7 @@ export class ToolRuntime extends Service {
     const deferredContexts: UserMessage[] = []
     const token = createExecutionToken()
     const callId = exec.callId
+    const loggedCallSeq = exec.loggedCallSeq
     const rootCallId = exec.rootCallId ?? callId
     const name = exec.name
     const agent = exec.agent
@@ -1410,6 +1486,7 @@ export class ToolRuntime extends Service {
     const base = {
       token,
       callId,
+      ...loggedCallSeq !== undefined ? { loggedCallSeq } : {},
       rootCallId,
       name,
       signal,
@@ -1576,7 +1653,7 @@ export class ToolRuntime extends Service {
     exec.signal = signal
     try {
       const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
-      if (!tool) throw new ToolNotFoundError(exec.name)
+      if (!tool) throw this.unknownTool(exec.name, exec.agent)
       state.bodyInvoked = true
       const returned = await tool.execute(exec.arguments, exec)
       const result = this.createSuccessResult(exec, tool, returned)
@@ -1805,7 +1882,7 @@ export class ToolRuntime extends Service {
         throw new TypeError('tools/post-execute cannot replace the value of a failed result')
       }
       const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
-      if (tool === undefined) throw new ToolNotFoundError(exec.name)
+      if (tool === undefined) throw this.unknownTool(exec.name, exec.agent)
       const replaced = this.createSuccessResult(exec, tool, decision.value)
       return this.markCanonical(exec, {
         ...replaced,
@@ -1874,7 +1951,7 @@ export class ToolRuntime extends Service {
       })
     }
     const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
-    if (tool === undefined) throw new ToolNotFoundError(exec.name)
+    if (tool === undefined) throw this.unknownTool(exec.name, exec.agent)
     const normalized = this.createSuccessResult(exec, tool, result.value)
     return this.markCanonical(exec, {
       ...normalized,

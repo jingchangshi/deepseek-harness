@@ -194,6 +194,8 @@ type ToolExecutionToken = symbol & { readonly [toolExecutionTokenBrand]: true }
  */
 interface ToolExecutionInput {
   readonly callId: ToolCallId
+  /** Sequence of this occurrence's existing `tool/call` event; absent for unlogged direct or nested calls. */
+  readonly loggedCallSeq?: SessionSeq
   /**
    * Root model-requested call owning this execution tree. Callers omit it for
    * a root execution; nested dispatchers propagate the enclosing value.

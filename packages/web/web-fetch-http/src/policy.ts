@@ -30,7 +30,7 @@ export function parseFetchUrl(input: string): URL {
     throw new WebError(`invalid URL: ${input}`, 'WEB_INVALID_URL', { cause: error })
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new WebError(`unsupported URL scheme "${url.protocol}" (only http and https are allowed)`, 'WEB_INVALID_URL')
+    throw new WebError(`unsupported URL scheme "${url.protocol}" (only http and https are allowed); use the read/glob/grep tools for local files and paths instead of a URL`, 'WEB_INVALID_URL')
   }
   if (url.username.length > 0 || url.password.length > 0) {
     throw new WebError('credentials in URLs are not allowed', 'WEB_BLOCKED_URL')

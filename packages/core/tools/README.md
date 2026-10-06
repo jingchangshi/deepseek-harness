@@ -121,6 +121,8 @@ The registry holds typed `ToolDefinition`s in scoped layers and projects them on
 
 ### Execution and cancellation
 
+Model-direct calls receive `exec.loggedCallSeq`, the sequence of their existing Session `tool/call` event. Together with the Session identity, this sequence identifies one logged occurrence even if a later model response reuses `callId`. Direct unlogged and nested calls omit it; callers that need replay idempotency must supply a stable invocation identity. The registry preserves the sequence through policy, dispatch, and result observation without adding a Session event.
+
 Each typed invocation materializes and freezes parsed arguments, assigns an opaque correlation token, and runs policy and dispatch. A pre-execute denial may attach `ToolErrorInfo` beside its model-facing reason; the native and PTC durable projections preserve the structured name, code, and optional user-facing reason without adding that detail to model content. Cancellation is cooperative and quiescent: every tool body receives the caller-owned `exec.signal` and must observe it; cancellation before body invocation is `ABORTED_BEFORE_DISPATCH`, after invocation it replaces only a successful outcome with `ABORTED`. Denials, wrapper failures, tool failures, post-policy failures, and timeout-owned `TOOL_TIMEOUT` remain more specific. Unknown and throwing tools become structured errors (`UNKNOWN_TOOL`), so a call fails without ending the turn.
 
 ### PTC mode

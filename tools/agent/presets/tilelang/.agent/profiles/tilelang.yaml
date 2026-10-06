@@ -1,0 +1,11 @@
+schemaVersion: 1
+id: tilelang
+checks:
+  - { name: source-syntax, category: source, required: true, timeoutMs: 120000 }
+  - { name: build, category: build, required: true, timeoutMs: 1800000 }
+  - { name: backend-context, category: correctness, required: true, timeoutMs: 300000 }
+  - { name: semantic-regression, category: correctness, required: true, timeoutMs: 300000 }
+  - { name: ir-verify, category: correctness, required: true, timeoutMs: 300000 }
+  - { name: ascend-source, category: source, required: false, timeoutMs: 300000 }
+  - { name: compile-speed, category: performance, required: false, timeoutMs: 1800000 }
+  - { name: hardware-runtime, category: runtime, required: false, timeoutMs: 900000 }

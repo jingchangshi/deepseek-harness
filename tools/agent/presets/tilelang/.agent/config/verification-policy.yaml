@@ -1,0 +1,15 @@
+schemaVersion: 1
+defaultTier: development
+allowedTiers: [development, presubmit, qualification]
+alwaysRequired: []
+tiers:
+  development:
+    - { name: source-syntax, scope: {} }
+    - { name: build, scope: {} }
+    - { name: backend-context, scope: {} }
+    - { name: semantic-regression, scope: {} }
+    - { name: ir-verify, scope: {} }
+  presubmit: []
+  qualification:
+    - { name: hardware-runtime, scope: {} }
+impactRules: []

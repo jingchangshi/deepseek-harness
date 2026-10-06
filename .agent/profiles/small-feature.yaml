@@ -1,0 +1,6 @@
+schemaVersion: 1
+id: small-feature
+checks:
+  - { name: typecheck, category: static, required: true, timeoutMs: 300000 }
+  - { name: unit, category: correctness, required: true, timeoutMs: 600000 }
+  - { name: build, category: delivery, required: true, timeoutMs: 600000 }

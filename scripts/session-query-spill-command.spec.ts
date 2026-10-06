@@ -1,18 +1,17 @@
 import { Context } from '@deepseek-ai/cordis'
 import { LocalSpillStore } from '@deepseek-ai/dsh-spill-local'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
-import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
-import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { SpillLocator } from '@deepseek-ai/dsh-spill'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { expect, it } from 'vitest'
 import * as locators from './snapshot-spill-locators.ts'
-import * as commands from '../snapshots/session/session-query-spill/resolve-spill-command.mjs'
+import * as reads from '../snapshots/session/session-query-spill/resolve-spill-read.mjs'
 
-it.skipIf(process.platform === 'win32')('resolves the exact spill verifier, retains real failures, and restores the shell', async () => {
+it.skipIf(process.platform === 'win32')('resolves stable spill locators for reads and restores the store', async () => {
   const root = await mkdtemp(join(tmpdir(), "query-spill-'quoted-"))
   const ctx = new Context()
   const disposers: (() => Promise<void>)[] = []
@@ -20,8 +19,6 @@ it.skipIf(process.platform === 'win32')('resolves the exact spill verifier, reta
     for (const fiber of [
       ctx.plugin(LocalSpillStore, { root, cleanupPeriodDays: 0 }),
       ctx.plugin(LocalFileSystem, { cwd: root }),
-      ctx.plugin(LocalSubprocessRuntime),
-      ctx.plugin(LocalBashExecutor),
     ]) {
       disposers.push(() => fiber.dispose())
       await fiber
@@ -35,31 +32,14 @@ it.skipIf(process.platform === 'win32')('resolves the exact spill verifier, reta
       source: { kind: 'tool', toolName: 'session_event_read', callId: ToolCallId('query'), label: 'result' },
       suggestedName: 'session_event_read.txt', content: 'request/header session_event_search',
     })
-    const adapter = ctx.plugin(commands)
+    const adapter = ctx.plugin(reads)
     disposers.push(() => adapter.dispose())
     await adapter
-    const command = 'file="' + saved.locator + '"' + "; grep -Fq request/header \"$file\" && grep -Fq session_event_search \"$file\" && printf 'SPILL_CANONICAL_OK\\n'"
-    const spec = ctx.shell.resolve({ command })
-    const output = await (await ctx.shell.execute(spec)).result()
-    expect(output.timedOut).toBe(false)
-    expect(output.exitCode).toBe(0)
-    expect(output.stdout.text).toBe('SPILL_CANONICAL_OK\n')
-    expect(spec.command).toBe(command)
-    const other = await (await ctx.shell.execute(ctx.shell.resolve({ command: 'printf ordinary; exit 7' }))).result()
-    expect(other.exitCode).toBe(7)
-    expect(other.stdout.text).toBe('ordinary')
-    const unmatched = await (await ctx.shell.execute(ctx.shell.resolve({ command: command + '; exit 9' }))).result()
-    expect(unmatched.exitCode).toBe(9)
-    expect(unmatched.stderr.text).toContain('No such file')
-    const physical = ctx.fs.processPath(await ctx.fs.resolve(saved.locator))
-    await rm(physical)
-    const missing = await (await ctx.shell.execute(spec)).result()
-    expect(missing.exitCode).not.toBe(0)
-    expect(missing.stdout.text).toBe('')
+    const page = await ctx.spillStore.readText({ locator: saved.locator })
+    expect(page.lines).toEqual([{ number: 1, text: 'request/header session_event_search' }])
     await adapter.dispose()
-    const restored = await (await ctx.shell.execute(spec)).result()
-    expect(restored.exitCode).not.toBe(0)
-    expect(restored.stderr.text).toContain(saved.locator)
+    await expect(ctx.spillStore.readText({ locator: saved.locator })).rejects.toThrow('outside the configured spill root')
+    await expect(ctx.spillStore.readText({ locator: SpillLocator('/outside/session_event_read.txt') })).rejects.toThrow('outside the configured spill root')
   } finally {
     for (const dispose of disposers.reverse()) await dispose()
     await rm(root, { recursive: true, force: true })

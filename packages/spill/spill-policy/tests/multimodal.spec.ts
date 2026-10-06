@@ -93,7 +93,7 @@ const text = (value: string): JsonValue => ({ type: 'text', text: value })
 
 async function savedResult(content: readonly { type: string; text?: string }[]): Promise<string> {
   const flattened = content.map(block => block.text ?? '').join('')
-  const match = /Full formatted result stored at: (.+?)\. Use read/.exec(flattened)
+  const match = /Full formatted result stored at: (.+?)\. Use spill_read/.exec(flattened)
   if (match === null) throw new Error('missing spill path')
   return readFile(match[1]!, 'utf8')
 }

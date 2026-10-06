@@ -8,7 +8,7 @@ Source: [`packages/spill/spill/src/types.ts`](../../packages/spill/spill/src/typ
 
 ## The save request
 
-`saveText` is the sole service operation: persist `content` verbatim, return an opaque locator, a backend-supplied retrieval hint, and the exact byte count. The request carries the save-time storage namespace (`owner`), descriptive producer details (`source`, never access control), and a `suggestedName` the backend may use as a naming hint, not a path. A tool source identifies the actual tool call; a session-reference source identifies the captured source session, while its owner is the target session receiving the context.
+`saveText` persists `content` verbatim and returns an opaque locator, a backend-supplied retrieval hint, and the exact byte count. The request carries the save-time storage namespace (`owner`), descriptive producer details (`source`, never access control), and a `suggestedName` the backend may use as a naming hint, not a path. A tool source identifies the actual tool call; a session-reference source identifies the captured source session, while its owner is the target session receiving the context.
 
 ```ts type-equiv
 /** One request to persist text to a spill artifact. */
@@ -87,9 +87,11 @@ type SpillLocator = Branded<'SpillLocator'>
 
 ## The service
 
-`SpillStore` (`ctx.spillStore`, defined in [`packages/spill/spill/src/index.ts`](../../packages/spill/spill/src/index.ts)) is a one-method abstract service: `saveText(input) → Promise<SpillRef>`. It persists the FULL `content` and REJECTS on a real storage failure (permissions, ENOSPC, backend unavailable). The seam owns storage only: no retention policy, no tool-result replacement, no retrieval/search API.
+`SpillStore` (`ctx.spillStore`, defined in [`packages/spill/spill/src/index.ts`](../../packages/spill/spill/src/index.ts)) provides `saveText(input) → Promise<SpillRef>` and optional `readText(input) → Promise<SpillRead>`. Saving persists the full `content` and rejects on storage failure. The base reader rejects unsupported retrieval; providers that implement it own locator resolution and read limits. Retention and tool-result replacement remain consumer responsibilities.
 
-The local backend ([dsh-spill-local](../../packages/spill/spill-local)) writes under `<root>/session-<hash>/<random>-<safeName>` — a configured or lazily-created private (0700) root, a `sha256(sessionId)` session subdir, and an exclusive owner-only (`open(path, 'wx', 0o600)`) write so a planted symlink cannot redirect it. Its `locator` is the local path and its `retrievalHint` tells the model to use `read` or `grep` on that path. The policy consumer ([dsh-spill-policy](../../packages/spill/spill-policy)) replaces an over-`maxInlineTokens` text/image result with ordered head/tail content and a spill address, best-effort: a save failure keeps the original inline result rather than turning a successful call into an `isError`.
+The local backend ([dsh-spill-local](../../packages/spill/spill-local)) writes under `<root>/session-<hash>/<random>-<safeName>` with private directories and exclusive owner-only files. Its locator is a bearer capability, including when inherited by fork or session-reference context; save-time ownership is not an access-control list. Retrieval validates backend containment and rejects symlinks and hardlinks. The hint advertises `spill_read`, provided by [dsh-spill-policy](../../packages/spill/spill-policy), rather than assuming the Session filesystem can read a local path. Retention remains best-effort: failed saves keep the original inline result.
+
+`ReadTextSpill` carries the unchanged `locator`, optional one-based line `offset` and line `limit`, an optional absolute UTF-8 `byteOffset` for continuation, and cancellation `signal`. A byte cursor overrides the line offset. `SpillRead` returns the locator and diagnostic path, first line offset, numbered line fragments, exact `totalLines` and `bytes`, `truncated`, and `nextByteOffset`. Local reads apply `readMaxLines` and `readMaxBytes`; byte continuation keeps oversized single lines recoverable. `spill_read` results are not spilled again, so the advertised paging operation remains usable.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -103,7 +105,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.spillStore` — `SpillStore` (abstract seam)
 
-Abstract spill storage service. Subclass, implement saveText, and load the subclass as a plugin — it registers as `ctx.spillStore` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior).
+Abstract spill storage service. Subclass, implement saveText, and load the subclass as a plugin — it registers as `ctx.spillStore` (one implementation per context; loading a second throws, cordis' standard duplicate-service behavior). readText is an optional retrieval capability: the base implementation rejects, so existing save-only subclasses keep compiling and remain valid.
 
 Semantics every implementation must honor:
 
@@ -118,6 +120,17 @@ Semantics every implementation must honor:
  * @returns the saved artifact's {@link SpillRef}; rejects on a storage failure.
  */
 abstract saveText(input: SaveTextSpill): Promise<SpillRef>
+
+/**
+ * Read a bounded window of text back from a saved artifact locator. Optional:
+ * a backend that cannot retrieve its locators keeps the base rejection.
+ *
+ * @param _input - saved bearer locator, optional line or byte cursor, and cancellation signal.
+ * @returns the structured read result; rejects on an invalid locator, an
+ *   unsupported backend or a storage read failure. Inherited locators remain readable. Pages
+ *   must bound UTF-8 content bytes even within one line and return a continuation cursor.
+ */
+readText(_input: ReadTextSpill): Promise<SpillRead>
 ```
 
 Source: [`packages/spill/spill/src/index.ts`](../../packages/spill/spill/src/index.ts)

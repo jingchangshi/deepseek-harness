@@ -1,0 +1,33 @@
+schemaVersion: 1
+id: pebble-ir-lab
+checks:
+  - name: parse
+    category: source
+    scope: {dialect: pebble}
+    adapter: parse
+    required: true
+    timeoutMs: 30000
+  - name: codegen
+    category: target-ir
+    scope: {target: stack, width: 32}
+    adapter: stack
+    required: false
+    timeoutMs: 30000
+  - name: codegen
+    category: target-ir
+    scope: {target: register, width: 32}
+    adapter: register
+    required: false
+    timeoutMs: 30000
+  - name: reference
+    category: semantics
+    scope: {semantics: integer-arithmetic}
+    adapter: reference
+    required: false
+    timeoutMs: 30000
+  - name: hardware
+    category: hardware
+    scope: {device: pebble-board}
+    adapter: unavailable-board
+    required: false
+    timeoutMs: 30000

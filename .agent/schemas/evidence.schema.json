@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://deepseek-harness.local/agent/evidence.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "taskId", "workRevision", "kind", "status", "timestamp", "summary", "scope"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "taskId": { "type": "string" },
+    "workRevision": { "type": "integer", "minimum": 1 },
+    "kind": { "enum": ["command", "model-route", "inspection", "review"] },
+    "status": { "enum": ["PASS", "FAIL", "NOT_RUN", "INCOMPLETE"] },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "summary": { "type": "string", "minLength": 1 },
+    "scope": { "type": "object" },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executable", "args", "cwd"],
+      "properties": {
+        "executable": { "type": "string", "minLength": 1 },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "cwd": { "type": "string", "minLength": 1 },
+        "exitCode": { "anyOf": [{ "type": "integer" }, { "type": "null" }] },
+        "timedOut": { "type": "boolean" }
+      }
+    }
+  }
+}

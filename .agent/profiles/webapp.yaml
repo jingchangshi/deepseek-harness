@@ -1,0 +1,12 @@
+schemaVersion: 1
+id: webapp
+checks:
+  - { name: typecheck, category: static, required: true, timeoutMs: 300000 }
+  - { name: lint, category: static, required: true, timeoutMs: 300000 }
+  - { name: unit, category: correctness, required: true, timeoutMs: 600000 }
+  - { name: api-contract, category: integration, required: false, timeoutMs: 600000 }
+  - { name: database-migration, category: integration, required: false, timeoutMs: 600000 }
+  - { name: integration, category: integration, required: false, timeoutMs: 600000 }
+  - { name: e2e, category: integration, required: true, timeoutMs: 900000 }
+  - { name: build, category: delivery, required: true, timeoutMs: 600000 }
+  - { name: deployment-smoke, category: delivery, required: false, timeoutMs: 300000 }

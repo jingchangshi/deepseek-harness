@@ -1,0 +1,15 @@
+schemaVersion: 1
+id: compiler
+checks:
+  - { name: build, category: build, required: true, timeoutMs: 900000 }
+  - { name: unit, category: correctness, required: true, timeoutMs: 900000 }
+  - { name: ir-verify, category: correctness, required: true, timeoutMs: 300000 }
+  - { name: ir-diff, category: correctness, required: false, timeoutMs: 300000 }
+  - { name: dialect-legality, category: correctness, required: false, timeoutMs: 300000 }
+  - { name: dominance-ssa, category: correctness, required: false, timeoutMs: 300000 }
+  - { name: shape, category: correctness, required: false, timeoutMs: 300000 }
+  - { name: alias-bufferization, category: correctness, required: false, timeoutMs: 300000 }
+  - { name: reference, category: correctness, required: true, timeoutMs: 900000 }
+  - { name: compile-benchmark, category: performance, required: false, timeoutMs: 900000 }
+  - { name: runtime-benchmark, category: performance, required: false, timeoutMs: 900000 }
+  - { name: profile, category: performance, required: false, timeoutMs: 900000 }

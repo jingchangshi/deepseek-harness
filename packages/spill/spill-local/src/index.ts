@@ -1,10 +1,10 @@
 /**
  * `LocalSpillStore`: the host-filesystem implementation of the
  * `@deepseek-ai/dsh-spill` storage seam. Persists oversized text to a
- * private, session-scoped file (see `./store.ts` for the traversal-safe naming
- * and exclusive owner-only write) and returns a path locator plus local
- * read/grep retrieval guidance. After activation it runs one best-effort
- * startup sweep that reclaims spill files older than `cleanupPeriodDays`.
+ * private, session-scoped file (see `./store.ts` for the traversal-safe naming,
+ * exclusive owner-only write, and owned-locator read) and returns a path locator
+ * plus local `spill_read` retrieval guidance. After activation it runs one
+ * best-effort startup sweep that reclaims spill files older than `cleanupPeriodDays`.
  *
  * @module @deepseek-ai/dsh-spill-local
  */
@@ -14,21 +14,25 @@ import { resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import z from '@deepseek-ai/schemastery'
 import { SpillLocator, SpillStore } from '@deepseek-ai/dsh-spill'
-import type { SaveTextSpill, SpillRef } from '@deepseek-ai/dsh-spill'
+import type { ReadTextSpill, SaveTextSpill, SpillRead, SpillRef } from '@deepseek-ai/dsh-spill'
 import { gatherSweepRoots, sweepSpillRoots } from './cleanup.ts'
 import type { SweepRoot, WarnFn } from './cleanup.ts'
-import { privateRoot, saveTextFile } from './store.ts'
+import { privateRoot, readOwnedSpillFile, saveTextFile } from './store.ts'
 
 export { discoverDefaultRoots, sweepSpillRoots } from './cleanup.ts'
 export type { SweepOptions, SweepRoot, WarnFn } from './cleanup.ts'
-export { DEFAULT_ROOT_PREFIX, encodeSegment, isErrno, privateRoot, saveTextFile, sessionDir } from './store.ts'
-export type { SavedText, SaveTextOptions } from './store.ts'
+export { DEFAULT_ROOT_PREFIX, encodeSegment, isErrno, privateRoot, readOwnedSpillFile, saveTextFile, sessionDir } from './store.ts'
+export type { ReadTextFile, ReadTextOptions, SavedText, SaveTextOptions } from './store.ts'
 
 /** Milliseconds in one day — converts the `cleanupPeriodDays` config to the sweep cutoff. */
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
 /** Plugin config (all optional — `static Config` supplies the defaults). */
 export interface Config {
+  /** Maximum returned lines per retrieval; defaults to 2000. */
+  readMaxLines?: number
+  /** Maximum returned UTF-8 content bytes per retrieval; defaults to 65536, at least 4. */
+  readMaxBytes?: number
   /**
    * Root directory for spill files. Omitted uses a lazily-created private
    * (0700) per-process directory under the OS temp dir — the safe default for
@@ -64,6 +68,8 @@ type ResolvedConfig = Required<Omit<Config, 'root'>> & Pick<Config, 'root'>
  */
 export class LocalSpillStore extends SpillStore {
   static Config: z<Config> = z.object({
+    readMaxLines: z.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(2000),
+    readMaxBytes: z.number().step(1).min(4).max(Number.MAX_SAFE_INTEGER).default(65536),
     root: z.string(),
     cleanupPeriodDays: z.number().step(1).min(0).default(30),
   })
@@ -146,6 +152,32 @@ export class LocalSpillStore extends SpillStore {
     return tmpdir()
   }
 
+  override async readText(input: ReadTextSpill): Promise<SpillRead> {
+    const offset = input.offset === undefined ? 1 : parsePositiveInteger(input.offset, 'offset')
+    const limit = input.limit === undefined ? this.config.readMaxLines : parsePositiveInteger(input.limit, 'limit')
+    if (limit > this.config.readMaxLines) throw new Error(`limit must be less than or equal to ${this.config.readMaxLines}`)
+    if (input.byteOffset !== undefined && (!Number.isSafeInteger(input.byteOffset) || input.byteOffset < 0)) throw new Error('byteOffset must be a non-negative safe integer')
+    const requestedMaxBytes = input.maxBytes === undefined ? this.config.readMaxBytes : parsePositiveInteger(input.maxBytes, 'maxBytes')
+    const maxBytes = Math.min(requestedMaxBytes, this.config.readMaxBytes)
+    const saved = await readOwnedSpillFile({
+      root: this.root,
+      locator: String(input.locator),
+      offset, limit, maxBytes,
+      ...(input.byteOffset === undefined ? {} : { byteOffset: input.byteOffset }),
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
+    })
+    return {
+      locator: SpillLocator(saved.path),
+      path: saved.path,
+      offset: saved.offset,
+      lines: saved.lines,
+      totalLines: saved.totalLines,
+      bytes: saved.bytes,
+      truncated: saved.nextByteOffset < saved.bytes,
+      nextByteOffset: saved.nextByteOffset,
+    }
+  }
+
   async saveText(input: SaveTextSpill): Promise<SpillRef> {
     const saved = await saveTextFile({
       root: this.root,
@@ -156,9 +188,15 @@ export class LocalSpillStore extends SpillStore {
     return {
       locator: SpillLocator(saved.path),
       bytes: saved.bytes,
-      retrievalHint: 'Use read with offset/limit, or grep this path to search within it.',
+      retrievalHint: 'Use spill_read with this locator to retrieve the full content.',
     }
   }
 }
 
 export default LocalSpillStore
+
+/** Validate a positive integer window argument. */
+function parsePositiveInteger(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${name} must be a positive safe integer`)
+  return value
+}

@@ -29,7 +29,7 @@ You reach this package through a provider backend, not a composition: `dsh-subag
 
 ### What one run provides
 
-One call starts and drives one one-shot child. Fulfillment means the child is already published in `ctx.agents` and the caller owns the returned run; a rejected start has already quiesced the unpublished creation, so no half-created child survives. The run exposes the child's id and live agent, a `result` promise, and a `dispose()` that stops the loop, removes the agent and session, and unwinds scoped registrations.
+One call starts and drives one one-shot child. Fulfillment means the child is already published in `ctx.agents` and the caller owns the returned run; a rejected start has already quiesced the unpublished creation, so no half-created child survives. The run exposes the child's id and live agent, a `result` promise, and a `dispose()` that stops the loop, removes the agent and session, and unwinds scoped registrations. A failed turn also returns a diagnostic containing a recognized error code and available HTTP status; arbitrary codes become `UNKNOWN`, and raw messages remain in the child Session. This fixed-format diagnostic stays below the 4096-byte result limit without copying credentials, tool inputs, or provider response bodies.
 
 ### The one input
 

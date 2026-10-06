@@ -32,7 +32,10 @@ import { delegationDepthOf } from './depth.ts'
 /** Thrown when starting a child would exceed the requested depth cap. */
 export class SubagentDepthError extends Error {
   constructor(public readonly attemptedDepth: number, public readonly maxDepth: number) {
-    super(`subagent depth ${attemptedDepth} exceeds maxDepth ${maxDepth}`)
+    // A delegated role has no delegation tool of its own; the depth cap is
+    // what enforces that. Saying so turns a bare refusal into the next action
+    // the caller should take instead of repeating the call.
+    super(`subagent depth ${attemptedDepth} exceeds maxDepth ${maxDepth}; this Session cannot delegate further, so complete the work directly with the tools at this depth`)
     this.name = 'SubagentDepthError'
   }
 }

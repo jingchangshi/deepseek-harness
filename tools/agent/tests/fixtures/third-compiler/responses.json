@@ -1,0 +1,28 @@
+{
+  "investigation": {
+    "findings": ["compiler/pebble.mjs parses SSA and emits two constant-only targets; its mul folding branch adds operands"],
+    "hypotheses": [{"statement": "Replacing the mul branch with integer multiplication preserves both target semantics", "evidence": ["compiler/pebble.mjs fold", "programs/arithmetic.ir", "COMPILER.md"]}],
+    "unresolvedAssumptions": []
+  },
+  "plan": {
+    "problemStatement": "Repair Pebble multiplication folding and extend arithmetic.ir to return product plus seed",
+    "hypotheses": ["The current mul branch violates input arithmetic semantics"],
+    "selectedApproach": "Fix multiplication in the folder and add a dependent SSA sum to the input program",
+    "rejectedAlternatives": ["Hardcode a constant return", "Disable reference or target checks"],
+    "invariants": ["Reject invalid SSA", "Emit equivalent constant-only stack and register IR", "Keep hardware optional at presubmit"],
+    "expectedComponents": ["compiler/pebble.mjs", "programs/arithmetic.ir"],
+    "implementationScope": ["compiler/pebble.mjs", "programs/arithmetic.ir"],
+    "falsificationTests": ["Negative, zero, and identity multiplication differ from independent reference evaluation if folding is wrong", "Undefined or duplicate SSA operands must fail", "Both targets must return the input program value"],
+    "acceptanceGates": ["parse", "codegen", "reference"],
+    "unresolvedAssumptions": []
+  },
+  "challenger": {"decision": "ACCEPT", "summary": "Independent arithmetic reference and scoped target checks reject constant hardcoding", "findings": []},
+  "implementation": {
+    "summary": "Fixed mul folding and extended the program with a dependent sum",
+    "edits": [
+      {"path": "compiler/pebble.mjs", "before": "operation === 'add' ? left + right : left + right", "after": "operation === 'add' ? left + right : left * right"},
+      {"path": "programs/arithmetic.ir", "before": "ret product\n", "after": "sum = add product seed\nret sum\n"}
+    ]
+  },
+  "review": {"decision": "ACCEPT", "summary": "Inspected the multiplication fix, dependent SSA sum, two generated targets and independent reference evidence", "findings": []}
+}

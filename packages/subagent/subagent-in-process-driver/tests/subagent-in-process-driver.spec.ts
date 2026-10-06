@@ -49,12 +49,39 @@ function text(blocks: readonly { type: string; text?: string }[]): string {
 }
 
 describe('startInProcessRun', () => {
+  it.each([
+    { message: '404 404 page not found', code: 'PI_AI_ERROR', expected: 'code: PI_AI_ERROR; HTTP status: 404' },
+    { message: 'HTTP 404 private response body', code: 'PI_AI_ERROR', expected: 'code: PI_AI_ERROR; HTTP status: 404' },
+    { message: 'authorization rejected: Bearer secret-fixture-key', code: 'AUTH', status: 403, expected: 'code: AUTH; HTTP status: 403' },
+    { message: 'private file text '.repeat(1000) + '机密'.repeat(4096), code: 'PRIVATE_SECRET_FIXTURE', expected: 'code: UNKNOWN' },
+    { message: 'private tool input', code: 'UNKNOWN', expected: 'code: UNKNOWN' },
+  ])('returns safe failure facts for $code without forwarding the raw message', async ({ message, code, expected, ...facts }) => {
+    const { ctx, parent } = await setup([[{ type: 'finish', reason: { kind: 'error', failure: { message, code, ...facts } } }]])
+    try {
+      const run = await startInProcessRun(request(parent), {})
+      try {
+        const result = await run.result
+        expect(result.stopReason).toBe('error')
+        expect(result.diagnostic).toBe(`In-process subagent failure (${expected}). Inspect the child Session for details.`)
+        expect(Buffer.byteLength(result.diagnostic!, 'utf8')).toBeLessThanOrEqual(4096)
+        expect(result.diagnostic).not.toContain(message)
+        const terminal = run.localAgent!.session.snapshotEvents().findLast(event => event.type === 'turn/end')
+        expect(terminal?.data.reason).toMatchObject({ kind: 'error', error: { message, code } })
+      } finally {
+        await run.dispose()
+      }
+    } finally {
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('returns only after publication, drives a fresh child, and disposes it', async () => {
     const { ctx, parent } = await setup([textResponse('driver answer')])
     const run = await startInProcessRun(request(parent), {})
     expect(ctx.agents.get(run.id)).toBeDefined()
     const result = await run.result
     expect(result.stopReason).toBe('completed')
+    expect(result.diagnostic).toBeUndefined()
     expect(text(result.output)).toBe('driver answer')
     expect(ctx.agents.get(run.id)!.options.subagentDepth).toBe(1)
     await run.dispose()

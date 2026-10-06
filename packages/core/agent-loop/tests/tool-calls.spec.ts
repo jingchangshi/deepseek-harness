@@ -10,7 +10,7 @@ import SessionStore, { SessionEvent, SessionId, TOOL_NOT_STARTED, TOOL_OUTCOME_U
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
-import ToolRuntime, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER, type PostToolDecision, type PreToolDecision } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { defineContentToolFixture, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_RUNTIME_SCHEDULER, type PostToolDecision, type PreToolDecision, type ToolExecutionInput } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -106,6 +106,38 @@ async function until(predicate: () => boolean): Promise<void> {
 }
 
 describe('tool-call scheduler: grouping and barriers', () => {
+  it('passes each committed call occurrence to policy and dispatch even when later steps reuse a model id', async () => {
+    const ctx = await harness(new MockAdapter([
+      multiCall([{ id: 'reused', name: 'capture', args: {} }, { id: 'sibling', name: 'capture', args: {} }]),
+      multiCall([{ id: 'reused', name: 'capture', args: {} }]),
+      textResponse('done'),
+    ]))
+    onTestFinished(() => ctx.fiber.dispose())
+    const observed: ToolExecutionInput[] = []
+    const dispatched: ToolExecutionInput[] = []
+    ctx.tools.register(defineContentToolFixture({
+      name: 'capture', description: 'capture call occurrence', parameters: {}, isConcurrencySafe: () => true,
+      async execute(_args, exec) {
+        dispatched.push(exec)
+        return [{ type: 'text', text: 'captured' }]
+      },
+    }))
+    const agent = await ctx.agentLoop.create(SessionId('occurrences'), { provider: 'mock', model: 'mock' })
+    ctx.on('tools/pre-execute', (exec, next) => {
+      const call = events(agent).find(event => event.seq === exec.loggedCallSeq)
+      expect(call).toMatchObject({ type: 'tool/call', data: { callId: exec.callId, name: exec.name } })
+      observed.push(exec)
+      return next()
+    })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await waitForIdle(ctx, agent)
+    const calls = events(agent).filter(event => event.type === 'tool/call')
+    expect(calls.map(event => event.data.callId)).toEqual([ToolCallId('reused'), ToolCallId('sibling'), ToolCallId('reused')])
+    expect(observed.map(exec => exec.loggedCallSeq)).toEqual(calls.map(event => event.seq))
+    expect(dispatched.map(exec => exec.loggedCallSeq)).toEqual(calls.map(event => event.seq))
+    expect(dispatched[0]?.loggedCallSeq).not.toBe(dispatched[2]?.loggedCallSeq)
+  })
+
   it('runs parallel-safe siblings concurrently (all start before any completes)', async () => {
     const adapter = new MockAdapter([
       multiCall([{ id: 'c1', name: 'p', args: { id: '1' } }, { id: 'c2', name: 'p', args: { id: '2' } }, { id: 'c3', name: 'p', args: { id: '3' } }]),

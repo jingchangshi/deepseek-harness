@@ -1,0 +1,7 @@
+schemaVersion: 1
+instructionFiles:
+  - CONTRIBUTING.md
+  - tilelang/backend/README.md
+  - tilelang/ascend/README.md
+skillRoots:
+  - .agents/skills

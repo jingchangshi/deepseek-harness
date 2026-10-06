@@ -1,0 +1,14 @@
+version: 1
+scenario: engineering-harness
+profile: headless
+composition: engineering-harness
+recording: authored
+platform: posix
+header:
+  class: engineering-harness
+  pin: true
+  childSystemPrompts: [1, 2, 3, 4, 5, 6]
+  childToolSchemas: [1, 2, 3, 4, 5, 6]
+workspace:
+  setup: engineering-harness
+  final: true
