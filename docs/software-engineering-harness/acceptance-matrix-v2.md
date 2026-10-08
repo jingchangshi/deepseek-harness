@@ -4,7 +4,7 @@ English | [中文](acceptance-matrix-v2.zh.md)
 
 ## Summary
 
-This reference freezes required behavior for the [implementation plan](implementation-plan-v2.md). PASS requires primary evidence for every row in a phase. A passing mock, smoke or schema validator cannot substitute for a different evidence class. The Phase 4 design is frozen; implementation and verification remain NOT_RUN. See the [usage accounting and evaluation design](usage-evaluation-v2.md).
+This reference freezes required behavior for the [implementation plan](implementation-plan-v2.md). PASS requires primary evidence for every row in a phase. A passing mock, smoke or schema validator cannot substitute for a different evidence class. The Phase 4 design is frozen; focused implementation checks pass, independent source review is approved, and live comparison evidence is partial. See the [usage accounting and evaluation design](usage-evaluation-v2.md).
 
 ## Requirement traceability
 
@@ -43,8 +43,9 @@ This reference freezes required behavior for the [implementation plan](implement
 | P4-01 | Actual request usage persists raw and normalized fields | Unit/replay plus available live provider integration ([frozen design](usage-evaluation-v2.md)) |
 | P4-02 | Retries, compaction, caching and replay count exactly once | Durable event/request identity fixtures; unknown usage preserved |
 | P4-03 | Missing pricing is UNKNOWN; overlap preserves task wall time | Rate-version/cache and overlapping interval fixtures |
-| P4-04 | Four strategies share reproducible inputs and independent oracle | Compiler design, MLIR change, Review and injected recovery fixtures |
-| P4-05 | Report quality, first-pass, latency, tokens, cost and failures honestly | Benchmark report validation; unavailable real comparison NOT_RUN |
+| P4-04 | Four strategies share reproducible inputs and independent oracle | Compiler design, MLIR change, Review and injected recovery fixtures; each live implementation strategy runs in its own canonical-cwd AgentHandle and verifies through the configured profile |
+| P4-05 | Report quality, first-pass, latency, tokens, cost and failures honestly | Benchmark report validation; latest Review run accepts A only, while B/C are blocked and D is rejected; overall live evidence remains PARTIAL |
+| P4-06 | Fixture cleanup and writer admission wait for child quiescence | Session cwd assertion, executor-disposal barrier, supervisor-owned writer token and retained lease when shutdown is uncertain |
 | ALL-01 | Existing safety, presets, verification and routing remain valid | Relevant existing regression suites and pinned-runtime checks |
 | ALL-02 | Each phase is reviewed, committed and pushed independently | Independent verdict, exact commands, commit chain and remote SHA |
 

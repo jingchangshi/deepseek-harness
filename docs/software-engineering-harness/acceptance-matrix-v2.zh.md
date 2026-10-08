@@ -4,7 +4,7 @@
 
 ## 概述
 
-本参考文档冻结[实现计划](implementation-plan-v2.zh.md)要求的行为。每一行都必须有主要证据才能判定 PASS。通过的 mock、smoke 或 schema validator 不能替代其他类别的证据。Phase 4 设计已冻结；实现和验证仍为 NOT_RUN。见[用量核算与评估设计](usage-evaluation-v2.zh.md)。
+本参考文档冻结[实现计划](implementation-plan-v2.zh.md)要求的行为。每一行都必须有主要证据才能判定 PASS。通过的 mock、smoke 或 schema validator 不能替代其他类别的证据。Phase 4 设计已冻结；聚焦实现检查通过，独立源码评审已批准，在线对比证据为 PARTIAL。见[用量核算与评估设计](usage-evaluation-v2.zh.md)。
 
 ## 需求追踪
 
@@ -43,8 +43,9 @@
 | P4-01 | 实际 request 用量会持久化原始和标准化字段 | 单元测试/回放，以及可用时的在线 provider 集成（[已冻结设计](usage-evaluation-v2.zh.md)） |
 | P4-02 | Retry、压缩、缓存和回放只计数一次 | 持久化 event/request identity fixture；保留未知用量 |
 | P4-03 | 缺少价格时为 UNKNOWN；重叠区间保留 task wall time | 价格版本/缓存和重叠区间 fixture |
-| P4-04 | 四种策略共享可复现输入和独立 oracle | Compiler 设计、MLIR 变更、Review 和注入式恢复 fixture |
-| P4-05 | 如实报告质量、首次通过率、延迟、token、成本和失败 | Benchmark 报告验证；不可用的真实对比标记 NOT_RUN |
+| P4-04 | 四种策略共享可复现输入和独立 oracle | Compiler 设计、MLIR 变更、Review 和注入式恢复 fixture；每种在线实现策略都在各自规范 cwd 的 AgentHandle 中运行，并使用配置的 profile 验证 |
+| P4-05 | 如实报告质量、首次通过率、延迟、token、成本和失败 | Benchmark 报告验证；最近一次 Review 运行中只有 A 通过，B/C 被阻断，D 被拒绝；整体在线证据仍为 PARTIAL |
+| P4-06 | Fixture 清理和 writer 准入等待 child 静止 | Session cwd 断言、executor disposal barrier、supervisor 独占 writer token，并在关闭状态不确定时保留 lease |
 | ALL-01 | 现有安全、preset、验证和路由继续有效 | 相关现有回归测试和 pinned-runtime 检查 |
 | ALL-02 | 每个阶段都独立评审、提交和推送 | 独立结论、准确命令、commit 链和 remote SHA |
 

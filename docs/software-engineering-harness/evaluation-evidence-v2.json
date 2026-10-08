@@ -1,0 +1,1894 @@
+{
+  "schemaVersion": 1,
+  "limitations": [
+    "Sanitized aggregate evidence; provider request bodies and private sessions are excluded",
+    "Only A_STRONG was accepted in the latest Review comparison; comparative savings are not established",
+    "No verified provider pricing or billed-cost evidence"
+  ],
+  "runs": [
+    {
+      "runId": 1,
+      "mode": "LIVE_PROVIDER",
+      "sourceArtifact": "dsh-live-evaluation-1418323-1791472342988.json",
+      "results": [
+        {
+          "caseId": "UNKNOWN",
+          "strategy": "D_ADAPTIVE",
+          "status": "BUDGET_EXHAUSTED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": "UNKNOWN",
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "logicalInvocations": 4,
+              "physicalAttempts": 4,
+              "providerRequests": 32,
+              "compactionRequests": 0,
+              "failedRequests": 0,
+              "abortedRequests": 0,
+              "toolCalls": 70
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 474943,
+              "unknownRequestCount": 0
+            },
+            "cacheReadTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 370432,
+              "unknownRequestCount": 0
+            },
+            "cacheWriteTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            },
+            "reasoningTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 32
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 32
+            },
+            "providerActiveMs": 215841,
+            "requestDurationSumMs": 237761,
+            "endToEndMs": "UNKNOWN",
+            "providerFailures": {
+              "knownFailures": 0,
+              "knownDispatched": 32,
+              "unknownDispatchCount": 0
+            },
+            "unattributedHistory": false,
+            "byRole": {
+              "scout-primary": {
+                "requestCount": 6,
+                "knownDispatched": 6,
+                "unknownDispatchCount": 0,
+                "knownFailures": 0,
+                "totalTokens": {
+                  "status": "KNOWN",
+                  "knownSubtotal": 24784,
+                  "unknownRequestCount": 0
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 6
+                }
+              },
+              "scout-secondary": {
+                "requestCount": 6,
+                "knownDispatched": 6,
+                "unknownDispatchCount": 0,
+                "knownFailures": 0,
+                "totalTokens": {
+                  "status": "KNOWN",
+                  "knownSubtotal": 25860,
+                  "unknownRequestCount": 0
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 6
+                }
+              },
+              "architect": {
+                "requestCount": 8,
+                "knownDispatched": 8,
+                "unknownDispatchCount": 0,
+                "knownFailures": 0,
+                "totalTokens": {
+                  "status": "KNOWN",
+                  "knownSubtotal": 72801,
+                  "unknownRequestCount": 0
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 8
+                }
+              },
+              "challenger": {
+                "requestCount": 12,
+                "knownDispatched": 12,
+                "unknownDispatchCount": 0,
+                "knownFailures": 0,
+                "totalTokens": {
+                  "status": "KNOWN",
+                  "knownSubtotal": 351498,
+                  "unknownRequestCount": 0
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 12
+                }
+              }
+            },
+            "byProvider": {
+              "magpie": {
+                "requestCount": 32,
+                "knownDispatched": 32,
+                "unknownDispatchCount": 0,
+                "knownFailures": 0,
+                "totalTokens": {
+                  "status": "KNOWN",
+                  "knownSubtotal": 474943,
+                  "unknownRequestCount": 0
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 32
+                }
+              }
+            },
+            "byModel": {
+              "group/auto-deepseek-v4-1-flash": {
+                "requestCount": 32,
+                "knownDispatched": 32,
+                "unknownDispatchCount": 0,
+                "knownFailures": 0,
+                "totalTokens": {
+                  "status": "KNOWN",
+                  "knownSubtotal": 474943,
+                  "unknownRequestCount": 0
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 32
+                }
+              }
+            }
+          },
+          "oracleAccepted": "UNKNOWN",
+          "actualBilledCostUsd": "UNKNOWN"
+        }
+      ],
+      "comparisonStatus": "UNKNOWN",
+      "qualityStatus": "PARTIAL",
+      "pricingStatus": "UNKNOWN"
+    },
+    {
+      "runId": 2,
+      "mode": "LIVE_PROVIDER",
+      "sourceArtifact": "dsh-engineering-comparison-b0eca946-64ae-4902-83ac-42deb00033ac.json",
+      "results": [
+        {
+          "caseId": "pebble-mul",
+          "strategy": "A_STRONG",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 262,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "logicalInvocations": 1,
+              "physicalAttempts": 1,
+              "providerRequests": 0,
+              "compactionRequests": 0,
+              "failedRequests": 0,
+              "abortedRequests": 0,
+              "toolCalls": 0
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            },
+            "cacheReadTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            },
+            "cacheWriteTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            },
+            "reasoningTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "KNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            },
+            "providerActiveMs": 0,
+            "requestDurationSumMs": 0,
+            "endToEndMs": 137,
+            "providerFailures": {
+              "knownFailures": 0,
+              "knownDispatched": 0,
+              "unknownDispatchCount": 0
+            },
+            "unattributedHistory": false,
+            "byRole": {},
+            "byProvider": {},
+            "byModel": {}
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "pebble-mul",
+          "strategy": "B_CHEAP",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 60196,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "logicalInvocations": 1,
+              "physicalAttempts": 1,
+              "providerRequests": 7,
+              "compactionRequests": 0,
+              "failedRequests": 0,
+              "abortedRequests": 0,
+              "toolCalls": 16
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 48569,
+              "unknownRequestCount": 0
+            },
+            "cacheReadTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 35072,
+              "unknownRequestCount": 0
+            },
+            "cacheWriteTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            },
+            "reasoningTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 7
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 7
+            },
+            "providerActiveMs": 28173,
+            "requestDurationSumMs": 28173,
+            "endToEndMs": 60097,
+            "providerFailures": {
+              "knownFailures": 0,
+              "knownDispatched": 7,
+              "unknownDispatchCount": 0
+            },
+            "unattributedHistory": false,
+            "byRole": {
+              "implementer": {
+                "requestCount": 7,
+                "knownDispatched": 7,
+                "unknownDispatchCount": 0,
+                "knownFailures": 0,
+                "totalTokens": {
+                  "status": "KNOWN",
+                  "knownSubtotal": 48569,
+                  "unknownRequestCount": 0
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 7
+                }
+              }
+            },
+            "byProvider": {
+              "magpie": {
+                "requestCount": 7,
+                "knownDispatched": 7,
+                "unknownDispatchCount": 0,
+                "knownFailures": 0,
+                "totalTokens": {
+                  "status": "KNOWN",
+                  "knownSubtotal": 48569,
+                  "unknownRequestCount": 0
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 7
+                }
+              }
+            },
+            "byModel": {
+              "group/auto-deepseek-v4-1-flash": {
+                "requestCount": 7,
+                "knownDispatched": 7,
+                "unknownDispatchCount": 0,
+                "knownFailures": 0,
+                "totalTokens": {
+                  "status": "KNOWN",
+                  "knownSubtotal": 48569,
+                  "unknownRequestCount": 0
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 7
+                }
+              }
+            }
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "pebble-mul",
+          "strategy": "C_FIXED",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 60183,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "logicalInvocations": 1,
+              "physicalAttempts": 1,
+              "providerRequests": 14,
+              "compactionRequests": 0,
+              "failedRequests": 1,
+              "abortedRequests": 0,
+              "toolCalls": 37
+            },
+            "totalTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 128513,
+              "unknownRequestCount": 1
+            },
+            "cacheReadTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 102144,
+              "unknownRequestCount": 1
+            },
+            "cacheWriteTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 1
+            },
+            "reasoningTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 14
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 14
+            },
+            "providerActiveMs": 49073,
+            "requestDurationSumMs": 49073,
+            "endToEndMs": 60070,
+            "providerFailures": {
+              "knownFailures": 1,
+              "knownDispatched": 14,
+              "unknownDispatchCount": 0
+            },
+            "unattributedHistory": false,
+            "byRole": {
+              "scout-primary": {
+                "requestCount": 14,
+                "knownDispatched": 14,
+                "unknownDispatchCount": 0,
+                "knownFailures": 1,
+                "totalTokens": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 128513,
+                  "unknownRequestCount": 1
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 14
+                }
+              }
+            },
+            "byProvider": {
+              "magpie": {
+                "requestCount": 14,
+                "knownDispatched": 14,
+                "unknownDispatchCount": 0,
+                "knownFailures": 1,
+                "totalTokens": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 128513,
+                  "unknownRequestCount": 1
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 14
+                }
+              }
+            },
+            "byModel": {
+              "group/auto-deepseek-v4-1-flash": {
+                "requestCount": 14,
+                "knownDispatched": 14,
+                "unknownDispatchCount": 0,
+                "knownFailures": 1,
+                "totalTokens": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 128513,
+                  "unknownRequestCount": 1
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 14
+                }
+              }
+            }
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "pebble-mul",
+          "strategy": "D_ADAPTIVE",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 61400,
+          "fallbackCount": 2,
+          "escalationCount": 0,
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "logicalInvocations": 2,
+              "physicalAttempts": 4,
+              "providerRequests": 23,
+              "compactionRequests": 0,
+              "failedRequests": 2,
+              "abortedRequests": 0,
+              "toolCalls": 45
+            },
+            "totalTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 91818,
+              "unknownRequestCount": 2
+            },
+            "cacheReadTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 77056,
+              "unknownRequestCount": 2
+            },
+            "cacheWriteTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 2
+            },
+            "reasoningTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 23
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 23
+            },
+            "providerActiveMs": 59846,
+            "requestDurationSumMs": 115296,
+            "endToEndMs": "UNKNOWN",
+            "providerFailures": {
+              "knownFailures": 2,
+              "knownDispatched": 23,
+              "unknownDispatchCount": 0
+            },
+            "unattributedHistory": false,
+            "byRole": {
+              "scout-primary": {
+                "requestCount": 15,
+                "knownDispatched": 15,
+                "unknownDispatchCount": 0,
+                "knownFailures": 1,
+                "totalTokens": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 64036,
+                  "unknownRequestCount": 1
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 15
+                }
+              },
+              "scout-secondary": {
+                "requestCount": 8,
+                "knownDispatched": 8,
+                "unknownDispatchCount": 0,
+                "knownFailures": 1,
+                "totalTokens": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 27782,
+                  "unknownRequestCount": 1
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 8
+                }
+              }
+            },
+            "byProvider": {
+              "magpie": {
+                "requestCount": 23,
+                "knownDispatched": 23,
+                "unknownDispatchCount": 0,
+                "knownFailures": 2,
+                "totalTokens": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 91818,
+                  "unknownRequestCount": 2
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 23
+                }
+              }
+            },
+            "byModel": {
+              "group/auto-deepseek-v4-1-flash": {
+                "requestCount": 15,
+                "knownDispatched": 15,
+                "unknownDispatchCount": 0,
+                "knownFailures": 1,
+                "totalTokens": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 64036,
+                  "unknownRequestCount": 1
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 15
+                }
+              },
+              "opencode-go/mimo-v2.6-flash": {
+                "requestCount": 8,
+                "knownDispatched": 8,
+                "unknownDispatchCount": 0,
+                "knownFailures": 1,
+                "totalTokens": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 27782,
+                  "unknownRequestCount": 1
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 8
+                }
+              }
+            }
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN"
+        }
+      ],
+      "comparisonStatus": "COMPLETE",
+      "qualityStatus": "PARTIAL",
+      "pricingStatus": "UNKNOWN"
+    },
+    {
+      "runId": 3,
+      "mode": "LIVE_PROVIDER",
+      "sourceArtifact": "dsh-engineering-comparison-1778374b-f731-491b-8537-62aef19b62f5.json",
+      "results": [
+        {
+          "caseId": "pebble-mul",
+          "strategy": "A_STRONG",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 180198,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "logicalInvocations": 1,
+              "physicalAttempts": 1,
+              "providerRequests": 7,
+              "compactionRequests": 0,
+              "failedRequests": 1,
+              "abortedRequests": 0,
+              "toolCalls": 17
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 66007,
+              "unknownRequestCount": 0
+            },
+            "cacheReadTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 44544,
+              "unknownRequestCount": 0
+            },
+            "cacheWriteTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            },
+            "reasoningTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 7
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 7
+            },
+            "providerActiveMs": 175148,
+            "requestDurationSumMs": 175148,
+            "endToEndMs": 180080,
+            "providerFailures": {
+              "knownFailures": 1,
+              "knownDispatched": 7,
+              "unknownDispatchCount": 0
+            },
+            "unattributedHistory": false,
+            "byRole": {
+              "implementer": {
+                "requestCount": 7,
+                "knownDispatched": 7,
+                "unknownDispatchCount": 0,
+                "knownFailures": 1,
+                "totalTokens": {
+                  "status": "KNOWN",
+                  "knownSubtotal": 66007,
+                  "unknownRequestCount": 0
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 7
+                }
+              }
+            },
+            "byProvider": {
+              "magpie-responses": {
+                "requestCount": 7,
+                "knownDispatched": 7,
+                "unknownDispatchCount": 0,
+                "knownFailures": 1,
+                "totalTokens": {
+                  "status": "KNOWN",
+                  "knownSubtotal": 66007,
+                  "unknownRequestCount": 0
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 7
+                }
+              }
+            },
+            "byModel": {
+              "codex/gpt-6.1-sol": {
+                "requestCount": 7,
+                "knownDispatched": 7,
+                "unknownDispatchCount": 0,
+                "knownFailures": 1,
+                "totalTokens": {
+                  "status": "KNOWN",
+                  "knownSubtotal": 66007,
+                  "unknownRequestCount": 0
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 7
+                }
+              }
+            }
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "pebble-mul",
+          "strategy": "B_CHEAP",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 180236,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "logicalInvocations": 1,
+              "physicalAttempts": 1,
+              "providerRequests": 17,
+              "compactionRequests": 0,
+              "failedRequests": 1,
+              "abortedRequests": 0,
+              "toolCalls": 30
+            },
+            "totalTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 166883,
+              "unknownRequestCount": 1
+            },
+            "cacheReadTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 136832,
+              "unknownRequestCount": 1
+            },
+            "cacheWriteTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 1
+            },
+            "reasoningTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 17
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 17
+            },
+            "providerActiveMs": 66377,
+            "requestDurationSumMs": 66377,
+            "endToEndMs": 180124,
+            "providerFailures": {
+              "knownFailures": 1,
+              "knownDispatched": 17,
+              "unknownDispatchCount": 0
+            },
+            "unattributedHistory": false,
+            "byRole": {
+              "implementer": {
+                "requestCount": 17,
+                "knownDispatched": 17,
+                "unknownDispatchCount": 0,
+                "knownFailures": 1,
+                "totalTokens": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 166883,
+                  "unknownRequestCount": 1
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 17
+                }
+              }
+            },
+            "byProvider": {
+              "magpie": {
+                "requestCount": 17,
+                "knownDispatched": 17,
+                "unknownDispatchCount": 0,
+                "knownFailures": 1,
+                "totalTokens": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 166883,
+                  "unknownRequestCount": 1
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 17
+                }
+              }
+            },
+            "byModel": {
+              "group/auto-deepseek-v4-1-flash": {
+                "requestCount": 17,
+                "knownDispatched": 17,
+                "unknownDispatchCount": 0,
+                "knownFailures": 1,
+                "totalTokens": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 166883,
+                  "unknownRequestCount": 1
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 17
+                }
+              }
+            }
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "pebble-mul",
+          "strategy": "C_FIXED",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 113275,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "logicalInvocations": 1,
+              "physicalAttempts": 1,
+              "providerRequests": 17,
+              "compactionRequests": 0,
+              "failedRequests": 0,
+              "abortedRequests": 0,
+              "toolCalls": 40
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 260665,
+              "unknownRequestCount": 0
+            },
+            "cacheReadTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 219520,
+              "unknownRequestCount": 0
+            },
+            "cacheWriteTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            },
+            "reasoningTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 17
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 17
+            },
+            "providerActiveMs": 94834,
+            "requestDurationSumMs": 94834,
+            "endToEndMs": 113172,
+            "providerFailures": {
+              "knownFailures": 0,
+              "knownDispatched": 17,
+              "unknownDispatchCount": 0
+            },
+            "unattributedHistory": false,
+            "byRole": {
+              "scout-primary": {
+                "requestCount": 17,
+                "knownDispatched": 17,
+                "unknownDispatchCount": 0,
+                "knownFailures": 0,
+                "totalTokens": {
+                  "status": "KNOWN",
+                  "knownSubtotal": 260665,
+                  "unknownRequestCount": 0
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 17
+                }
+              }
+            },
+            "byProvider": {
+              "magpie": {
+                "requestCount": 17,
+                "knownDispatched": 17,
+                "unknownDispatchCount": 0,
+                "knownFailures": 0,
+                "totalTokens": {
+                  "status": "KNOWN",
+                  "knownSubtotal": 260665,
+                  "unknownRequestCount": 0
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 17
+                }
+              }
+            },
+            "byModel": {
+              "group/auto-deepseek-v4-1-flash": {
+                "requestCount": 17,
+                "knownDispatched": 17,
+                "unknownDispatchCount": 0,
+                "knownFailures": 0,
+                "totalTokens": {
+                  "status": "KNOWN",
+                  "knownSubtotal": 260665,
+                  "unknownRequestCount": 0
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 17
+                }
+              }
+            }
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "pebble-mul",
+          "strategy": "D_ADAPTIVE",
+          "status": "BUDGET_EXHAUSTED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 181378,
+          "fallbackCount": 1,
+          "escalationCount": 0,
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "logicalInvocations": 2,
+              "physicalAttempts": 3,
+              "providerRequests": 28,
+              "compactionRequests": 0,
+              "failedRequests": 1,
+              "abortedRequests": 0,
+              "toolCalls": 53
+            },
+            "totalTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 134712,
+              "unknownRequestCount": 1
+            },
+            "cacheReadTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 114112,
+              "unknownRequestCount": 1
+            },
+            "cacheWriteTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 1
+            },
+            "reasoningTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 28
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 28
+            },
+            "providerActiveMs": 179622,
+            "requestDurationSumMs": 252602,
+            "endToEndMs": "UNKNOWN",
+            "providerFailures": {
+              "knownFailures": 1,
+              "knownDispatched": 28,
+              "unknownDispatchCount": 0
+            },
+            "unattributedHistory": false,
+            "byRole": {
+              "scout-primary": {
+                "requestCount": 20,
+                "knownDispatched": 20,
+                "unknownDispatchCount": 0,
+                "knownFailures": 0,
+                "totalTokens": {
+                  "status": "KNOWN",
+                  "knownSubtotal": 105378,
+                  "unknownRequestCount": 0
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 20
+                }
+              },
+              "scout-secondary": {
+                "requestCount": 8,
+                "knownDispatched": 8,
+                "unknownDispatchCount": 0,
+                "knownFailures": 1,
+                "totalTokens": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 29334,
+                  "unknownRequestCount": 1
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 8
+                }
+              }
+            },
+            "byProvider": {
+              "magpie": {
+                "requestCount": 28,
+                "knownDispatched": 28,
+                "unknownDispatchCount": 0,
+                "knownFailures": 1,
+                "totalTokens": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 134712,
+                  "unknownRequestCount": 1
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 28
+                }
+              }
+            },
+            "byModel": {
+              "group/auto-deepseek-v4-1-flash": {
+                "requestCount": 20,
+                "knownDispatched": 20,
+                "unknownDispatchCount": 0,
+                "knownFailures": 0,
+                "totalTokens": {
+                  "status": "KNOWN",
+                  "knownSubtotal": 105378,
+                  "unknownRequestCount": 0
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 20
+                }
+              },
+              "opencode-go/mimo-v2.6-flash": {
+                "requestCount": 8,
+                "knownDispatched": 8,
+                "unknownDispatchCount": 0,
+                "knownFailures": 1,
+                "totalTokens": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 29334,
+                  "unknownRequestCount": 1
+                },
+                "estimatedCostUsd": {
+                  "status": "UNKNOWN",
+                  "knownSubtotal": 0,
+                  "unknownRequestCount": 8
+                }
+              }
+            }
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN"
+        }
+      ],
+      "comparisonStatus": "COMPLETE",
+      "qualityStatus": "PARTIAL",
+      "pricingStatus": "UNKNOWN"
+    },
+    {
+      "runId": 4,
+      "mode": "LIVE_PROVIDER",
+      "sourceArtifact": "dsh-engineering-comparison-30bd3417-6a8c-4395-ba60-fad05fe08e7e.json",
+      "caseDigest": "fb6a0c1e69c64c2f2473a0711d2c090115790f10bf2daabb858543fb0cb1637a",
+      "results": [
+        {
+          "caseId": "review-overflow",
+          "strategy": "A_STRONG",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 57659,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 5,
+              "toolCalls": 7
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 36525,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 5
+            }
+          },
+          "blocker": "Frozen verification artifacts were unavailable.",
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "review-overflow",
+          "strategy": "B_CHEAP",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 15312,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 4,
+              "toolCalls": 6
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 17872,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 4
+            }
+          },
+          "blocker": "Finding evidence was incomplete or invalid.",
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "review-overflow",
+          "strategy": "C_FIXED",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 215917,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 14,
+              "toolCalls": 24
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 82817,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 14
+            }
+          },
+          "blocker": "The challenger role exceeded its deadline.",
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "review-overflow",
+          "strategy": "D_ADAPTIVE",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 76122,
+          "fallbackCount": 0,
+          "escalationCount": 0,
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 4,
+              "toolCalls": 11
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 32808,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 4
+            }
+          },
+          "blocker": "The review did not complete durably.",
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN"
+        }
+      ],
+      "comparisonStatus": "COMPLETE",
+      "qualityStatus": "PARTIAL",
+      "pricingStatus": "UNKNOWN"
+    },
+    {
+      "runId": 5,
+      "mode": "LIVE_PROVIDER",
+      "sourceArtifact": "dsh-engineering-comparison-37366fd1-670c-49c7-9d44-2d31142e0ede.json",
+      "caseDigest": "560f96f35822a025923a644ca4a3e4ae805dd3515311922f61c60b59ae9f3aa8",
+      "results": [
+        {
+          "caseId": "mlir-pass",
+          "strategy": "A_STRONG",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 74396,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 7,
+              "toolCalls": 17
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 66488,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 7
+            }
+          },
+          "blocker": "The delegated writable workspace did not contain the fixture.",
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "B_CHEAP",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 180189,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 26,
+              "toolCalls": 49
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 459715,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 26
+            }
+          },
+          "blocker": "The implementer role exceeded its deadline.",
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "C_FIXED",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 295740,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 17,
+              "toolCalls": 47
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 204529,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 17
+            }
+          },
+          "blocker": "The architect role exceeded its deadline.",
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "D_ADAPTIVE",
+          "status": "BUDGET_EXHAUSTED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 181726,
+          "fallbackCount": 1,
+          "escalationCount": 0,
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 26,
+              "toolCalls": 53
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 119603,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 26
+            }
+          },
+          "blocker": "The lifecycle budget was exhausted; the independent oracle rejected unchanged output.",
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN",
+          "oracleVerifier": {
+            "executable": "mlir-opt",
+            "version": "15.0.6"
+          }
+        }
+      ],
+      "comparisonStatus": "COMPLETE",
+      "qualityStatus": "PARTIAL",
+      "pricingStatus": "UNKNOWN"
+    },
+    {
+      "runId": 6,
+      "mode": "LIVE_PROVIDER",
+      "sourceArtifact": "dsh-engineering-comparison-442a0327-47f8-4409-bc42-50532b005f5a.json",
+      "caseDigest": "34e4373f673b25fb8ec57213b303db9ce07c02d66c26a06c433cc6bec1274e0e",
+      "results": [
+        {
+          "caseId": "review-overflow",
+          "strategy": "A_STRONG",
+          "status": "ACCEPTED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 25662,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 6,
+              "toolCalls": 6
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 43864,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 6
+            }
+          },
+          "oracleAccepted": true,
+          "findingCount": 1,
+          "evidenceCount": 4,
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "review-overflow",
+          "strategy": "B_CHEAP",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 13912,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 4,
+              "toolCalls": 6
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 17974,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 4
+            }
+          },
+          "oracleAccepted": false,
+          "blocker": "Finding citations were invalid and the review left scope questions unresolved.",
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "review-overflow",
+          "strategy": "C_FIXED",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 215713,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 20,
+              "toolCalls": 25
+            },
+            "totalTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 148884,
+              "unknownRequestCount": 1
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 20
+            }
+          },
+          "oracleAccepted": false,
+          "blocker": "The challenger role exceeded its deadline.",
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "review-overflow",
+          "strategy": "D_ADAPTIVE",
+          "status": "REJECTED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 22021,
+          "fallbackCount": 0,
+          "escalationCount": 0,
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 5,
+              "toolCalls": 5
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 37333,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 5
+            }
+          },
+          "oracleAccepted": false,
+          "findingCount": 1,
+          "evidenceCount": 3,
+          "oracleDiagnostic": "UNKNOWN",
+          "actualBilledCostUsd": "UNKNOWN"
+        }
+      ],
+      "comparisonStatus": "COMPLETE",
+      "qualityStatus": "PARTIAL",
+      "pricingStatus": "UNKNOWN"
+    },
+    {
+      "runId": 7,
+      "mode": "LIVE_PROVIDER",
+      "sourceArtifact": "dsh-engineering-comparison-73f8a819-ffee-444b-b873-9aa9bdb110c2.json",
+      "caseDigest": "ee40b8ce5b72cf73fa73ab2ce875680aa7388df8559a2af017c6762107f7a05e",
+      "runtime": {
+        "roleTimeoutMs": 180000
+      },
+      "fixtureOracle": "NOT_RUN: pinned MLIR executable was not configured for this run",
+      "results": [
+        {
+          "caseId": "mlir-pass",
+          "strategy": "A_STRONG",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 181281,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 11,
+              "toolCalls": 17
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 154862,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 11
+            }
+          },
+          "oracleAccepted": "UNKNOWN",
+          "workflowBlocker": "The role deadline stopped execution before fixture verification.",
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "B_CHEAP",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 181132,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 11,
+              "toolCalls": 21
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 120069,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 11
+            }
+          },
+          "oracleAccepted": "UNKNOWN",
+          "workflowBlocker": "The role deadline stopped execution before fixture verification.",
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "C_FIXED",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 343486,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 25,
+              "toolCalls": 57
+            },
+            "totalTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 322684,
+              "unknownRequestCount": 1
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 25
+            }
+          },
+          "oracleAccepted": "UNKNOWN",
+          "workflowBlocker": "The role deadline stopped execution before fixture verification.",
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "D_ADAPTIVE",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 181298,
+          "fallbackCount": 1,
+          "escalationCount": 0,
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 16,
+              "toolCalls": 22
+            },
+            "totalTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 90758,
+              "unknownRequestCount": 1
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 16
+            }
+          },
+          "oracleAccepted": "UNKNOWN",
+          "workflowBlocker": "The role deadline stopped execution before fixture verification.",
+          "actualBilledCostUsd": "UNKNOWN"
+        }
+      ],
+      "comparisonStatus": "COMPLETE",
+      "qualityStatus": "PARTIAL",
+      "pricingStatus": "UNKNOWN"
+    },
+    {
+      "runId": 8,
+      "mode": "LIVE_PROVIDER",
+      "sourceArtifact": "dsh-engineering-comparison-d016b96a-392f-45b3-98bc-dde72a9ebd50.json",
+      "caseDigest": "0af41189c76203d324c8adb07df3c06380512689238ff13ad83881dca3ffc881",
+      "results": [
+        {
+          "caseId": "recovery-latch",
+          "strategy": "A_STRONG",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 1376,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 0,
+              "toolCalls": 0
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "KNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            }
+          },
+          "oracleAccepted": false,
+          "blocker": "The shared injected failure stopped this strategy before mutation.",
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "recovery-latch",
+          "strategy": "B_CHEAP",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 1203,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 0,
+              "toolCalls": 0
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "KNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            }
+          },
+          "oracleAccepted": false,
+          "blocker": "The shared injected failure stopped this strategy before mutation.",
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "recovery-latch",
+          "strategy": "C_FIXED",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 395766,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 23,
+              "toolCalls": 53
+            },
+            "totalTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 380062,
+              "unknownRequestCount": 1
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 23
+            }
+          },
+          "oracleAccepted": false,
+          "blocker": "The challenger role exceeded its deadline.",
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "recovery-latch",
+          "strategy": "D_ADAPTIVE",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 481516,
+          "fallbackCount": 3,
+          "escalationCount": 0,
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 36,
+              "toolCalls": 40
+            },
+            "totalTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 255356,
+              "unknownRequestCount": 2
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 36
+            }
+          },
+          "oracleAccepted": false,
+          "blocker": "The scout-secondary role timed out.",
+          "actualBilledCostUsd": "UNKNOWN"
+        }
+      ],
+      "comparisonStatus": "COMPLETE",
+      "qualityStatus": "PARTIAL",
+      "pricingStatus": "UNKNOWN"
+    },
+    {
+      "runId": 9,
+      "mode": "LIVE_PROVIDER",
+      "sourceArtifact": "dsh-engineering-comparison-08dd71a6-88a7-465a-a814-8fae307b70c6.json",
+      "caseDigest": "3822e9157b325123287848983ff5b6254044147ec6237f76d7245ef0741fc771",
+      "runtime": {
+        "roleTimeoutMs": 600000,
+        "cliTimeoutMs": 2400000,
+        "overlappedWith": "recovery-latch"
+      },
+      "pinnedVerifier": {
+        "name": "mlir-opt",
+        "version": "15.0.6",
+        "exitCode": 0,
+        "digest": "d5b6be6acca7c7cd98d01b8fcaeeded3450c04195b4dc596b75011f6a973d4ec"
+      },
+      "results": [
+        {
+          "caseId": "mlir-pass",
+          "strategy": "A_STRONG",
+          "status": "ACCEPTED",
+          "firstImplementationPass": true,
+          "wallTimeMs": 105189,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 8,
+              "toolCalls": 15
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 108182,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 8
+            }
+          },
+          "oracleAccepted": true,
+          "changedPaths": [
+            "pass.mjs"
+          ],
+          "outOfScopePaths": [],
+          "sourceOracleExitCode": 0,
+          "grammarVerifierExitCode": 0,
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "B_CHEAP",
+          "status": "ACCEPTED",
+          "firstImplementationPass": true,
+          "wallTimeMs": 272239,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 19,
+              "toolCalls": 32
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 336734,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 19
+            }
+          },
+          "oracleAccepted": true,
+          "changedPaths": [
+            "pass.mjs"
+          ],
+          "outOfScopePaths": [],
+          "sourceOracleExitCode": 0,
+          "grammarVerifierExitCode": 0,
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "C_FIXED",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 503936,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 31,
+              "toolCalls": 60
+            },
+            "totalTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 451571,
+              "unknownRequestCount": 1
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 31
+            }
+          },
+          "oracleAccepted": false,
+          "blocker": "The challenger role exceeded its deadline.",
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "D_ADAPTIVE",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 241323,
+          "fallbackCount": 1,
+          "escalationCount": 0,
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 19,
+              "toolCalls": 24
+            },
+            "totalTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 125205,
+              "unknownRequestCount": 1
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 19
+            }
+          },
+          "oracleAccepted": false,
+          "blocker": "The scout-secondary role timed out.",
+          "actualBilledCostUsd": "UNKNOWN"
+        }
+      ],
+      "comparisonStatus": "COMPLETE",
+      "qualityStatus": "PARTIAL",
+      "pricingStatus": "UNKNOWN"
+    }
+  ]
+}

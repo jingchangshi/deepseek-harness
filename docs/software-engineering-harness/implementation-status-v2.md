@@ -4,17 +4,17 @@ English | [中文](implementation-status-v2.zh.md)
 
 ## Summary
 
-This report records implementation and delivery status against the [V2 acceptance matrix](acceptance-matrix-v2.md). Phases 0 and 1 are `PASS`; Phases 2–4 are `NOT_RUN`.
+This report records implementation and delivery status against the [V2 acceptance matrix](acceptance-matrix-v2.md). Phases 0–3 are `PASS`; Phase 4 focused checks pass, independent source review is `APPROVED`, and live comparison remains partial.
 
 ## Phase status
 
 | Phase | Status | Evidence completed | Outstanding |
 |---|---|---|---|
 | 0 — tool dispatch safety | PASS | Design review approved; mutation suite 13 passed; writer suites 123 passed; profile regression 29 passed; core observer/schema suite 28 passed; build and scoped lint passed; independent implementation review approved; documentation gates passed; commit and push confirmed. | Package hygiene is PARTIAL because one unchanged vendor rescope failure reproduces at the starting HEAD. |
-| 1 — immutable review evidence | PASS | Independent review approved; 52 Git-evidence, review-only, and runtime-review tests passed; 40 schema tests passed; typecheck, scoped lint, and the latest 42-gate `doc-sync` passed; the existing automatic regression passed 64 tests; Engineering Harness snapshot refresh and replay passed for seven child roles; freeze update and check passed; pre-push typecheck passed; the exact pushed commit was confirmed on the target remote branch. | None. |
-| 2 — bounded investigation and recovery | NOT_RUN | None recorded. | Implementation and all P2 acceptance evidence. |
-| 3 — classification and escalation | NOT_RUN | None recorded. | Implementation and all P3 acceptance evidence. |
-| 4 — usage and benchmarks | NOT_RUN | None recorded. | Implementation and all P4 acceptance evidence. |
+| 1 — immutable review evidence | PASS | Independent review approved; 52 Git-evidence, review-only, and runtime-review tests passed; 40 schema tests passed; typecheck, scoped lint, and a recorded 42-gate `doc-sync` passed; the existing automatic regression passed 64 tests; Engineering Harness snapshot refresh and replay passed for seven child roles; freeze update and check passed; pre-push typecheck passed; the exact pushed commit was confirmed on the target remote branch. | None. |
+| 2 — bounded investigation and recovery | PASS | Focused acceptance, runtime regressions, independent review, documentation checks, and push are recorded in the verification report. | None. |
+| 3 — classification and escalation | PASS | Focused behavior and runtime regressions, independent review, documentation checks, and push are recorded in the verification report. | None. |
+| 4 — usage and benchmarks | PARTIAL | Durable usage ledger and benchmark implementation have passing focused checks. Recorded Pebble, Review, MLIR, and Recovery comparisons are summarized in the verification report; the latest Review run accepted A, blocked B/C, and rejected D, while the pinned MLIR run accepted A/B and blocked C/D. Recovery strategies were all blocked. | Broader accepted live outcomes and complete cost evidence. |
 
 ## Delivery status
 
@@ -22,7 +22,7 @@ This report records implementation and delivery status against the [V2 acceptanc
 |---|---|---|
 | Architecture design review | APPROVED | Review approved the design before Phase 0 implementation. |
 | Phase 0 implementation review | APPROVED | Independent review approved the corrected implementation. |
-| Documentation | PASS | The latest 42-gate `doc-sync` run passed; the reports pass focused pairing, wrapping, link, and diff checks. |
+| Documentation | PASS | The recorded 42-gate `doc-sync` run passed; current edits are checked in the final validation record. |
 | Build and scoped lint | PASS | Final build and scoped lint passed. |
 | Package hygiene | PARTIAL | 15 of 16 gates passed. The vendor rescope gate failed on 16 unchanged paths; the same 16 failures reproduced in a detached worktree at the starting HEAD. |
 | Phase 0 commit and push | PASS | The Phase 0 commit is present on the configured target remote branch. |

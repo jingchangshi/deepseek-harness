@@ -77,7 +77,9 @@ Development 验收要求相同 revision 的确定性检查、独立评审、已�
 
 用量记录绑定 task、role、invocation、attempt、request、route、provider 和 model。保留原始用量字段，并区分 input、cached-input、output 和 total token。按持久化 request/event identity 去重；回放不能重复计费。压缩具有独立的 request identity。Wall time 记录实际 attempt 区间；重叠区间不会累加成 task 总耗时。成本估算需要带版本的 provider/model 价格和缓存语义；缺少可靠价格时结果为 UNKNOWN。估算成本绝不表示为账单。
 
-离线 fixture 建立生命周期、注入、状态和证据行为。在线 route smoke 只验证 provider 连通性和协议。完整的 development 和 review E2E 使用独立的确定性 oracle。可复现的 benchmark 使用相同 snapshot、task 和 oracle 比较 strong single-agent、cheap single-agent、fixed multi-agent 和 adaptive V2。报告实际验收、首次通过率、延迟、token、已知成本、失败、fallback、升级和人工干预；无法进行的在线运行标记为 NOT_RUN。[Phase 4 用量核算与评估设计](usage-evaluation-v2.zh.md)规定了 ledger 和 benchmark 证据。
+在线实现对比在隔离 fixture 的规范 repository cwd 中，通过 harness 拥有的空闲 AgentHandle 分派每种策略。Harness 保留原始 coordinator delegation depth、preset 和 policy；carrier 不会收到 prompt。Role executor 检查 Session cwd 与 invocation root 一致；fixture teardown 等待 executor disposal 完成。Development 使用真实 TaskRepository 和 verification profile；只有 supervisor 持有 writer token，且必须等 child work 静止后才释放。Review 只使用不可变 Git evidence，不创建 Development state。plan 和 oracle 的细节见[评估设计](usage-evaluation-v2.zh.md)。
+
+离线 fixture 建立生命周期、注入、状态和证据行为。在线 route smoke 只验证 provider 连通性和协议。完整的 development 和 review E2E 使用独立的确定性 oracle。可复现的 benchmark 使用相同 snapshot、task 和 oracle 比较 strong single-agent、cheap single-agent、fixed multi-agent 和 adaptive V2。报告实际验收、首次通过率、延迟、token、已知成本、失败、fallback、升级和人工干预；无法进行的在线运行标记为 PARTIAL 或 NOT_RUN。[Phase 4 用量核算与评估设计](usage-evaluation-v2.zh.md)规定了 ledger 和 benchmark 证据。
 
 ## Phase 0 dispatch API 决策
 

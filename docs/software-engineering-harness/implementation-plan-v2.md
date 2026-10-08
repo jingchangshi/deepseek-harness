@@ -4,7 +4,7 @@ English | [中文](implementation-plan-v2.zh.md)
 
 ## Summary
 
-This reference defines delivery order for the [V2 architecture](architecture-v2.md). Each phase requires independent tests, observed RED results where applicable, implementation, GREEN results, regression checks and independent review before commit and push to the target branch. The Phase 4 design is frozen; production implementation and verification remain unstarted. See the [usage accounting and evaluation design](usage-evaluation-v2.md). [Acceptance criteria](acceptance-matrix-v2.md) cannot be weakened to match an implementation.
+This reference defines delivery order for the [V2 architecture](architecture-v2.md). Each phase requires independent tests, observed RED results where applicable, implementation, GREEN results, regression checks and independent review before commit and push to the target branch. The Phase 4 design is frozen; production implementation is complete; live comparison evidence remains PARTIAL. See the [usage accounting and evaluation design](usage-evaluation-v2.md). [Acceptance criteria](acceptance-matrix-v2.md) cannot be weakened to match an implementation.
 
 ## Baseline and execution
 

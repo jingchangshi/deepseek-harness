@@ -4,7 +4,7 @@
 
 ## 概述
 
-本参考文档规定[V2 架构](architecture-v2.zh.md)的交付顺序。每个阶段都要求独立测试、适用时观察到 RED 结果、实现、GREEN 结果、回归检查和独立评审，然后才能向目标分支提交并推送。Phase 4 设计已冻结；生产实现和验证尚未开始。详见[用量核算与评估设计](usage-evaluation-v2.zh.md)。[验收标准](acceptance-matrix-v2.zh.md)不能为了迎合实现而降低。
+本参考文档规定[V2 架构](architecture-v2.zh.md)的交付顺序。每个阶段都要求独立测试、适用时观察到 RED 结果、实现、GREEN 结果、回归检查和独立评审，然后才能向目标分支提交并推送。Phase 4 设计已冻结；生产实现已完成；在线对比证据仍为 PARTIAL。详见[用量核算与评估设计](usage-evaluation-v2.zh.md)。[验收标准](acceptance-matrix-v2.zh.md)不能为了迎合实现而降低。
 
 ## 基线与执行
 
