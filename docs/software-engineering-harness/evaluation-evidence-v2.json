@@ -3,7 +3,8 @@
   "limitations": [
     "Sanitized aggregate evidence; provider request bodies and private sessions are excluded",
     "Only A_STRONG was accepted in the latest Review comparison; comparative savings are not established",
-    "No verified provider pricing or billed-cost evidence"
+    "No verified provider pricing or billed-cost evidence",
+    "The latest accepted adaptive Review result used an alternate isolated deployment with worker-secondary and challenger routes rewritten to worker; default deployment remains unproven."
   ],
   "runs": [
     {
@@ -1884,6 +1885,141 @@
           "oracleAccepted": false,
           "blocker": "The scout-secondary role timed out.",
           "actualBilledCostUsd": "UNKNOWN"
+        }
+      ],
+      "comparisonStatus": "COMPLETE",
+      "qualityStatus": "PARTIAL",
+      "pricingStatus": "UNKNOWN"
+    },
+    {
+      "runId": 10,
+      "mode": "LIVE_PROVIDER",
+      "sourceArtifact": "dsh-engineering-comparison-9005b30f-9932-4af9-adfc-0c34ef0ab406.json",
+      "caseDigest": "b87ca3d8da2d4d8dd450cb3c9c0050acd3572b1c33932e8fd3d659b7f1bf0748",
+      "runtime": {
+        "roleTimeoutMs": 600000,
+        "deploymentCaveat": "Alternate isolated deployment rewrote scout-secondary and challenger route worker-secondary to worker; semantic retry. Roles snapshot records and freeze manifest were unchanged. Default deployment remains unproven."
+      },
+      "results": [
+        {
+          "caseId": "review-overflow",
+          "strategy": "A_STRONG",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 23744,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 4,
+              "toolCalls": 7
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 30671,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 4
+            }
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN",
+          "blocker": "Evidence incomplete or invalid for this strategy."
+        },
+        {
+          "caseId": "review-overflow",
+          "strategy": "B_CHEAP",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 14463,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 4,
+              "toolCalls": 6
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 17875,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 4
+            }
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN",
+          "blocker": "Evidence incomplete or invalid for this strategy."
+        },
+        {
+          "caseId": "review-overflow",
+          "strategy": "C_FIXED",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 108203,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 15,
+              "toolCalls": 27
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 108682,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 15
+            }
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN",
+          "blocker": "Evidence incomplete or invalid for this strategy."
+        },
+        {
+          "caseId": "review-overflow",
+          "strategy": "D_ADAPTIVE",
+          "status": "ACCEPTED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 33956,
+          "fallbackCount": 0,
+          "escalationCount": 0,
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 2,
+              "toolCalls": 6
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 16024,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 2
+            }
+          },
+          "oracleAccepted": true,
+          "actualBilledCostUsd": "UNKNOWN",
+          "findingOracle": true,
+          "pinnedBugOracle": true,
+          "cleanControlOracle": true,
+          "sourceEvidenceOracle": true,
+          "diffEvidenceOracle": true
         }
       ],
       "comparisonStatus": "COMPLETE",
