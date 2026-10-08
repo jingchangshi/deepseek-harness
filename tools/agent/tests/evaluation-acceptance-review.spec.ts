@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readdir, rm, unlink } from 'node:fs/promises'
+import { cp, mkdtemp, readdir, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -44,7 +44,7 @@ describe('independent acceptance review regressions', () => {
     const executor: RoleExecutor = async input => {
       calls.push(input.role)
       if (input.role === 'reviewer') return { summary: 'Reviewer requests replanning', decision: 'REPLAN', findings: [] }
-      if (input.role === 'implementer') return { summary: 'writer must not run' }
+      if (input.role === 'implementer') { await writeFile(join(root, 'answer.txt'), '42\n'); return { summary: 'Wrote the requested answer.' } }
       if (input.role === 'architect') return { problemStatement: 'write answer', hypotheses: ['one'], selectedApproach: 'write answer', rejectedAlternatives: ['skip'], invariants: ['answer only'], expectedComponents: ['answer.txt'], implementationScope: ['answer.txt'], falsificationTests: ['read answer'], acceptanceGates: ['oracle'], unresolvedAssumptions: [] }
       if (input.role === 'challenger') return { summary: 'accept', decision: 'ACCEPT', findings: [] }
       return { findings: ['answer'], hypotheses: [{ statement: 'one', evidence: ['source'] }], unresolvedAssumptions: [] }
@@ -53,9 +53,13 @@ describe('independent acceptance review regressions', () => {
       deployment, executeRole: executor, verify: async () => true,
       reviewTarget: testCase => ({ kind: 'commit', target: testCase.seedSha }),
     })
-    const result = await direct.invoke({ routeId: deployment.roles.reviewer!.route, role: 'reviewer', request: 'review', root, readOnly: true, testCase })
+    for (const stage of ['SCOUT', 'ARCHITECT', 'CHALLENGER', 'IMPLEMENTER', 'VERIFICATION'] as const) {
+      const receipt = await direct.invokeFixedStage({ stage, request: testCase.request, root, readOnly: stage !== 'IMPLEMENTER', testCase })
+      expect(receipt.outcome).toBe('SUCCESS')
+    }
+    const result = await direct.invokeFixedStage({ stage: 'REVIEWER', request: testCase.request, root, readOnly: true, testCase })
     expect(result.outcome).toBe('FAILED')
-    expect(calls).toEqual(['reviewer'])
+    expect(calls).toEqual(['scout-primary', 'architect', 'challenger', 'implementer', 'reviewer'])
   })
 
   it('stops C_FIXED before the writer when Challenger returns REVISE', async () => {
