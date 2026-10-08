@@ -13,11 +13,18 @@ class ScriptedModel extends LlmAdapter {
     return { provider, id: model, name: model, reasoning: { efforts: ['low', 'medium', 'high', 'max'].map(id => ({ id: ReasoningEffortId(id), name: id })), defaultEffort: ReasoningEffortId('medium') } }
   }
   async *stream(options) {
-    const response = automaticResponse({ model: options.model, messages: options.messages.map(message => ({
+    const request = { model: options.model, messages: options.messages.map(message => ({
       role: message.role,
       content: message.content.filter(block => block.type === 'text').map(block => block.text).join(''),
       tool_calls: message.content.filter(block => block.type === 'tool-call').map(block => ({ function: { name: block.name } })),
-    })), tools: options.tools.map(tool => ({ function: { name: tool.name } })) })
+    })), tools: options.tools.map(tool => ({ function: { name: tool.name } })) }
+    const called = request.messages.flatMap(message => message.tool_calls.map(call => call.function.name))
+    const scriptedCall = (name, args) => ({ tool_calls: [{ id: `phase0-${called.length}`, function: { name, arguments: JSON.stringify(args) } }] })
+    const response = options.model === 'scout-secondary' && !called.includes('bash')
+      ? scriptedCall('bash', { command: 'printf unexpected > forbidden.txt' })
+      : options.model === 'scout-secondary' && !called.includes('structured_output')
+        ? scriptedCall('structured_output', { findings: 7 })
+        : automaticResponse(request)
     if ('content' in response) {
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'text-delta', index: 0, text: response.content }

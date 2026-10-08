@@ -77,6 +77,17 @@ function snapshotMode(value: string | undefined): SnapshotMode {
   }
 }
 
+/**
+ * Select recorded model responses or the engineering scenario's authored model.
+ * @param mode - requested snapshot operation.
+ * @param scenarioName - owning scenario name.
+ * @param recording - scenario recording policy.
+ * @returns whether the operation consumes recorded model responses.
+ */
+function replaysModelResponses(mode: SnapshotMode, scenarioName: string, recording: SnapshotManifest['recording']): boolean {
+  return mode !== 'record' && !(mode === 'refresh' && scenarioName === 'engineering-harness' && recording === 'authored')
+}
+
 const mode = snapshotMode(process.env.DSH_SNAPSHOT)
 const RUNTIME_WORKSPACE_ENTRIES = ['.agents', '.dsh', '.snapshot-patches'] as const
 
@@ -239,11 +250,12 @@ async function writeSessionFixtures(
     ? sessionFixtureName(index, sessionHeaderVersion(log.content, `harvested Session ${index}`))
     : writerSnapshotName(index))
   const prior = names.map((_, index) => existing[index] ?? '')
-  const replacements = mode === 'refresh'
+  const refreshingReplay = mode === 'refresh' && replaysModelResponses(mode, scenario.name, scenario.manifest.recording)
+  const replacements = refreshingReplay
     ? refreshFixtureReplacements(actualLogs.map(harvested), prior)
     : []
   const fresh = actualLogs.map((log, index) => {
-    const stable = tokenizeSessionFixtureCwd(mode === 'refresh'
+    const stable = tokenizeSessionFixtureCwd(refreshingReplay
       ? stabilizeRefreshLog(log.content, prior[index] as string, replacements, ctx)
       : log.content)
     return scrubSessionSnapshot(prepareSessionSnapshotFixtureForComparison(stable))
@@ -819,6 +831,15 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
 }
 
 describe('headless recorded-session snapshots', () => {
+  it('authors engineering refresh and preserves recorded responses for ordinary replay', () => {
+    expect(replaysModelResponses('refresh', 'engineering-harness', 'authored')).toBe(false)
+    expect(replaysModelResponses('replay', 'engineering-harness', 'authored')).toBe(true)
+    expect(replaysModelResponses('refresh', 'engineering-harness', undefined)).toBe(true)
+    expect(replaysModelResponses('refresh', 'tool-call-turn', 'authored')).toBe(true)
+    expect(replaysModelResponses('refresh', 'future-scenario', 'authored')).toBe(true)
+    expect(replaysModelResponses('replay', 'tool-call-turn', 'authored')).toBe(true)
+  })
+
   it('gives every composition and header class exactly one current-writer pin', () => {
     for (const scenario of scenarios) {
       expect(ownerOf(scenario), `${scenario.name}: composition owner`).toBeDefined()
@@ -1113,7 +1134,7 @@ describe('headless recorded-session snapshots', () => {
       const composition = ownerOf(scenario)
       const baseComposition = compositionOwners.get('default')
       if (baseComposition === undefined) throw new Error('headless corpus has no default composition')
-      const replaying = mode !== 'record'
+      const replaying = replaysModelResponses(mode, scenario.name, scenario.manifest.recording)
       const compositionPatch = join(composition.dir, replaying ? 'cordis.snapshot.yml' : 'cordis.yml')
       const patchSources = [
         join(baseComposition.dir, 'cordis.yml'),
