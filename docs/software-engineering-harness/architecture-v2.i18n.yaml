@@ -1,0 +1,31 @@
+# Bilingual-pair consistency record for architecture-v2.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/architecture-v2.md
+/engineering-harness-v2-architecture:
+  en: e729ac6e44a16c32
+  zh: f4245ed66a0e3b9f
+/engineering-harness-v2-architecture/summary:
+  en: b2d48cb64963c011
+  zh: 35b7eb8730add53e
+/engineering-harness-v2-architecture/workflows:
+  en: 90e587513d190253
+  zh: ceb92571b69da820
+/engineering-harness-v2-architecture/roles-and-execution-authority:
+  en: 0ecf04911499b5c7
+  zh: f9532a5879a780fd
+/engineering-harness-v2-architecture/tool-side-effects-and-writer-safety:
+  en: 7f0a5a49f01ba07c
+  zh: 316c2a04a096aae6
+/engineering-harness-v2-architecture/immutable-git-evidence:
+  en: 8a155a57c287c868
+  zh: 3d2deb4738ef5031
+/engineering-harness-v2-architecture/bounded-investigation-and-recovery:
+  en: 69ee54120d4441c8
+  zh: b58031670c5e6b8e
+/engineering-harness-v2-architecture/acceptance-and-accounting:
+  en: 4c0fdf8143c69fd8
+  zh: 08707883ad99622f
+/engineering-harness-v2-architecture/phase-0-dispatch-api-decisions:
+  en: c6571bc7e9c81976
+  zh: 0d1dc04c187ddca9

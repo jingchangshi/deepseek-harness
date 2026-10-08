@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for acceptance-matrix-v2.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/acceptance-matrix-v2.md
+/engineering-harness-v2-acceptance-matrix:
+  en: 6bea22a0b0fc1e2b
+  zh: 112d37ca9fe0fd75
+/engineering-harness-v2-acceptance-matrix/summary:
+  en: e243e9741986641b
+  zh: 3027ffeb6a1943cc
+/engineering-harness-v2-acceptance-matrix/requirement-traceability:
+  en: a6f41962013e7555
+  zh: f422412a56268aaa
+/engineering-harness-v2-acceptance-matrix/acceptance-records:
+  en: f4b4e27994a54da5
+  zh: 72d27d442f255fba
