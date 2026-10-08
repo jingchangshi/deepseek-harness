@@ -553,8 +553,13 @@ export async function runEngineeringReview(options: EngineeringReviewOptions): P
         }
       }
       if (state.state === 'REVIEW_INVESTIGATION') state = await repository.advanceReview(id, state.revision, 'INDEPENDENT_REVIEW')
-      const output = await invoke('reviewer', paths, 'INDEPENDENT_REVIEW', `Independently review every changed path. Check these scout notes where present, then validate the complete change set yourself. Do not accept unsupported claims.\nScout notes: ${JSON.stringify(scoutNotes)}`)
-      const problems = validateSemantics(output, snapshot, paths, evidence, inspection.changedLines, inspection.unsupported)
+      let output = await invoke('reviewer', paths, 'INDEPENDENT_REVIEW', `Independently review every changed path. Check these scout notes where present, then validate the complete change set yourself. Do not accept unsupported claims.\nScout notes: ${JSON.stringify(scoutNotes)}`)
+      let problems = validateSemantics(output, snapshot, paths, evidence, inspection.changedLines, inspection.unsupported)
+      if (problems.length > 0 || output.unresolvedQuestions.length > 0) {
+        const retryReasons = [...output.unresolvedQuestions, ...problems]
+        output = await invoke('reviewer', paths, 'INDEPENDENT_REVIEW', `Recheck the pinned Git review after acquiring the missing evidence. Resolve each issue exactly as listed below; cite only receipts from the immutable snapshot.\n${retryReasons.join('\n')}`)
+        problems = validateSemantics(output, snapshot, paths, evidence, inspection.changedLines, inspection.unsupported)
+      }
       const unresolvedQuestions = [...output.unresolvedQuestions, ...problems]
       if (state.state === 'INDEPENDENT_REVIEW') state = await repository.advanceReview(id, state.revision, 'EVIDENCE_VALIDATION')
       const status = problems.length === 0 ? 'REVIEW_COMPLETE' : 'PARTIAL'
