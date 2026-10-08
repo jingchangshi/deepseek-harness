@@ -4,7 +4,7 @@
 
 ## 概述
 
-本报告按[验收矩阵](acceptance-matrix-v2.zh.md)记录已执行的证据。结果仅适用于所列测试路径和命令。Phase 0 仍为 `PASS`；Phase 1 验证已完成，但交付仍待完成，因此状态为 `PARTIAL`。Phase 2–4 为 `NOT_RUN`。
+本报告按[验收矩阵](acceptance-matrix-v2.zh.md)记录已执行的证据。结果仅适用于所列测试路径和命令。Phase 0 和 Phase 1 均为 `PASS`；Phase 2–4 为 `NOT_RUN`。
 
 ## Phase 0 证据
 
@@ -40,7 +40,7 @@
 | Package hygiene | PARTIAL：16 项 gate 中 15 项通过；一项失败已在基线复现。 |
 | 独立实现评审 | APPROVE。 |
 | 提交与推送确认 | PASS：目标 remote 分支与阶段提交一致。 |
-| Phase 1–4 验证 | NOT_RUN |
+| Phase 2–4 验证 | NOT_RUN |
 
 原始私有 Session ZIP 文件因读取返回 `PermissionError` 而不可用。fixture 根据已记录行为编写，不声称复现原始 Session 字节。配置的 worker route 不可用，因此测试设计和实现使用了实际可用的 `gpt-6-luna` 与 `gpt-6.1-sol` 模型。本文不声称有在线 provider、benchmark、token 成本或定价证据。
 
@@ -59,7 +59,7 @@
 | Package hygiene | PARTIAL：16 项 gate 中 15 项通过；vendor rescope 失败可在起始基线上复现。 | Package hygiene 基线记录。 |
 | 在线 provider 运行 | NOT_RUN；不声称执行过在线 provider。 | Phase 1 执行记录。 |
 | Freeze 更新检查 | PASS。 | Phase 1 freeze 更新和检查记录。 |
-| Phase 1 实施提交 | PASS；实施和快照提交已在本地存在。 | 本地 Phase 1 Git 历史。 |
-| Phase 1 报告提交和推送 | PENDING；这些报告更新仍待提交并推送。 | Phase 1 交付记录。 |
+| 推送前 typecheck | PASS。 | Phase 1 推送前检查。 |
+| Phase 1 提交和推送 | PASS；已在配置的目标 remote 分支确认推送的准确提交。 | Phase 1 交付记录。 |
 
 首次 reviewer RED 尝试在模块导入时失败，没有执行测试，因此不构成行为证据。上表分别记录了有效 RED 运行和后续 GREEN 结果。Phase 2–4 验证仍为 `NOT_RUN`。

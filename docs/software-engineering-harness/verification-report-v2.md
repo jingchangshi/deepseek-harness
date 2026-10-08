@@ -4,7 +4,7 @@ English | [中文](verification-report-v2.zh.md)
 
 ## Summary
 
-This report records executed evidence for the [acceptance matrix](acceptance-matrix-v2.md). Results apply only to the named test paths and commands. Phase 0 remains `PASS`; Phase 1 verification is complete, with delivery pending, so Phase 1 is `PARTIAL`. Phases 2–4 are `NOT_RUN`.
+This report records executed evidence for the [acceptance matrix](acceptance-matrix-v2.md). Results apply only to the named test paths and commands. Phases 0 and 1 are `PASS`; Phases 2–4 are `NOT_RUN`.
 
 ## Phase 0 evidence
 
@@ -40,7 +40,7 @@ This report records executed evidence for the [acceptance matrix](acceptance-mat
 | Package hygiene | PARTIAL: 15/16 gates; one reproduced baseline failure. |
 | Independent implementation review | APPROVE. |
 | Commit and push confirmation | PASS: target remote branch matches the phase commit. |
-| Phases 1–4 verification | NOT_RUN |
+| Phases 2–4 verification | NOT_RUN |
 
 Original private Session ZIP files were unreadable because access returned `PermissionError`. Fixtures use the documented behavior; they do not claim to reproduce original Session bytes. The configured worker route was unavailable, so the actual test-design and implementation routes used supported `gpt-6-luna` and `gpt-6.1-sol` models. No live provider, benchmark, token-cost, or pricing evidence is claimed.
 
@@ -59,7 +59,7 @@ Original private Session ZIP files were unreadable because access returned `Perm
 | Package hygiene | PARTIAL: 15 of 16 gates passed; the vendor rescope failure reproduces on the starting baseline. | Package hygiene baseline logs. |
 | Live provider run | NOT_RUN; no live provider execution is claimed. | Phase 1 execution record. |
 | Freeze update check | PASS. | Phase 1 freeze update and check logs. |
-| Phase 1 implementation commits | PASS; implementation and snapshot commits are present locally. | Local Phase 1 Git history. |
-| Phase 1 report commit and push | PENDING; these report updates remain to be committed and pushed. | Phase 1 delivery record. |
+| Pre-push typecheck | PASS. | Phase 1 pre-push check. |
+| Phase 1 commit and push | PASS; the exact pushed commit was confirmed on the configured target remote branch. | Phase 1 delivery record. |
 
 The first reviewer-only RED attempt failed during module import and ran no tests. It is not behavioral evidence. The meaningful RED run and later GREEN results are reported separately above. Phases 2–4 verification remains `NOT_RUN`.

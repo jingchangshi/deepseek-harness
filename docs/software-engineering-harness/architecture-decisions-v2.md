@@ -19,4 +19,4 @@ This reference records reusable V2 contracts and their tradeoffs. The [architect
 
 ## Deferred decisions
 
-Phase 1 implementation and freeze update are verified; the report commit and push remain pending. The review workflow records immutable target and evidence references, and reviewer tools operate with read-only Git authority. Its new negative cases were added with the fixes and have no RED baseline. Phases 2–4 remain unimplemented and unverified. Detailed requirements stay in the [acceptance matrix](acceptance-matrix-v2.md); this page records no implementation choice for those phases.
+Phase 1 implementation, freeze update, and delivery are verified. The review workflow records immutable target and evidence references, and reviewer tools operate with read-only Git authority. Its new negative cases were added with the fixes and have no RED baseline. Phases 2–4 remain unimplemented and unverified. Detailed requirements stay in the [acceptance matrix](acceptance-matrix-v2.md); this page records no implementation choice for those phases.
