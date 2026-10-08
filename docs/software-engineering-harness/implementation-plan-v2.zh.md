@@ -4,7 +4,7 @@
 
 ## 概述
 
-本参考文档规定[ V2 架构](architecture-v2.zh.md)的交付顺序。每个阶段都要求独立测试、适用时观察到 RED 结果、实现、GREEN 结果、回归检查和独立评审，然后才能向目标分支提交并推送。[验收标准](acceptance-matrix-v2.zh.md)不能为了迎合实现而降低。
+本参考文档规定[V2 架构](architecture-v2.zh.md)的交付顺序。每个阶段都要求独立测试、适用时观察到 RED 结果、实现、GREEN 结果、回归检查和独立评审，然后才能向目标分支提交并推送。Phase 4 设计已冻结；生产实现和验证尚未开始。详见[用量核算与评估设计](usage-evaluation-v2.zh.md)。[验收标准](acceptance-matrix-v2.zh.md)不能为了迎合实现而降低。
 
 ## 基线与执行
 
@@ -20,7 +20,7 @@
 | 1 | 类型化 Git 证据和独立的 Review-only task 生命周期 | 不可变 SHA、已验证证据、不使用 Implementer 或源码写入 |
 | 2 | 工作单元、持久化 checkpoint 和 task 生命周期预算 | Runtime 限制及恢复时累计核算 |
 | 3 | 可审计的自适应 task 分类、最少角色阶段和独立能力升级 | 分类下限单调、升级持久且有限、writer 诊断具备崩溃安全；必需测试见[验收矩阵](acceptance-matrix-v2.zh.md)和[自适应调度设计](adaptive-scheduling-v2.zh.md) |
-| 4 | Request 用量账本和可复现 benchmark runner | 去重后的实际用量和独立 E2E，或明确标记 NOT_RUN |
+| 4 | Request 用量账本和可复现 benchmark runner（[已冻结设计](usage-evaluation-v2.zh.md)） | 去重后的实际用量和独立 E2E，或明确标记 NOT_RUN |
 
 前一阶段通过验收之前，不得开始任何阶段的生产代码实现。Phase 0 实现前要完成架构评审。创建测试时可能会发现缺失的新能力；应将其记录为 capability RED，而不是已有回归。生产代码修正不得修改独立测试的预期结果来接受错误行为。
 
@@ -32,7 +32,7 @@
 
 ## 证据归属
 
-验收矩阵负责需求 ID 和测试义务。Phase 验证报告记录已执行命令、RED/GREEN/回归结果、独立评审决定和未解决风险。机器可读状态报告负责 commit/push identity。Runtime log、Session ZIP 内容和凭据不得写入已提交报告。直到主要证据证明实现完成之前，文档都要将阶段描述为 proposed。
+验收矩阵负责需求 ID 和测试义务。Phase 验证报告记录已执行命令、RED/GREEN/回归结果、独立评审决定和未解决风险。机器可读状态报告负责 commit/push identity。Runtime log、Session ZIP 内容和凭据不得写入已提交报告。文档要记录设计是 proposed 还是 frozen；只有主要证据支持时，才能声称已实现。
 
 ## 公共工具 API 交付
 

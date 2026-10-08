@@ -4,7 +4,7 @@
 
 ## 概述
 
-本参考文档冻结[实现计划](implementation-plan-v2.zh.md)要求的行为。每一行都必须有主要证据才能判定 PASS。通过的 mock、smoke 或 schema validator 不能替代其他类别的证据。Phase 3–4 仍需实现和验证。
+本参考文档冻结[实现计划](implementation-plan-v2.zh.md)要求的行为。每一行都必须有主要证据才能判定 PASS。通过的 mock、smoke 或 schema validator 不能替代其他类别的证据。Phase 4 设计已冻结；实现和验证仍为 NOT_RUN。见[用量核算与评估设计](usage-evaluation-v2.zh.md)。
 
 ## 需求追踪
 
@@ -40,7 +40,7 @@
 | P3-05 | 升级预留有上限、持久化、在每个 recovery epoch 内幂等；dispatch 状态或历史不确定时 fail closed | 覆盖账本每个状态的崩溃/恢复测试；不得重复 dispatch 或重置上限（[持久化升级](adaptive-scheduling-v2.zh.md#durable-escalation)） |
 | P3-06 | Writer 失败时须在 lease 持有期间持久化诊断义务；建议被持久化应用前，不得启动后续 writer | disposal/persist/release 顺序及 writer 准入中断测试（[Writer 诊断](adaptive-scheduling-v2.zh.md#writer-diagnosis-and-crash-safety)） |
 | P3-07 | 只读诊断期间源码保持稳定，修复/replan 建议绑定当前 plan 和 worktree | 源码指纹、受限修复、持久化 REPLAN 和 complete/apply 崩溃测试（[Writer 诊断](adaptive-scheduling-v2.zh.md#writer-diagnosis-and-crash-safety)） |
-| P4-01 | 实际 request 用量会持久化原始和标准化字段 | 单元测试/回放，以及可用时的在线 provider 集成 |
+| P4-01 | 实际 request 用量会持久化原始和标准化字段 | 单元测试/回放，以及可用时的在线 provider 集成（[已冻结设计](usage-evaluation-v2.zh.md)） |
 | P4-02 | Retry、压缩、缓存和回放只计数一次 | 持久化 event/request identity fixture；保留未知用量 |
 | P4-03 | 缺少价格时为 UNKNOWN；重叠区间保留 task wall time | 价格版本/缓存和重叠区间 fixture |
 | P4-04 | 四种策略共享可复现输入和独立 oracle | Compiler 设计、MLIR 变更、Review 和注入式恢复 fixture |

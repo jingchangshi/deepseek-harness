@@ -4,7 +4,7 @@ English | [中文](verification-report-v2.zh.md)
 
 ## Summary
 
-This report records executed evidence for the [acceptance matrix](acceptance-matrix-v2.md). Results apply only to the named test paths and commands. Phases 0–2 are accepted and pushed. Phase 3 is accepted and awaits delivery; Phase 4 is `NOT_RUN`.
+This report records executed evidence for the [acceptance matrix](acceptance-matrix-v2.md). Results apply only to the named test paths and commands. Phases 0–3 are accepted and pushed. The Phase 4 design is frozen; implementation and verification are `NOT_RUN`.
 
 ## Phase 0 evidence
 
@@ -40,8 +40,8 @@ This report records executed evidence for the [acceptance matrix](acceptance-mat
 | Package hygiene | PARTIAL: 15/16 gates; one reproduced baseline failure. |
 | Independent implementation review | APPROVE. |
 | Phase 2 acceptance and push | PASS: accepted phase commit is confirmed on the target remote branch. |
-| Phase 3 final review and delivery | APPROVE; push pending. |
-| Phase 4 verification | NOT_RUN. |
+| Phase 3 acceptance and push | PASS: normal push and remote branch confirmation are recorded. |
+| Phase 4 status | DESIGN_FROZEN; implementation and verification are NOT_RUN. |
 
 Original private Session ZIP files were unreadable because access returned `PermissionError`. Fixtures use the documented behavior; they do not claim to reproduce original Session bytes. The configured worker route was unavailable, so the actual test-design and implementation routes used supported `gpt-6-luna` and `gpt-6.1-sol` models. No live provider, benchmark, token-cost, or pricing evidence is claimed.
 
@@ -96,5 +96,6 @@ Phase 2 acceptance and push are PASS.
 | RED evidence | Behavioral: adaptive scheduling had three failures and one pass before correction; capability dispatch had four failures before correction. The earlier ledger check had 15 failures because the new API was not yet present; those missing-API checks are separate from behavioral regressions. | `/tmp/dsh-goal-1008/phase3-adaptive-focused-red.txt`; `/tmp/dsh-goal-1008/phase3-capability-dispatch-red.txt`; `/tmp/dsh-goal-1008/phase3-scheduling-final-capability-red.txt` |
 | Design review | APPROVE. | `/tmp/dsh-goal-1008/phase3-interfaces.md`; Phase 3 design-review verdict. |
 | Independent source review | Final verdict: APPROVE. The reviewer checked code, crash regressions and final documentation evidence. | `/tmp/dsh-goal-1008/phase3-review-verdict.txt` |
-| Phase 3 acceptance | PASS; normal push pending. The final documentation aggregate passed all 42 gates, with no failures or skips. | `/tmp/dsh-goal-1008/phase3-doc-sync-final.txt`; Phase 3 delivery record. |
-| Phase 4 verification | NOT_RUN. | Not started. |
+| Phase 3 acceptance and delivery | PASS. The reviewed phase was normally pushed, and the remote branch matches. | `/tmp/dsh-goal-1008/phase3-push.txt`; `/tmp/dsh-goal-1008/phase3-remote-confirmed.txt` |
+| Phase 4 design review | APPROVED; design frozen. | `/tmp/dsh-goal-1008/phase4-interfaces.md`; Phase 4 design-review verdict. |
+| Phase 4 implementation and verification | NOT_RUN. No production work or verification is claimed. | Not started. |

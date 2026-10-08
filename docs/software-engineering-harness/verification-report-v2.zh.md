@@ -4,7 +4,7 @@
 
 ## 概述
 
-本报告记录[验收矩阵](acceptance-matrix-v2.zh.md)的已执行证据。结果仅适用于具名测试路径和命令。Phase 0–2 已验收并推送。Phase 3 已验收，等待交付；Phase 4 为 `NOT_RUN`。
+本报告记录[验收矩阵](acceptance-matrix-v2.zh.md)的已执行证据。结果仅适用于具名测试路径和命令。Phase 0–3 已验收并推送。Phase 4 设计已冻结；实现和验证均为 `NOT_RUN`。
 
 ## Phase 0 证据
 
@@ -40,8 +40,8 @@
 | Package hygiene | PARTIAL：16 项 gate 中 15 项通过；一项失败已在基线复现。 |
 | 独立实现评审 | APPROVE。 |
 | Phase 2 验收与推送 | PASS：已在目标 remote 分支确认已验收的阶段提交。 |
-| Phase 3 最终审查和交付 | APPROVE；等待推送。 |
-| Phase 4 验证 | NOT_RUN。 |
+| Phase 3 验收与推送 | PASS：已记录正常推送和 remote 分支确认。 |
+| Phase 4 状态 | DESIGN_FROZEN；实现和验证均为 NOT_RUN。 |
 
 原始私有 Session ZIP 文件因读取返回 `PermissionError` 而不可用。fixture 根据已记录行为编写，不声称复现原始 Session 字节。配置的 worker route 不可用，因此测试设计和实现使用了实际可用的 `gpt-6-luna` 与 `gpt-6.1-sol` 模型。本文不声称有在线 provider、benchmark、token 成本或定价证据。
 
@@ -96,5 +96,6 @@ Phase 2 验收和推送均为 PASS。
 | RED 证据 | 行为回归：adaptive scheduling 修复前 3 项失败、1 项通过；capability dispatch 修复前 4 项失败。更早的 ledger 检查有 15 项失败，原因为新 API 尚不存在；这些缺少 API 的检查与行为回归分开记录。 | `/tmp/dsh-goal-1008/phase3-adaptive-focused-red.txt`；`/tmp/dsh-goal-1008/phase3-capability-dispatch-red.txt`；`/tmp/dsh-goal-1008/phase3-scheduling-final-capability-red.txt` |
 | 设计评审 | APPROVE。 | `/tmp/dsh-goal-1008/phase3-interfaces.md`；Phase 3 设计评审结论。 |
 | 独立源码审查 | 最终结论：APPROVE。Reviewer 检查了代码、崩溃回归和最终文档证据。 | `/tmp/dsh-goal-1008/phase3-review-verdict.txt` |
-| Phase 3 验收 | PASS；等待普通推送。最终文档汇总的 42 个 gate 全部通过，没有失败或跳过。 | `/tmp/dsh-goal-1008/phase3-doc-sync-final.txt`；Phase 3 交付记录。 |
-| Phase 4 验证 | NOT_RUN。 | 尚未开始。 |
+| Phase 3 验收与交付 | PASS。已评审阶段已正常推送，remote 分支内容一致。 | `/tmp/dsh-goal-1008/phase3-push.txt`；`/tmp/dsh-goal-1008/phase3-remote-confirmed.txt` |
+| Phase 4 设计评审 | 已批准；设计已冻结。 | `/tmp/dsh-goal-1008/phase4-interfaces.md`；Phase 4 设计评审结论。 |
+| Phase 4 实现与验证 | NOT_RUN。不声称已有生产实现或验证。 | 尚未开始。 |

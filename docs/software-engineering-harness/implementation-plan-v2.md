@@ -4,7 +4,7 @@ English | [中文](implementation-plan-v2.zh.md)
 
 ## Summary
 
-This reference defines delivery order for the [V2 architecture](architecture-v2.md). Each phase requires independent tests, observed RED results where applicable, implementation, GREEN results, regression checks and independent review before commit and push to the target branch. [Acceptance criteria](acceptance-matrix-v2.md) cannot be weakened to match an implementation.
+This reference defines delivery order for the [V2 architecture](architecture-v2.md). Each phase requires independent tests, observed RED results where applicable, implementation, GREEN results, regression checks and independent review before commit and push to the target branch. The Phase 4 design is frozen; production implementation and verification remain unstarted. See the [usage accounting and evaluation design](usage-evaluation-v2.md). [Acceptance criteria](acceptance-matrix-v2.md) cannot be weakened to match an implementation.
 
 ## Baseline and execution
 
@@ -20,7 +20,7 @@ The main agent owns interfaces and acceptance. A read-only Scout investigates th
 | 1 | Typed Git evidence and separate Review-only task lifecycle | Immutable SHA, validated evidence, no Implementer or source writes |
 | 2 | Work units, durable checkpoints and task lifecycle budgets | Runtime bounds and cumulative recovery accounting |
 | 3 | Auditable adaptive task classification, minimal role stages, and distinct capability escalation | Monotonic classification floor, finite durable escalation, and crash-safe writer diagnosis; required tests are listed in the [acceptance matrix](acceptance-matrix-v2.md) and [adaptive scheduling design](adaptive-scheduling-v2.md) |
-| 4 | Request usage ledger and reproducible benchmark runner | Deduplicated actual usage and independent E2E or explicit NOT_RUN |
+| 4 | Request usage ledger and reproducible benchmark runner ([frozen design](usage-evaluation-v2.md)) | Deduplicated actual usage and independent E2E or explicit NOT_RUN |
 
 No phase begins production implementation before the preceding phase passes acceptance. Architecture review precedes Phase 0 implementation. Test creation may expose missing new capabilities; record these as capability RED rather than an existing regression. Production corrections must not edit independent test expectations to accept wrong behavior.
 
@@ -32,7 +32,7 @@ Use focused tools/agent Vitest suites, changed core-package tests, TypeScript, l
 
 ## Evidence ownership
 
-The acceptance matrix owns requirement identifiers and test obligations. Phase verification reports own executed commands, RED/GREEN/regression results, independent review decisions and unresolved risks. A machine-readable status report owns commit/push identities. Runtime logs, Session ZIP contents and credentials are excluded from committed reports. Documentation describes a proposed phase as proposed until primary evidence establishes implementation.
+The acceptance matrix owns requirement identifiers and test obligations. Phase verification reports own executed commands, RED/GREEN/regression results, independent review decisions and unresolved risks. A machine-readable status report owns commit/push identities. Runtime logs, Session ZIP contents and credentials are excluded from committed reports. Documentation records whether a design is proposed or frozen, and claims implementation only when primary evidence supports it.
 
 ## Public tool API delivery
 

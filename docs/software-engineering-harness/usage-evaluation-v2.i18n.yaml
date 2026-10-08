@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for usage-evaluation-v2.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/usage-evaluation-v2.md
+/usage-accounting-and-evaluation-v2:
+  en: 319203b8ea7c1189
+  zh: 71a675fe5b3d1461
+/usage-accounting-and-evaluation-v2/summary:
+  en: 591f41fe364252ed
+  zh: cc8f16bcfd9666e3
+/usage-accounting-and-evaluation-v2/table-of-contents:
+  en: caf21df80894221d
+  zh: 52501bbfd17b37c1
+/usage-accounting-and-evaluation-v2/actual-request-usage:
+  en: 4d515732daabbc92
+  zh: bada94e16dba4d26
+/usage-accounting-and-evaluation-v2/usage-reports-and-estimates:
+  en: 1131dff7a4e551dd
+  zh: faaa13c809548e86
+/usage-accounting-and-evaluation-v2/reproducible-evaluation:
+  en: c88777f1ebc89613
+  zh: 7ae583bb38e0f991
+/usage-accounting-and-evaluation-v2/execution-and-acceptance:
+  en: 0b6f17348fdab49b
+  zh: e8528dd3ee481c96

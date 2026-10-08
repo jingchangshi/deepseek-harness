@@ -4,7 +4,7 @@ English | [中文](acceptance-matrix-v2.zh.md)
 
 ## Summary
 
-This reference freezes required behavior for the [implementation plan](implementation-plan-v2.md). PASS requires primary evidence for every row in a phase. A passing mock, smoke or schema validator cannot substitute for a different evidence class. Phases 3–4 still require implementation and verification.
+This reference freezes required behavior for the [implementation plan](implementation-plan-v2.md). PASS requires primary evidence for every row in a phase. A passing mock, smoke or schema validator cannot substitute for a different evidence class. The Phase 4 design is frozen; implementation and verification remain NOT_RUN. See the [usage accounting and evaluation design](usage-evaluation-v2.md).
 
 ## Requirement traceability
 
@@ -40,7 +40,7 @@ This reference freezes required behavior for the [implementation plan](implement
 | P3-05 | Escalation reservations are finite, durable, idempotent per recovery epoch, and fail closed on uncertain dispatch or missing history | Crash/recovery tests for every ledger state; no duplicate dispatch or limit reset ([durable escalation](adaptive-scheduling-v2.md#durable-escalation)) |
 | P3-06 | Writer failure persists a diagnosis obligation while its lease is held; no later writer starts until the recommendation is durably applied | Disposal/persist/release ordering and writer-admission interruption tests ([writer diagnosis](adaptive-scheduling-v2.md#writer-diagnosis-and-crash-safety)) |
 | P3-07 | Read-only diagnosis is source-stable and its repair/replan recommendation binds to the current plan and worktree | Source fingerprint, constrained repair, durable REPLAN, and complete/apply crash tests ([writer diagnosis](adaptive-scheduling-v2.md#writer-diagnosis-and-crash-safety)) |
-| P4-01 | Actual request usage persists raw and normalized fields | Unit/replay plus available live provider integration |
+| P4-01 | Actual request usage persists raw and normalized fields | Unit/replay plus available live provider integration ([frozen design](usage-evaluation-v2.md)) |
 | P4-02 | Retries, compaction, caching and replay count exactly once | Durable event/request identity fixtures; unknown usage preserved |
 | P4-03 | Missing pricing is UNKNOWN; overlap preserves task wall time | Rate-version/cache and overlapping interval fixtures |
 | P4-04 | Four strategies share reproducible inputs and independent oracle | Compiler design, MLIR change, Review and injected recovery fixtures |
