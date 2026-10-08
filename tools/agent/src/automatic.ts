@@ -2,14 +2,14 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { readFile, readdir, realpath } from 'node:fs/promises'
+import { readFile, readdir, realpath, lstat } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { load } from 'js-yaml'
 import Ajv from 'ajv'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { assertObjectJsonSchema, type JsonSchemaNode, type ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
-import { assertRouteDispatchAllowed, resolveRoleAttempts } from './config.ts'
+import { assertRouteDispatchAllowed, resolveRoleAttempts, resolveRoleEscalations } from './config.ts'
 import type { HarnessConfig, ResolvedRoleRoute, RoleBounds } from './config.ts'
 import { BudgetExhaustedError } from './lifecycle.ts'
 import type { TaskLifecycle, EngineeringInvocationId, EngineeringAttemptId } from './lifecycle.ts'
@@ -24,8 +24,11 @@ import type { TaskDocument, TaskStateRecord } from './types.ts'
 import type { ReviewStateRecord, ReviewTaskDocument } from './review-types.ts'
 import type { GitEvidenceRepository } from './git-evidence.ts'
 import { taskRequiresStopConfirmation } from './state-machine.ts'
-import { RoleInvocationError, RoleQuiescenceError, isAbortError, runRoleAttempts } from './role-execution.ts'
+import { CapabilityInsufficientError, RoleInvocationError, RoleQuiescenceError, isAbortError, runRoleAttempts } from './role-execution.ts'
 import type { RoleAttemptRecord } from './role-execution.ts'
+import { roleResponseSchema, unwrapRoleResponse } from './role-response.ts'
+import { classifyEngineeringTask, TaskSchedulingRepository } from './scheduling.ts'
+import type { SchedulingPolicy, TaskClassification, DiagnosisOutput, DiagnosisObligation, SchedulingEscalationId } from './scheduling.ts'
 import { isLiveWriterLockTimeout } from './run-lock.ts'
 
 const execute = promisify(execFile)
@@ -39,6 +42,7 @@ export interface EngineeringProject {
   maxSteps: number
   maxRoleCalls: number
   commandTimeoutMs: number
+  scheduling?: SchedulingPolicy
   knowledgeFile?: string
   knowledge?: RepositoryKnowledge
   /** Explicit bounded questions; omitted scope is generated from tracked source files. */
@@ -295,8 +299,65 @@ export async function loadEngineeringProject(root: string): Promise<EngineeringP
     maxRoleCalls: positive(source.maxRoleCalls, 'maxRoleCalls'),
     commandTimeoutMs: positive(source.commandTimeoutMs, 'commandTimeoutMs'),
     ...knowledge,
+    ...(source.scheduling === undefined ? {} : { scheduling: parseSchedulingPolicy(source.scheduling) }),
     ...(investigationUnits === undefined ? {} : { investigationUnits }),
   }
+}
+
+function parseSchedulingPolicy(value: unknown): SchedulingPolicy {
+  const source = object(value, 'scheduling')
+  if (!['auto', 'simple', 'standard', 'complex'].includes(String(source.class))) throw new Error('invalid scheduling class')
+  for (const key of ['scopePaths', 'acceptanceCriteria', 'risks']) {
+    if (!Array.isArray(source[key]) || !source[key].every(item => typeof item === 'string' && item.trim())) throw new Error(`invalid scheduling ${key}`)
+  }
+  for (const key of ['needsInvestigation', 'needsChallenge']) if (typeof source[key] !== 'boolean') throw new Error(`invalid scheduling ${key}`)
+  return {
+    class: source.class as SchedulingPolicy['class'], scopePaths: (source.scopePaths as string[]).map(investigationPath),
+    acceptanceCriteria: source.acceptanceCriteria as string[], risks: source.risks as string[],
+    needsInvestigation: source.needsInvestigation as boolean, needsChallenge: source.needsChallenge as boolean,
+  }
+}
+
+async function changedSourcePaths(root: string): Promise<string[]> {
+  const options = { cwd: root, encoding: 'utf8' as const, maxBuffer: 64 * 1024 * 1024 }
+  const [changed, untracked] = await Promise.all([
+    execute('git', ['diff', '--name-only', '-z', 'HEAD', '--', '.', ':(exclude).agent'], options),
+    execute('git', ['ls-files', '--others', '--exclude-standard', '-z', '--', '.', ':(exclude).agent'], options),
+  ])
+  return [...new Set(`${changed.stdout}\0${untracked.stdout}`.split('\0').filter(Boolean))].sort()
+}
+
+function projectDiagnosticSchema(): ObjectJsonSchema {
+  return { type: 'object', additionalProperties: false, required: ['summary', 'observations', 'recommendation', 'repairConstraints', 'unresolvedQuestions'], properties: {
+    summary: { type: 'string' }, observations: { type: 'array', items: { type: 'string' } },
+    recommendation: { type: 'string', enum: ['REPAIR_WITHIN_PLAN', 'REPLAN'] },
+    repairConstraints: { type: 'array', items: { type: 'string' } }, unresolvedQuestions: { type: 'array', items: { type: 'string' } },
+  } }
+}
+
+function parseDiagnosis(value: unknown): DiagnosisOutput {
+  const validate = new Ajv({ strict: true }).compile<DiagnosisOutput>(projectDiagnosticSchema())
+  if (!validate(value)) throw new EngineeringRoleFailure('Invalid dedicated diagnosis result')
+  return value
+}
+
+async function classifyProject(root: string, project: EngineeringProject, request: string, config: HarnessConfig, previous?: TaskClassification): Promise<TaskClassification> {
+  let invalidScope = false
+  for (const path of project.scheduling?.scopePaths ?? []) {
+    const target = resolve(root, path)
+    try {
+      const info = await lstat(target)
+      if (!info.isFile() || info.isSymbolicLink() || await realpath(target) !== target) invalidScope = true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      try { if (await realpath(resolve(target, '..')) !== resolve(target, '..')) invalidScope = true }
+      catch { invalidScope = true /* Unresolved parents cannot authorize a file-only task. */ }
+    }
+  }
+  const baselineDirty = (await changedSourcePaths(root)).length > 0
+  const result = classifyEngineeringTask({ request, profile: project.profile, policy: project.scheduling, baselineDirty, previous }, { simpleMaxFiles: config.workflow.simpleMaxFiles, standardMaxFiles: config.workflow.standardMaxFiles })
+  if (invalidScope && result.taskClass === 'simple') return { ...result, taskClass: 'standard', reasons: [...result.reasons, 'NON_CANONICAL_FILE_SCOPE'], needsInvestigation: true }
+  return result
 }
 
 function structuredSchema(value: unknown, definitions: Record<string, unknown>, path = 'schema'): JsonSchemaNode {
@@ -311,6 +372,7 @@ function structuredSchema(value: unknown, definitions: Record<string, unknown>, 
   for (const annotation of ['title', 'description', 'default', 'examples']) {
     if (source[annotation] !== undefined) result[annotation] = source[annotation]
   }
+  if (Array.isArray(source.oneOf)) result.oneOf = source.oneOf.map((branch, index) => structuredSchema(branch, definitions, `${path}.oneOf.${index}`))
   const enumValues = Array.isArray(source.enum) ? source.enum : undefined
   let type = source.type
   if (type === undefined && enumValues !== undefined && enumValues.length > 0 && enumValues.every(item => typeof item === typeof enumValues[0])) {
@@ -355,7 +417,7 @@ async function outputSchemas(root: string, role: EngineeringRole): Promise<{ str
   const definitions = validation.definitions === undefined ? {} : object(validation.definitions, 'schema.definitions')
   const projected = structuredSchema(validation, definitions)
   assertObjectJsonSchema(projected)
-  return { structured: projected, validation }
+  return { structured: roleResponseSchema(projected), validation }
 }
 
 async function selectTask(root: string, repository: TaskRepository, taskId?: string): Promise<string | undefined> {
@@ -471,7 +533,16 @@ export async function recoverEngineeringTask(root: string, taskId: string, confi
   if (!/^[a-z0-9][a-z0-9._-]*$/.test(taskId)) throw new Error('invalid task ID')
   const canonical = await realpath(root)
   if (await optionalJson(join(canonical, '.agent/reviews', taskId, 'TASK.json')) !== undefined) {
-    return withFileLock(join(canonical, '.agent/AUTO_RUN'), () => new TaskRepository(canonical).recoverReview(taskId, confirmedStopped))
+    return withFileLock(join(canonical, '.agent/AUTO_RUN'), async () => {
+      const repository = new TaskRepository(canonical)
+      const state = await repository.readReviewState(taskId)
+      if (state.requiresStopConfirmation && !confirmedStopped) throw new Error('Review recovery requires confirmed stopped work')
+      const directory = join(canonical, '.agent/reviews', taskId)
+      if (await optionalJson(join(directory, 'SCHEDULING.json')) !== undefined || await optionalJson(join(directory, 'SCHEDULING.MARKER.json')) !== undefined) {
+        await new TaskSchedulingRepository(canonical, taskId, 'review-only', { maxEscalations: Number.MAX_SAFE_INTEGER }).recover({ confirmedStopped })
+      }
+      return repository.recoverReview(taskId, confirmedStopped)
+    })
   }
   return withFileLock(join(canonical, '.agent/AUTO_RUN'), async () => {
     const repository = new TaskRepository(canonical)
@@ -494,6 +565,8 @@ export async function recoverEngineeringTask(root: string, taskId: string, confi
     if (state.state === 'REVIEWED' && await repository.acceptanceReachable(taskId)) {
       throw new Error(`task ${taskId} holds an acceptable reviewed work revision; recovery would discard it. Call engineering_run with the same taskId to accept it, or supply a changed request to replan with explicit scope.`)
     }
+    const scheduling = new TaskSchedulingRepository(canonical, taskId, 'development', { maxEscalations: Number.MAX_SAFE_INTEGER })
+    if (await optionalJson(join(canonical, '.agent/tasks', taskId, 'SCHEDULING.json')) !== undefined || await optionalJson(join(canonical, '.agent/tasks', taskId, 'SCHEDULING.MARKER.json')) !== undefined) await scheduling.recover({ confirmedStopped })
     if (state.writer !== null) state = await repository.releaseImplementation(taskId, state.revision, state.writer.token)
     const replanned = await repository.replan(taskId, state.revision, confirmedStopped)
     await writeFileAtomic(path, `${JSON.stringify({
@@ -558,6 +631,7 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
       if (journal.pendingTask.id !== taskId) throw new Error('pending task identity does not match its directory')
       if (await optionalJson(join(directory, 'STATE.json')) === undefined) {
         await repository.createTask(journal.pendingTask)
+        await new TaskSchedulingRepository(root, taskId, 'development', { maxEscalations: config.workflow.maxCapabilityEscalations }).initializeNew()
         await repository.initializeLifecycle(taskId, 'development', {
           ...config.workflow.lifecycleBudget,
           maxLogicalInvocations: Math.min(config.workflow.lifecycleBudget.maxLogicalInvocations ?? project.maxRoleCalls, project.maxRoleCalls),
@@ -569,22 +643,30 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
     const task = await repository.readTask(taskId)
     if (task.profile !== project.profile || task.dataClass !== project.dataClass) throw new Error('project profile or dataClass changed since task creation')
     let state = await repository.readState(taskId)
-    await repository.assertDispatchAdmission(taskId, journal.completedWriterRevision ?? undefined)
+    const scheduling = new TaskSchedulingRepository(root, taskId, 'development', { maxEscalations: config.workflow.maxCapabilityEscalations })
+    const storedScheduling = await optionalJson(join(directory, 'SCHEDULING.json'))
+    const history = storedScheduling === undefined ? undefined : await scheduling.read()
+    let classification = await classifyProject(root, project, journal.requests.join('\n\n'), config, history?.classifications.at(-1))
+    if (storedScheduling === undefined) classification = { ...classification, taskClass: 'complex', needsInvestigation: true, needsChallenge: true, reasons: [...classification.reasons, 'UNKNOWN_LEGACY_HISTORY'] }
+    else classification = await scheduling.recordClassification(classification)
+    await repository.assertDispatchAdmission(taskId, journal.completedWriterRevision ?? undefined, false, history?.diagnoses.some(item => item.status !== 'APPLIED') ?? false)
     const lifecycle = await repository.lifecycle(taskId, 'development', {
       ...config.workflow.lifecycleBudget,
       maxLogicalInvocations: Math.min(config.workflow.lifecycleBudget.maxLogicalInvocations ?? project.maxRoleCalls, project.maxRoleCalls),
     })
     const roleRequest = await boundedRequest(directory, journal.requests.join('\n\n'), config.workflow.maxRoleContextBytes)
+    let writerCapabilityFailureKey: string | undefined
     let reservation = Promise.resolve()
-    const call = (role: EngineeringRole, extra: Record<string, unknown> = {}, unit?: InvestigationUnit): Promise<Record<string, unknown>> => {
+    type Override = { routes: ResolvedRoleRoute[]; validation: Record<string, unknown>; structured?: ObjectJsonSchema; escalationId: SchedulingEscalationId }
+    const call = (role: EngineeringRole, extra: Record<string, unknown> = {}, unit?: InvestigationUnit, override?: Override): Promise<Record<string, unknown>> => {
       const predecessor = reservation
       let release!: () => void
       const admitted = new Promise<void>(resolve => { release = resolve })
       reservation = predecessor.then(() => admitted)
-      return callReserved(role, extra, unit, predecessor, release).finally(release)
+      return callReserved(role, extra, unit, predecessor, release, override).finally(release)
     }
     const callReserved = async (role: EngineeringRole, extra: Record<string, unknown>, unit: InvestigationUnit | undefined,
-      predecessor: Promise<void>, release: () => void): Promise<Record<string, unknown>> => {
+      predecessor: Promise<void>, release: () => void, override?: Override): Promise<Record<string, unknown>> => {
       signal.throwIfAborted()
       const dependencies = unit === undefined ? undefined : await captureInvestigationDependencies(root, unit.allowedPaths, config.workflow.maxInvestigationPaths)
       const scopeDigest = unit === undefined ? undefined : investigationScopeDigest(journal.requests.join('\n\n'), unit)
@@ -625,8 +707,10 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
       let toolReservation = Promise.resolve()
       const bounds = config.workflow.roleBounds[role]!
       let invocationId: EngineeringInvocationId
-      const control = async (route: ResolvedRoleRoute): Promise<RoleExecutionControl> => {
+      const attemptIds = new Map<number, EngineeringAttemptId>()
+      const control = async (route: ResolvedRoleRoute, index: number): Promise<RoleExecutionControl> => {
         const attemptId = await lifecycle.reserveAttempt(invocationId, route)
+        attemptIds.set(index, attemptId)
         if (checkpoint !== undefined) { checkpoint.attemptIds.push(attemptId); await persistCheckpoint() }
         const reserveToolCall = (executionId: string): Promise<void> => {
           const reservation = toolReservation.then(async () => {
@@ -659,7 +743,17 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
           },
         }
       }
-      const attempts = resolveRoleAttempts(config, role)
+      const inputDigest = createHash('sha256').update(JSON.stringify({ request: journal.requests, role, scopeDigest, workRevision: unit === undefined ? state.workRevision : null })).digest('hex')
+      const reserved = override !== undefined || role === 'implementer' ? undefined : (await scheduling.read()).escalations.find(item => item.status === 'RESERVED' && item.role === role && item.dispatchInput?.inputDigest === inputDigest)
+      if (reserved !== undefined) {
+        if (reserved.sourceFingerprint !== await worktreeHash(root)) throw new EngineeringRoleFailure('Reserved escalation source fingerprint changed; explicit scope information is required.')
+        const restored = resolveRoleEscalations(config, role, reserved.dispatchInput!.failedRouteId)
+        if (restored.candidates.length === 0) throw new EngineeringRoleFailure('Reserved escalation has no qualified stronger route in current configuration.')
+        const schemas = await outputSchemas(root, role)
+        override = { routes: [...restored.candidates, ...restored.fallbackCandidates], validation: schemas.validation, structured: schemas.structured, escalationId: reserved.id }
+        extra = { ...extra, capabilityPartialAssertions: reserved.dispatchInput!.partial }
+      }
+      const attempts = override?.routes ?? resolveRoleAttempts(config, role)
       const primary = attempts[0]
       if (primary === undefined) throw new Error(`role ${role} has no dispatch route`)
       assertRouteDispatchAllowed(config, primary.routeId, project.dataClass)
@@ -673,6 +767,7 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
         journal.roleCalls += 1
         await save()
         const context: Record<string, unknown> = project.knowledge === undefined ? {} : { repositoryKnowledge: project.knowledge }
+        context.taskClassification = classification
         context.verificationPolicy = verificationContext.policy
         context.verificationInstances = verificationContext.gates
         context.verificationCommands = adapters
@@ -684,9 +779,10 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
         preparedContext = { ...context, ...extra }
         if (validPrevious && previous.evidence.length > 0) preparedContext.partialInvestigationEvidence = previous.evidence
         preparedContext = await boundedContext(directory, role, preparedContext, config.workflow.maxRoleContextBytes)
-        schemas = await outputSchemas(root, role)
+        schemas = override === undefined ? await outputSchemas(root, role) : { validation: override.validation, structured: override.structured ?? roleResponseSchema(projectDiagnosticSchema()) }
         const primaryAttempt = attempts[0]!
-        const executionControl = await control(primaryAttempt)
+        const executionControl = await control(primaryAttempt, 1)
+        if (override !== undefined) await scheduling.beginDispatch(override.escalationId, executionControl.attemptId)
         primaryStart = {
           startedAt,
           execution: options.executeRole({
@@ -702,15 +798,46 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
       await start
       release()
       if (schemas === undefined || primaryStart === undefined) throw new Error(`role ${role} did not start`)
+      const escalation = resolveRoleEscalations(config, role, primary.routeId)
+      let escalationFingerprint: string | undefined
+      let capabilityPartial: unknown
       const validator = new Ajv({ strict: true, allErrors: true }).compile(schemas.validation)
       try {
-        const output = await runRoleAttempts({
-          role, attempts, signal, primary: { ...primaryStart, mutation: primaryMutation },
-          executeAttempt: async (route, attemptIndex, markMutationStarted) => {
+        const output = await runRoleAttempts<Record<string, unknown>>({
+          role, attempts, signal, ...(override === undefined ? {} : { initialEscalationId: override.escalationId }), primary: { ...primaryStart, mutation: primaryMutation },
+          escalationCandidates: role === 'implementer' || override !== undefined ? [] : escalation.candidates,
+          escalationFallbackCandidates: role === 'implementer' || override !== undefined ? [] : escalation.fallbackCandidates,
+          onEscalate: async (failure, failedRoute, failedIndex) => {
+            resolveRoleEscalations(config, role, failedRoute.routeId)
+            escalationFingerprint = await worktreeHash(root)
+            capabilityPartial = failure.partial
+            const record = await scheduling.reserveEscalation({ failureKey: `attempt:${attemptIds.get(failedIndex)}:capability`, recoveryEpoch: (await scheduling.read()).recoveryEpoch, role, reason: failure.reason, sourceFingerprint: escalationFingerprint, dispatchInput: { failedRouteId: failedRoute.routeId, partial: failure.partial, inputDigest } })
+            return { escalationId: record.id }
+          },
+          beforeEscalationDispatch: (id, attemptId) => scheduling.beginDispatch(id, attemptId).then(() => {}),
+          onEscalationSettled: async (id, outcome) => {
+            const after = await worktreeHash(root)
+            if (outcome.error !== undefined) {
+              const failure = after !== escalationFingerprint ? new RoleQuiescenceError('Read-only escalation changed source before failing; confirm stopped work before recovery', { cause: outcome.error }) : outcome.error
+              try { await scheduling.failEscalation(id, failure instanceof RoleQuiescenceError) }
+              catch (auditError) { if (failure instanceof RoleQuiescenceError) throw new RoleQuiescenceError(failure.message, { cause: new AggregateError([failure, auditError]) }); throw auditError }
+              if (failure instanceof RoleQuiescenceError) throw failure
+              return
+            }
+            if (after !== escalationFingerprint) {
+              const error = new RoleQuiescenceError('Read-only capability escalation changed the source fingerprint; confirm stopped work before recovery')
+              try { await scheduling.failEscalation(id, true) }
+              catch (auditError) { throw new RoleQuiescenceError(error.message, { cause: new AggregateError([error, auditError]) }) }
+              throw error
+            }
+            await scheduling.completeEscalation(id, object(outcome.output, 'escalation output'), after)
+          },
+          executeAttempt: async (route, attemptIndex, markMutationStarted, dispatch) => {
             assertRouteDispatchAllowed(config, route.routeId, project.dataClass)
-            const executionControl = await control(route)
+            const executionControl = await control(route, attemptIndex)
+            await dispatch?.onReservedAttempt?.(executionControl.attemptId)
             const fallbackContext = await boundedContext(directory, role, {
-              ...preparedContext, ...(checkpoint === undefined ? {} : { partialInvestigationEvidence: checkpoint.evidence }),
+              ...preparedContext, ...(capabilityPartial === undefined ? {} : { capabilityPartialAssertions: capabilityPartial }), ...(checkpoint === undefined ? {} : { partialInvestigationEvidence: checkpoint.evidence }),
             }, config.workflow.maxRoleContextBytes)
             return options.executeRole({
               role, route, attemptIndex, root, taskId,
@@ -720,7 +847,8 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
               executionControl, ...(unit === undefined ? {} : { workUnit: unit }),
             })
           },
-          validateOutput: result => {
+          validateOutput: value => {
+            const result = unwrapRoleResponse(value, schemas!.validation)
             if (!validator(result)) throw new RoleInvocationError(`${role} returned invalid output: ${JSON.stringify(validator.errors)}`, 'SCHEMA_INVALID', true)
             return object(result, `${role} output`)
           },
@@ -732,19 +860,105 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
           checkpoint = { ...checkpoint, output, status: 'COMPLETE' }
           await persistCheckpoint()
         }
+        if (reserved !== undefined) {
+          const fingerprint = await worktreeHash(root)
+          if (fingerprint !== reserved.sourceFingerprint) throw new RoleQuiescenceError('Resumed read-only escalation changed source; confirm stopped work before recovery')
+          await scheduling.completeEscalation(reserved.id, output, fingerprint)
+        }
         await lifecycle.remainingElapsedMs()
         return output
-      } catch (error) {
+      } catch (caught) {
+        const error = reserved !== undefined && await worktreeHash(root) !== reserved.sourceFingerprint ? new RoleQuiescenceError('Resumed read-only escalation changed source before failing; confirm stopped work', { cause: caught }) : caught
+        if (reserved !== undefined) {
+          try { await scheduling.failEscalation(reserved.id, error instanceof RoleQuiescenceError) }
+          catch (auditError) {
+            if (error instanceof RoleQuiescenceError) throw new RoleQuiescenceError(error.message, { cause: new AggregateError([error, auditError], 'Uncertain resumed escalation and audit failed') })
+            throw auditError
+          }
+        }
         try { await persistCheckpoint() }
         catch (persistenceError) {
           if (error instanceof RoleQuiescenceError) throw new RoleQuiescenceError(error.message, { cause: new AggregateError([error, persistenceError], 'Uncertain role shutdown and checkpoint persistence failed') })
           throw persistenceError
+        }
+        if (error instanceof CapabilityInsufficientError) {
+          writerCapabilityFailureKey = `attempt:${attemptIds.get(error.failedAttemptIndex ?? 1)}:capability`
+          throw error
         }
         if (error instanceof BudgetExhaustedError) throw error
         if (error instanceof RoleQuiescenceError || !(error instanceof RoleInvocationError) || signal.aborted || isAbortError(error)) throw error
         throw new EngineeringRoleFailure(error.message)
       }
     }
+    const diagnose = async (obligation: DiagnosisObligation, failedRouteId?: string): Promise<void> => {
+      await repository.assertDispatchAdmission(taskId, undefined, false, true)
+      const fingerprint = await worktreeHash(root)
+      if (fingerprint !== obligation.sourceFingerprint) throw new EngineeringRoleFailure('Diagnosis source fingerprint changed; explicit scope information is required.')
+      if (obligation.status === 'PENDING') {
+        const origin = failedRouteId ?? resolveRoleAttempts(config, 'implementer')[0]!.routeId
+        const routes = resolveRoleEscalations(config, 'implementer', origin)
+        if (routes.candidates.length === 0) throw new EngineeringRoleFailure('No stronger read-only diagnosis route is configured for the implementer.')
+        const prior = (await scheduling.read()).escalations.find(item => item.failureKey === obligation.failureKey && item.sourceFingerprint === fingerprint && (item.status === 'RESERVED' || item.status === 'COMPLETE'))
+        const reservation = prior ?? await scheduling.reserveEscalation({ failureKey: obligation.failureKey, recoveryEpoch: (await scheduling.read()).recoveryEpoch, role: 'architect', reason: 'DESIGN_ERROR', sourceFingerprint: fingerprint })
+        if (reservation.status === 'COMPLETE') {
+          await scheduling.completeDiagnosis(obligation.failureKey, parseDiagnosis(reservation.output), fingerprint)
+        } else {
+          const architect = resolveRoleAttempts(config, 'architect')[0]!
+          const validation = { ...projectDiagnosticSchema(), properties: { ...projectDiagnosticSchema().properties, summary: { type: 'string', minLength: 1 } } }
+          try {
+            const output = await call('architect', { diagnosisObligation: obligation, instruction: 'Diagnose the stopped implementation with read-only evidence. Return diagnosis fields; do not replace or implement the frozen plan.' }, undefined, {
+              routes: [...routes.candidates, ...routes.fallbackCandidates].map(route => ({ ...route, role: 'architect', writable: false, ...(architect.toolName === undefined ? {} : { toolName: architect.toolName }) })), validation, escalationId: reservation.id,
+            })
+            const after = await worktreeHash(root)
+            if (after !== fingerprint) throw new RoleQuiescenceError('Read-only diagnosis changed repository source; termination and source ownership require operator confirmation')
+            await scheduling.completeEscalation(reservation.id, output, after)
+            await scheduling.completeDiagnosis(obligation.failureKey, parseDiagnosis(output), after)
+          } catch (caught) {
+            const error = await worktreeHash(root) !== fingerprint ? new RoleQuiescenceError('Read-only diagnosis changed source before failing; confirm stopped work', { cause: caught }) : caught
+            try { await scheduling.failEscalation(reservation.id, error instanceof RoleQuiescenceError) }
+            catch (auditError) { if (error instanceof RoleQuiescenceError) throw new RoleQuiescenceError(error.message, { cause: new AggregateError([error, auditError]) }); throw auditError }
+            throw error
+          }
+        }
+      }
+      const current = (await scheduling.read()).diagnoses.find(item => item.failureKey === obligation.failureKey)!
+      if (current.status === 'APPLIED') return
+      if (current.status !== 'COMPLETE' || current.output === undefined) throw new EngineeringRoleFailure('Diagnosis remains incomplete and blocks writer admission.')
+      // A diagnosis cannot grant new write intent. Require a new frozen plan for either recommendation.
+      if (state.state !== 'REPLAN') state = await repository.replan(taskId, state.revision)
+      await scheduling.recordDiagnosisApplication(obligation.failureKey, { stateRevision: state.revision, planDigest: obligation.planDigest, recommendation: 'REPLAN', repairConstraints: current.output.repairConstraints })
+      await scheduling.applyDiagnosis(obligation.failureKey, state.revision)
+      journal.completedWriterRevision = null
+      journal.verifiedTreeHash = null
+      await save()
+    }
+    const assertFrozenScope = async (): Promise<void> => {
+      const planScheduling = await optionalJson(join(directory, `PLAN-SCHEDULING-${state.workRevision}.json`))
+      if (storedScheduling !== undefined && planScheduling === undefined) throw new EngineeringRoleFailure('Frozen plan scheduling evidence is missing; provide scope information and replan.')
+      let simpleScope: string[] | undefined
+      if (planScheduling !== undefined) {
+        const binding = object(planScheduling, 'plan scheduling')
+        const frozen = object(binding.classification, 'frozen classification')
+        if (binding.taskId !== taskId || binding.workRevision !== state.workRevision) throw new Error('Plan scheduling identity mismatch')
+        if (frozen.taskClass === 'simple') {
+          if (!Array.isArray(frozen.scopePaths) || !frozen.scopePaths.every(path => typeof path === 'string')) throw new Error('Invalid frozen simple scope')
+          simpleScope = frozen.scopePaths
+        }
+      }
+      const baseline = object(await optionalJson(join(directory, 'BASELINE.json')), 'baseline')
+      const head = await execute('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' })
+      if (simpleScope !== undefined && (head.stdout.trim() !== baseline.repositoryHead || (await changedSourcePaths(root)).some(path => !simpleScope.includes(path)))) {
+        classification = { ...classification, taskClass: 'complex', needsInvestigation: true, needsChallenge: true, reasons: [...classification.reasons, 'OUT_OF_SCOPE_WRITE'] }
+        classification = await scheduling.recordClassification(classification)
+        throw new EngineeringRoleFailure('Implementation changed files outside the authorized product scope; provide explicit scope information before replanning.')
+      }
+    }
+    const reserveRepairDiagnosis = async (failureKey: string): Promise<DiagnosisObligation> => {
+      const plan = object(await optionalJson(join(directory, 'PLAN.json')), 'bound plan')
+      return scheduling.recordDiagnosisObligation({ failureKey, writerRevision: state.workRevision, planDigest: String(plan.intentDigest), sourceFingerprint: await worktreeHash(root) })
+    }
+    for (const pending of history?.diagnoses.filter(item => item.status !== 'APPLIED') ?? []) await diagnose(pending)
+    await repository.assertDispatchAdmission(taskId, journal.completedWriterRevision ?? undefined)
     while (state.state !== 'ACCEPTED' && state.state !== 'BLOCKED' && state.state !== 'BUDGET_EXHAUSTED') {
       signal.throwIfAborted()
       if (journal.steps >= project.maxSteps) throw new Error(`step budget exhausted for ${taskId}`)
@@ -756,7 +970,7 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
         switch (state.state) {
         case 'NEW': {
           const head = await runCommand(root, { executable: 'git', args: ['rev-parse', 'HEAD'] }, project.commandTimeoutMs, signal)
-          const dirty = await runCommand(root, { executable: 'git', args: ['status', '--porcelain'] }, project.commandTimeoutMs, signal)
+          const dirty = await runCommand(root, { executable: 'git', args: ['status', '--porcelain', '--', '.', ':(exclude).agent'] }, project.commandTimeoutMs, signal)
           signal.throwIfAborted()
           if (head.status !== 'PASS' || dirty.status !== 'PASS') throw new Error('cannot capture Git baseline')
           state = await repository.baseline(taskId, state.revision, { repositoryHead: head.stdout.trim(), dirty: dirty.stdout.trim().length > 0, summary: journal.requests.join('\n\n') })
@@ -764,6 +978,10 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
         }
         case 'BASELINED':
         case 'REPLAN': {
+          if (!classification.needsInvestigation) {
+            state = await repository.investigate(taskId, state.revision, { findings: ['Explicit repository-owned scope and acceptance criteria; source investigation was not requested.'], hypotheses: [], unresolvedAssumptions: [] })
+            break
+          }
           const units = await investigationUnits(root, project, config)
           const results = await Promise.allSettled(units.map(unit => call(unit.role, {}, unit)))
           const uncertain = results.find(result => result.status === 'rejected' && result.reason instanceof RoleQuiescenceError)
@@ -783,10 +1001,18 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
           break
         }
         case 'INVESTIGATED': {
-          const plan = await call('architect', { challenge: await optionalJson(join(directory, 'CHALLENGE.json')) })
-          const challenge = await call('challenger', { candidatePlan: plan })
+          const plan = classification.taskClass === 'simple' ? {
+            problemStatement: journal.requests.join('\n\n'), hypotheses: ['Explicit acceptance criteria define the requested result.'],
+            selectedApproach: `Implement only the declared files: ${classification.scopePaths.join(', ')}`, rejectedAlternatives: ['Modify undeclared files'],
+            invariants: ['Preserve all files outside the declared scope'], expectedComponents: classification.scopePaths, implementationScope: classification.scopePaths,
+            falsificationTests: project.scheduling!.acceptanceCriteria, acceptanceGates: gates.filter(gate => gate.required).map(gate => gate.name), unresolvedAssumptions: [],
+          } : await call('architect', { challenge: await optionalJson(join(directory, 'CHALLENGE.json')) })
+          const challenge = classification.needsChallenge ? await call('challenger', { candidatePlan: plan }) : { decision: 'ACCEPT', summary: 'Classification does not require an additional challenge.', findings: [] }
           await writeFileAtomic(join(directory, 'CHALLENGE.json'), `${JSON.stringify(challenge)}\n`, { mode: 0o600 })
-          if (challenge.decision === 'ACCEPT') state = await repository.freezePlan(taskId, state.revision, plan)
+          if (challenge.decision === 'ACCEPT') {
+            await writeFileAtomic(join(directory, `PLAN-SCHEDULING-${state.workRevision + 1}.json`), `${JSON.stringify({ taskId, workRevision: state.workRevision + 1, classification })}\n`, { mode: 0o600 })
+            state = await repository.freezePlan(taskId, state.revision, plan)
+          }
           break
         }
         case 'PLAN_FROZEN':
@@ -804,6 +1030,10 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
               await save()
             } catch (error) {
               if (error instanceof RoleQuiescenceError) throw error
+              if (error instanceof CapabilityInsufficientError) {
+                const plan = object(await optionalJson(join(directory, 'PLAN.json')), 'bound plan')
+                await scheduling.recordDiagnosisObligation({ failureKey: writerCapabilityFailureKey ?? `writer:${state.revision}`, writerRevision: state.workRevision, planDigest: String(plan.intentDigest), sourceFingerprint: await worktreeHash(root) })
+              }
               state = await repository.releaseImplementation(taskId, state.revision, token)
               throw error
             }
@@ -830,7 +1060,13 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
           await repository.appendEvidence(taskId, state.workRevision, evidence, state.revision)
           journal.verifiedTreeHash = await worktreeHash(root)
           await save()
+          let repairDiagnosis: DiagnosisObligation | undefined
+          if (execution.verification.status !== 'PASS' && state.fixAttempts + 1 >= config.workflow.repairEscalationThreshold) {
+            const digest = createHash('sha256').update(JSON.stringify(evidence)).digest('hex')
+            repairDiagnosis = await reserveRepairDiagnosis(`verification:${state.workRevision}:${state.fixAttempts + 1}:${digest}`)
+          }
           state = await repository.finishVerification(taskId, state.revision, execution.verification)
+          if (repairDiagnosis !== undefined) await diagnose(repairDiagnosis)
           break
         }
         case 'VERIFIED':
@@ -838,13 +1074,22 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
           await repository.verificationGates(taskId)
           if (journal.verifiedTreeHash === null || await worktreeHash(root) !== journal.verifiedTreeHash) throw new Error('worktree changed after verification; explicitly replan and rerun verification')
           const review = await call('reviewer')
+          await assertFrozenScope()
+          let repairDiagnosis: DiagnosisObligation | undefined
+          if (review.decision === 'REPLAN' || review.decision === 'FIX_BOUNDED' && state.fixAttempts + 1 >= config.workflow.repairEscalationThreshold) {
+            const digest = createHash('sha256').update(JSON.stringify(review)).digest('hex')
+            repairDiagnosis = await reserveRepairDiagnosis(`review:${state.workRevision}:${state.fixAttempts + 1}:${digest}`)
+          }
           state = state.state === 'REVIEWING' ? await repository.finishReview(taskId, state.revision, review) : await repository.review(taskId, state.revision, review)
+          if (repairDiagnosis !== undefined) await diagnose(repairDiagnosis)
           break
         }
-        case 'REVIEWED':
+        case 'REVIEWED': {
+          await assertFrozenScope()
           if (journal.verifiedTreeHash === null || await worktreeHash(root) !== journal.verifiedTreeHash) throw new Error('worktree changed after verification; explicitly replan and rerun verification')
           state = await repository.accept(taskId, state.revision)
           break
+        }
         }
       } catch (error) {
         if (error instanceof RoleQuiescenceError) {
@@ -855,6 +1100,18 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
           break
         }
         if (signal.aborted) throw error
+        if (error instanceof CapabilityInsufficientError) {
+          const pending = (await scheduling.read()).diagnoses.find(item => item.failureKey === writerCapabilityFailureKey && item.status !== 'APPLIED')
+          if (pending === undefined) { state = await repository.block(taskId, state.revision, `Capability exhausted without a stronger route: ${error.details}`); break }
+          try { await diagnose(pending, error.failedRouteId) }
+          catch (diagnosisError) {
+            if (diagnosisError instanceof BudgetExhaustedError) state = await repository.budgetExhausted(taskId, state.revision, diagnosisError.message)
+            else if (diagnosisError instanceof EngineeringRoleFailure) state = await repository.block(taskId, state.revision, diagnosisError.message)
+            else throw diagnosisError
+            break
+          }
+          continue
+        }
         if (error instanceof BudgetExhaustedError) {
           state = await repository.budgetExhausted(taskId, state.revision, error.message)
           break

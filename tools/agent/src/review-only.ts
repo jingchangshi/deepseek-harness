@@ -7,7 +7,7 @@ import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { assertObjectJsonSchema, type ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import Ajv from 'ajv'
 import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
-import { assertRouteDispatchAllowed, resolveRoleAttempts } from './config.ts'
+import { assertRouteDispatchAllowed, resolveRoleAttempts, resolveRoleEscalations } from './config.ts'
 import type { HarnessConfig } from './config.ts'
 import { createGitSnapshot, GitEvidenceRepository } from './git-evidence.ts'
 import type { GitEvidenceReceipt, GitReviewTarget, GitSnapshot } from './git-evidence.ts'
@@ -15,6 +15,8 @@ import { boundedContext, boundedRequest, loadEngineeringProject, type RoleExecut
 import type { InspectionReceipt, InvestigationCheckpoint } from './investigation.ts'
 import { TaskRepository } from './repository.ts'
 import { RoleInvocationError, RoleQuiescenceError, runRoleAttempts } from './role-execution.ts'
+import { roleResponseSchema, unwrapRoleResponse } from './role-response.ts'
+import { TaskSchedulingRepository } from './scheduling.ts'
 import { BudgetExhaustedError } from './lifecycle.ts'
 import type { ReviewFinding, ReviewOutput, ReviewStateRecord, ReviewTaskDocument } from './review-types.ts'
 import type { RoleAttemptRecord } from './role-execution.ts'
@@ -277,6 +279,7 @@ export async function runEngineeringReview(options: EngineeringReviewOptions): P
       })
       task = { schemaVersion: 1 as const, id, target: options.target, snapshot, scope: [], dataClass: project.dataClass, createdAt: new Date().toISOString() }
       state = await repository.createReview(task)
+      await new TaskSchedulingRepository(root, id, 'review-only', { maxEscalations: deployment.workflow.maxCapabilityEscalations }).initializeNew()
       await repository.initializeLifecycle(id, 'review-only', {
         ...deployment.workflow.lifecycleBudget,
         maxLogicalInvocations: Math.min(deployment.workflow.lifecycleBudget.maxLogicalInvocations ?? project.maxRoleCalls, project.maxRoleCalls),
@@ -298,6 +301,7 @@ export async function runEngineeringReview(options: EngineeringReviewOptions): P
     }
     options.onProgress?.(state)
     signal.throwIfAborted()
+    const scheduling = new TaskSchedulingRepository(root, id, 'review-only', { maxEscalations: deployment.workflow.maxCapabilityEscalations })
     const snapshot = task.snapshot
     const lifecycle = await repository.lifecycle(id, 'review-only', {
       ...deployment.workflow.lifecycleBudget,
@@ -389,12 +393,36 @@ export async function runEngineeringReview(options: EngineeringReviewOptions): P
       let bodies = 0
       const seenTools = new Set<string>()
       let reservations = Promise.resolve()
+      const inputDigest = createHash('sha256').update(requestText).update(membership).digest('hex')
+      const reserved = (await scheduling.read()).escalations.find(item => item.status === 'RESERVED' && item.role === role && item.dispatchInput?.inputDigest === inputDigest)
+      if (reserved !== undefined && reserved.sourceFingerprint !== snapshot.id) throw new Error('Reserved review escalation snapshot mismatch')
+      const restored = reserved === undefined ? undefined : resolveRoleEscalations(deployment, role, reserved.dispatchInput!.failedRouteId)
+      if (restored !== undefined && restored.candidates.length === 0) throw new Error('Reserved review escalation has no qualified route')
+      const routes = restored === undefined ? resolveRoleAttempts(deployment, role) : [...restored.candidates, ...restored.fallbackCandidates]
+      const escalation = resolveRoleEscalations(deployment, role, routes[0]!.routeId)
+      const attempts = new Map<number, string>()
+      let capabilityPartial: unknown = reserved?.dispatchInput?.partial
       const output = await runRoleAttempts<ReviewOutput>({
-        role, attempts: resolveRoleAttempts(deployment, role), signal,
-        executeAttempt: async (route, attemptIndex, markMutationStarted) => {
+        role, attempts: routes, signal, ...(reserved === undefined ? {} : { initialEscalationId: reserved.id }),
+        escalationCandidates: reserved === undefined ? escalation.candidates : [], escalationFallbackCandidates: reserved === undefined ? escalation.fallbackCandidates : [],
+        onEscalate: async (failure, failedRoute, index) => {
+          resolveRoleEscalations(deployment, role, failedRoute.routeId)
+          capabilityPartial = failure.partial
+          const record = await scheduling.reserveEscalation({ failureKey: `attempt:${attempts.get(index)}:capability`, recoveryEpoch: (await scheduling.read()).recoveryEpoch, role, reason: failure.reason, sourceFingerprint: snapshot.id, dispatchInput: { failedRouteId: failedRoute.routeId, partial: failure.partial, inputDigest } })
+          return { escalationId: record.id }
+        },
+        beforeEscalationDispatch: (escalationId, attemptId) => scheduling.beginDispatch(escalationId, attemptId).then(() => {}),
+        onEscalationSettled: async (escalationId, outcome) => {
+          if (outcome.error !== undefined) await scheduling.failEscalation(escalationId, outcome.error instanceof RoleQuiescenceError)
+          else await scheduling.completeEscalation(escalationId, { ...parseOutput(outcome.output) }, snapshot.id)
+        },
+        executeAttempt: async (route, attemptIndex, markMutationStarted, dispatch) => {
           signal.throwIfAborted()
           assertRouteDispatchAllowed(deployment, route.routeId, task.dataClass)
           const attemptId = await lifecycle.reserveAttempt(invocationId, route)
+          attempts.set(attemptIndex, attemptId)
+          if (reserved !== undefined && attemptIndex === 1) await scheduling.beginDispatch(reserved.id, attemptId)
+          await dispatch?.onReservedAttempt?.(attemptId)
           if (checkpoint !== undefined) { checkpoint.attemptIds.push(attemptId); await persistCheckpoint() }
           const before = new Set(evidence.observedEvidence().map(receipt => receipt.id))
           const reserveToolCall = (executionId: string): Promise<void> => {
@@ -419,13 +447,13 @@ export async function runEngineeringReview(options: EngineeringReviewOptions): P
             }
           }
           const preparedContext = await boundedContext(join(root, '.agent/reviews', id), role, {
-            ...context, reviewScope: scope, ...(checkpoint === undefined ? {} : { partialInvestigationEvidence: checkpoint.gitEvidence }),
+            ...context, ...(capabilityPartial === undefined ? {} : { capabilityPartialAssertions: capabilityPartial }), reviewScope: scope, ...(checkpoint === undefined ? {} : { partialInvestigationEvidence: checkpoint.gitEvidence }),
           }, deployment.workflow.maxRoleContextBytes)
           const invocation: RoleInvocation = {
             role, route, attemptIndex, root, taskId: id,
             request: requestText,
             state: { state: phaseState, revision: currentState.revision, workRevision: 0, fixAttempts: 0 },
-            context: preparedContext, outputSchema: REVIEW_OUTPUT_SCHEMA, signal,
+            context: preparedContext, outputSchema: roleResponseSchema(REVIEW_OUTPUT_SCHEMA), signal,
             reviewEvidence: evidence,
             executionControl: {
               taskId: id, routeId: route.routeId, lifecycle, invocationId, attemptId, bounds, startedAt,
@@ -457,9 +485,19 @@ export async function runEngineeringReview(options: EngineeringReviewOptions): P
           if (potentiallyMutatingDispatch) throw new RoleInvocationError('review role dispatched a potentially mutating tool', 'NON_FALLBACKABLE', false)
           return result
         },
-        validateOutput: parseOutput,
+        validateOutput: value => parseOutput(unwrapRoleResponse(value, REVIEW_OUTPUT_VALIDATION_SCHEMA)),
         persistAttempts: records => persistAttempts(root, id, role, records),
+      }).catch(async error => {
+        if (reserved !== undefined) {
+          try { await scheduling.failEscalation(reserved.id, error instanceof RoleQuiescenceError) }
+          catch (auditError) {
+            if (error instanceof RoleQuiescenceError) throw new RoleQuiescenceError(error.message, { cause: new AggregateError([error, auditError], 'Uncertain resumed review and audit failed') })
+            throw auditError
+          }
+        }
+        throw error
       })
+      if (reserved !== undefined) await scheduling.completeEscalation(reserved.id, { ...output }, snapshot.id)
       if (checkpoint !== undefined) {
         const problems = validateSemantics(output, snapshot, scope, evidence, inspection.changedLines, inspection.unsupported.filter(path => scope.some(item => item.path === path)))
         if (problems.length === 0) {

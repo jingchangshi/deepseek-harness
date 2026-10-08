@@ -339,17 +339,18 @@ describe('engineering project authority', () => {
       routes: {
         'architecture': {
           displayName: 'Claude Opus 5.5', provider: 'anthropic', model: 'claude-opus-5.5',
-          reasoningEfforts: { high: 'high' }, maxDataClass: 'internal', externalRelay: true, costClass: 'premium',
+          reasoningEfforts: { high: 'high' }, maxDataClass: 'internal', externalRelay: true, costClass: 'premium', capabilityLevel: 0,
         },
       },
       roles: {
         architect: {
           route: 'architecture', reasoningEffort: 'high', maxTokens: 32768, personaFile: 'architect.md',
-          writable: false, toolPolicy: 'read-only', toolName: 'ask_architect', enabled: true, allowPremium: true, fallbackRoutes: [],
+          writable: false, toolPolicy: 'read-only', toolName: 'ask_architect', enabled: true, allowPremium: true, fallbackRoutes: [], escalationRoutes: [], escalationFallbackRoutes: [],
         },
       },
       workflow: { provider: 'spawn', maxDepth: 1, maxConcurrentAgents: 3, maxTotalAgents: 12, minimumFanout: 2, boundedFixRounds: 2, ralphEnabled: false, arbiterEnabled: false, reviewMaxDirectFiles: 4, reviewMaxScouts: 2,
-        lifecycleBudget: {}, roleBounds: {}, maxInvestigationPaths: 40, maxRoleContextBytes: 32768,
+        lifecycleBudget: {}, roleBounds: {}, maxInvestigationPaths: 40, simpleMaxFiles: 3, standardMaxFiles: 12,
+        maxCapabilityEscalations: 2, repairEscalationThreshold: 2, maxRoleContextBytes: 32768,
         reviewGitCommandTimeoutMs: 30_000, reviewGitMaxOutputBytes: 8_388_608, reviewGitPageSize: 16_384 },
       dataPolicy: { classes: { public: 0, internal: 1, sensitive: 2 }, allowedSensitiveInputs: [], forbiddenCommittedPatterns: [] },
     })

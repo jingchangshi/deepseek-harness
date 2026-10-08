@@ -19,6 +19,9 @@ roles:
     toolPolicy: read-only
   scout-primary:
     route: worker
+    escalationRoutes:
+      - architecture
+    allowPremium: true
     fallbackRoutes:
       - worker-fallback
     reasoningEffort: medium
@@ -40,10 +43,13 @@ roles:
     toolPolicy: read-only
   implementer:
     route: worker
+    escalationRoutes:
+      - architecture
     fallbackRoutes:
       - worker-fallback
     reasoningEffort: max
     maxTokens: 32000
+    allowPremium: true
     toolName: run_implementer
     personaFile: .agent/roles/implementer.md
     writable: true

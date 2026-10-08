@@ -32,6 +32,7 @@ import type {
 import type { ReviewStateRecord, ReviewTaskDocument } from './review-types.ts'
 import type { ReviewRunResult } from './review-only.ts'
 import { transitionReview } from './state-machine.ts'
+import { TaskSchedulingRepository } from './scheduling.ts'
 import { FileTaskLifecycle } from './lifecycle.ts'
 import type { LifecycleLimits, TaskLifecycle } from './lifecycle.ts'
 import { readInvestigationCheckpoint, saveInvestigationCheckpoint } from './investigation.ts'
@@ -411,9 +412,10 @@ export class TaskRepository {
    * @param taskId - selected task, whose completed writer may be allowed.
    * @param allowedCompletedWriterRevision - revision of a successfully completed writer for this task.
    * @param confirmedRecovery - whether recovery explicitly confirmed stopped work for the selected task.
+   * @param allowPendingDiagnosis - permit only this task's pending diagnosis for a read-only diagnostic dispatch.
    * @returns void when no task blocks dispatch.
    */
-  async assertDispatchAdmission(taskId: string, allowedCompletedWriterRevision?: number, confirmedRecovery = false): Promise<void> {
+  async assertDispatchAdmission(taskId: string, allowedCompletedWriterRevision?: number, confirmedRecovery = false, allowPendingDiagnosis = false): Promise<void> {
     const tasksRoot = join(this.root, '.agent', 'tasks')
     for (const entry of await readdir(tasksRoot, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue
@@ -421,6 +423,7 @@ export class TaskRepository {
       if (await this.readOptional(statePath) === undefined) continue
       const state = await this.readJson('state', statePath) as TaskStateRecord
       if (confirmedRecovery && entry.name === taskId) continue
+      await this.assertSchedulingAdmission(entry.name, 'development', allowPendingDiagnosis && entry.name === taskId)
       const allowedOwnWriter = entry.name === taskId && allowedCompletedWriterRevision !== undefined
         && state.writer?.baseRevision === allowedCompletedWriterRevision
       if (allowedOwnWriter) continue
@@ -439,8 +442,19 @@ export class TaskRepository {
       if (await this.readOptional(statePath) === undefined) continue
       const review = await this.readJson('review-state', statePath) as ReviewStateRecord
       if (confirmedRecovery && reviewId === taskId) continue
+      await this.assertSchedulingAdmission(reviewId, 'review-only')
       if (review.requiresStopConfirmation === true) throw new Error(`review ${review.taskId} requires confirmation that all review work has stopped before dispatch`)
     }
+  }
+
+  private async assertSchedulingAdmission(taskId: string, workflow: 'development' | 'review-only', allowPendingDiagnosis = false): Promise<void> {
+    const directory = join(this.root, '.agent', workflow === 'development' ? 'tasks' : 'reviews', taskId)
+    const ledger = await this.readOptional(join(directory, 'SCHEDULING.json'))
+    const marker = await this.readOptional(join(directory, 'SCHEDULING.MARKER.json'))
+    if (ledger === undefined && marker === undefined) return
+    const scheduling = await new TaskSchedulingRepository(this.root, taskId, workflow, { maxEscalations: Number.MAX_SAFE_INTEGER }).read()
+    if (!allowPendingDiagnosis && scheduling.diagnoses.some(item => item.status !== 'APPLIED')) throw new Error(`task ${taskId} has a pending or unapplied diagnosis obligation`)
+    if (scheduling.escalations.some(item => item.status === 'DISPATCHING' || item.status === 'UNCERTAIN')) throw new Error(`task ${taskId} has an interrupted escalation; confirm all work stopped before recovery`)
   }
 
   /** Release an owned lease after its executor has stopped, retaining partial work for resumption. */

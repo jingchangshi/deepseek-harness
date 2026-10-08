@@ -16,6 +16,7 @@
     { "path": "../../packages/llm/llm" },
     { "path": "../../packages/llm/llm-pi-ai" },
     { "path": "../../packages/subagent/subagent" },
+    { "path": "../../packages/subagent/subagent-in-process-driver" },
     { "path": "../../packages/subprocess/subprocess" },
     { "path": "../../packages/subprocess/subprocess-local" },
     { "path": "../../packages/test-support/agent-loop-testkit" },

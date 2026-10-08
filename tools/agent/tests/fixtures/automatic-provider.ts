@@ -24,7 +24,7 @@ export function automaticResponse(request: AutomaticModelRequest): { content: st
   })
   const json = (value: object): { content: string } => ({ content: JSON.stringify(value) })
   const finish = (value: object): { content: string } | { tool_calls: object[] } => request.tools?.some(entry => entry.function.name === 'structured_output')
-    ? tool('structured_output', value)
+    ? tool('structured_output', { response: { status: 'success', output: value } })
     : json(value)
   switch (request.model) {
     case 'coordinator':

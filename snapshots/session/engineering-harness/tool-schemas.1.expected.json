@@ -117,48 +117,125 @@
       "description": "Report your final structured result. Call this exactly once, when your answer is complete; the arguments must match this tool's parameter schema exactly.",
       "parameters": {
         "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "response"
+        ],
         "properties": {
-          "findings": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "hypotheses": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "statement": {
-                  "type": "string"
-                },
-                "evidence": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
+          "response": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "status",
+                  "output"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "success"
+                  },
+                  "output": {
+                    "type": "object",
+                    "properties": {
+                      "findings": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "hypotheses": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "statement": {
+                              "type": "string"
+                            },
+                            "evidence": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": [
+                            "statement",
+                            "evidence"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "unresolvedAssumptions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "findings",
+                      "hypotheses",
+                      "unresolvedAssumptions"
+                    ],
+                    "additionalProperties": false
                   }
                 }
               },
-              "required": [
-                "statement",
-                "evidence"
-              ],
-              "additionalProperties": false
-            }
-          },
-          "unresolvedAssumptions": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "status",
+                  "reason",
+                  "details",
+                  "partial"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "escalate"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "EVIDENCE_INSUFFICIENT",
+                      "TASK_COMPLEXITY",
+                      "REPAIR_FAILED",
+                      "DESIGN_ERROR"
+                    ]
+                  },
+                  "details": {
+                    "type": "string"
+                  },
+                  "partial": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "observations",
+                      "unresolvedQuestions"
+                    ],
+                    "properties": {
+                      "observations": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "unresolvedQuestions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
           }
-        },
-        "required": [
-          "findings",
-          "hypotheses",
-          "unresolvedAssumptions"
-        ],
-        "additionalProperties": false
+        }
       }
     },
     {

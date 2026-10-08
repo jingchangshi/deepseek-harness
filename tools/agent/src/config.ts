@@ -44,6 +44,8 @@ export interface ModelRouteConfig {
   maxDataClass: DataClass
   externalRelay: boolean
   costClass: 'standard' | 'premium'
+  /** Deployment assertion of route capability, independent of cost. */
+  capabilityLevel: number
 }
 
 /** One logical role's immutable dispatch defaults. */
@@ -59,6 +61,10 @@ export interface RoleConfig {
   allowPremium: boolean
   /** Up to two distinct qualified fallback routes, each tried once after an eligible failure. */
   fallbackRoutes: readonly string[]
+  /** Read-only routes reserved for typed capability escalation. */
+  escalationRoutes: readonly string[]
+  /** Bounded fallbacks used only after an escalation route fails. */
+  escalationFallbackRoutes: readonly string[]
 }
 
 /** Repository workflow limits that complement DSH's process-local limits. */
@@ -69,6 +75,10 @@ export interface WorkflowConfig {
   roleBounds: Readonly<Record<string, RoleBounds>>
   /** Maximum source files assigned to one automatically generated Scout unit. */
   maxInvestigationPaths: number
+  simpleMaxFiles: number
+  standardMaxFiles: number
+  maxCapabilityEscalations: number
+  repairEscalationThreshold: number
   /** Maximum serialized context bytes per role request. */
   maxRoleContextBytes: number
   provider: 'spawn'
@@ -110,6 +120,7 @@ export interface ResolvedRoleRoute {
   role: string
   /** Exact resolved route identifier, distinct from the logical role. */
   routeId: string
+  capabilityLevel: number
   toolName?: string
   provider: string
   model: string
@@ -164,6 +175,11 @@ function booleanDict(value: unknown, field: string): Record<string, boolean> {
 
 function positiveInteger(value: unknown, field: string): number {
   if (!Number.isSafeInteger(value) || typeof value !== 'number' || value < 1) throw new Error(`${field} must be a positive integer`)
+  return value
+}
+
+function nonNegativeInteger(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error(`${field} must be a non-negative integer`)
   return value
 }
 
@@ -237,6 +253,8 @@ export async function loadHarnessConfig(
   const rolesDocument = record(rolesValue, 'roles.yaml')
   const workflowDocument = record(workflowValue, 'workflow.yaml')
   const dataPolicyDocument = record(dataPolicyValue, 'data-policy.yaml')
+  const architectDeclaration = record(record(rolesDocument.roles, 'roles.roles').architect, 'roles.roles.architect')
+  const architectReasoningEffort = deploymentValue(architectDeclaration.reasoningEffort, 'roles.roles.architect.reasoningEffort', env, required)
   if (models.schemaVersion !== 1 || rolesDocument.schemaVersion !== 1 || workflowDocument.schemaVersion !== 1 || dataPolicyDocument.schemaVersion !== 1) {
     throw new Error('configuration schemaVersion must be 1')
   }
@@ -283,6 +301,7 @@ export async function loadHarnessConfig(
       maxDataClass: oneOf(value.maxDataClass, `models.routes.${id}.maxDataClass`, ['public', 'internal', 'sensitive']),
       externalRelay: boolean(value.externalRelay, `models.routes.${id}.externalRelay`),
       costClass: oneOf(value.costClass, `models.routes.${id}.costClass`, ['standard', 'premium']),
+      capabilityLevel: value.capabilityLevel === undefined ? 0 : nonNegativeInteger(value.capabilityLevel, `models.routes.${id}.capabilityLevel`),
     }
   }
 
@@ -317,6 +336,8 @@ export async function loadHarnessConfig(
     const toolPolicy = oneOf(value.toolPolicy, `roles.roles.${id}.toolPolicy`, ['coordinator', 'read-only', 'writer'])
     if (writable !== (id === 'implementer' && toolPolicy === 'writer')) throw new Error('implementer with writer policy must be the only writable role')
     const fallbackRoutes = value.fallbackRoutes === undefined ? [] : stringArray(value.fallbackRoutes, `roles.roles.${id}.fallbackRoutes`)
+    const escalationRoutes = value.escalationRoutes === undefined ? [] : stringArray(value.escalationRoutes, `roles.roles.${id}.escalationRoutes`)
+    const escalationFallbackRoutes = value.escalationFallbackRoutes === undefined ? [] : stringArray(value.escalationFallbackRoutes, `roles.roles.${id}.escalationFallbackRoutes`)
     if (fallbackRoutes.length > 2) throw new Error(`role ${id} may declare at most two fallback routes`)
     if (fallbackRoutes.length > 0 && toolPolicy !== 'read-only' && toolPolicy !== 'writer') throw new Error(`role ${id} fallback requires read-only or writer tool policy`)
     const fallbackModels = new Map<string, Set<string>>()
@@ -334,6 +355,40 @@ export async function loadHarnessConfig(
       if (fallbackConfig.reasoningEfforts[effort] === undefined) throw new Error(`role ${id} fallback route ${fallback} does not support reasoning effort ${effort}`)
       if (fallbackConfig.costClass === 'premium' && !allowPremium) throw new Error(`role ${id} must explicitly allow its premium fallback route ${fallback}`)
     }
+    const baseCapability = Math.max(routeConfig.capabilityLevel, ...fallbackRoutes.map(id => routes[id]?.capabilityLevel ?? 0))
+    const escalationIds = [...escalationRoutes, ...escalationFallbackRoutes]
+    if (escalationFallbackRoutes.length > 2) throw new Error(`role ${id} may declare at most two escalation fallback routes`)
+    if (new Set(escalationIds).size !== escalationIds.length) throw new Error(`role ${id} escalation routes must be distinct`)
+    if (escalationIds.some(routeId => routeId === route || fallbackRoutes.includes(routeId))) throw new Error(`role ${id} escalation routes must differ from primary and normal fallback routes`)
+    const escalationModels = new Set([route, ...fallbackRoutes].map(routeId => {
+      const candidate = routes[routeId]
+      return JSON.stringify([candidate?.provider, candidate?.model])
+    }))
+    for (const routeId of escalationIds) {
+      const candidate = routes[routeId]
+      if (candidate !== undefined) {
+        const modelKey = JSON.stringify([candidate.provider, candidate.model])
+        if (escalationModels.has(modelKey)) throw new Error(`role ${id} escalation route ${routeId} must use a different provider or model from its other routes`)
+        escalationModels.add(modelKey)
+      }
+    }
+    escalationRoutes.forEach(routeId => {
+      const candidate = routes[routeId]
+      if (candidate === undefined) throw new Error(`roles.roles.${id}.escalationRoutes references unknown route ${routeId}`)
+      if (candidate.capabilityLevel <= baseCapability) throw new Error(`role ${id} escalation route ${routeId} must increase capability above its primary and fallback routes`)
+      const escalationEffort = writable ? architectReasoningEffort : effort
+      if (candidate.reasoningEfforts[escalationEffort] === undefined) throw new Error(`role ${id} escalation route ${routeId} does not support reasoning effort ${escalationEffort}`)
+      if (candidate.costClass === 'premium' && !allowPremium) throw new Error(`role ${id} must explicitly allow its premium escalation route ${routeId}`)
+    })
+    const escalationFloor = baseCapability
+    for (const routeId of escalationFallbackRoutes) {
+      const candidate = routes[routeId]
+      if (candidate === undefined) throw new Error(`roles.roles.${id}.escalationFallbackRoutes references unknown route ${routeId}`)
+      if (candidate.capabilityLevel <= escalationFloor) throw new Error(`role ${id} escalation fallback route ${routeId} must remain above its escalation routes`)
+      const escalationEffort = writable ? architectReasoningEffort : effort
+      if (candidate.reasoningEfforts[escalationEffort] === undefined) throw new Error(`role ${id} escalation fallback route ${routeId} does not support reasoning effort ${escalationEffort}`)
+      if (candidate.costClass === 'premium' && !allowPremium) throw new Error(`role ${id} must explicitly allow its premium escalation fallback route ${routeId}`)
+    }
     roles[id] = {
       route,
       reasoningEffort: effort,
@@ -345,6 +400,8 @@ export async function loadHarnessConfig(
       enabled: boolean(value.enabled, `roles.roles.${id}.enabled`, true),
       allowPremium,
       fallbackRoutes,
+      escalationRoutes,
+      escalationFallbackRoutes,
     }
   }
 
@@ -378,6 +435,10 @@ export async function loadHarnessConfig(
   const workflow: WorkflowConfig = {
     lifecycleBudget, roleBounds,
     maxInvestigationPaths: positiveInteger(workflowDocument.maxInvestigationPaths ?? 40, 'workflow.maxInvestigationPaths'),
+    simpleMaxFiles: positiveInteger(workflowDocument.simpleMaxFiles ?? 3, 'workflow.simpleMaxFiles'),
+    standardMaxFiles: positiveInteger(workflowDocument.standardMaxFiles ?? 12, 'workflow.standardMaxFiles'),
+    maxCapabilityEscalations: nonNegativeInteger(workflowDocument.maxCapabilityEscalations ?? 2, 'workflow.maxCapabilityEscalations'),
+    repairEscalationThreshold: positiveInteger(workflowDocument.repairEscalationThreshold ?? 2, 'workflow.repairEscalationThreshold'),
     maxRoleContextBytes: positiveInteger(workflowDocument.maxRoleContextBytes ?? 32_768, 'workflow.maxRoleContextBytes'),
     provider: oneOf(workflowDocument.provider, 'workflow.provider', ['spawn']),
     maxDepth: positiveInteger(workflowDocument.maxDepth, 'workflow.maxDepth'),
@@ -393,6 +454,7 @@ export async function loadHarnessConfig(
     reviewGitMaxOutputBytes: positiveInteger(workflowDocument.reviewGitMaxOutputBytes ?? 8_388_608, 'workflow.reviewGitMaxOutputBytes'),
     reviewGitPageSize: positiveInteger(workflowDocument.reviewGitPageSize ?? 16_384, 'workflow.reviewGitPageSize'),
   }
+  if (workflow.standardMaxFiles < workflow.simpleMaxFiles) throw new Error('workflow.standardMaxFiles must be at least simpleMaxFiles')
   if (workflow.reviewMaxScouts > workflow.maxConcurrentAgents) throw new Error('workflow.reviewMaxScouts exceeds maxConcurrentAgents')
   if (workflow.maxDepth !== 1) throw new Error('workflow.maxDepth must remain 1')
   if (workflow.maxConcurrentAgents !== 3) throw new Error('workflow.maxConcurrentAgents must remain 3')
@@ -437,6 +499,7 @@ function resolvedRoleRoute(role: string, roleConfig: RoleConfig, routeId: string
   return {
     role,
     routeId,
+    capabilityLevel: route.capabilityLevel,
     ...roleConfig.toolName === undefined ? {} : { toolName: roleConfig.toolName },
     provider: route.provider,
     model: route.model,
@@ -488,6 +551,28 @@ export function resolveRoleFallbackRoutes(config: HarnessConfig, role: string): 
   if (roleConfig === undefined) throw new Error(`unknown role ${role}`)
   if (!roleConfig.enabled) throw new Error(`role ${role} is disabled`)
   return roleConfig.fallbackRoutes.map(routeId => resolveRoleByRoute(config, role, routeId))
+}
+
+/** Resolve configured stronger routes and their separately bounded fallbacks. */
+export function resolveRoleEscalations(
+  config: HarnessConfig,
+  role: string,
+  failedRouteId: string,
+): { candidates: ResolvedRoleRoute[]; fallbackCandidates: ResolvedRoleRoute[] } {
+  const roleConfig = config.roles[role]
+  if (roleConfig === undefined) throw new Error(`unknown role ${role}`)
+  if (!roleConfig.enabled) throw new Error(`role ${role} is disabled`)
+  const failedRoute = config.routes[failedRouteId]
+  if (failedRoute === undefined) throw new Error(`unknown failed route ${failedRouteId}`)
+  const executionRole = roleConfig.writable ? 'architect' : role
+  const candidates = roleConfig.escalationRoutes
+    .filter(routeId => (config.routes[routeId]?.capabilityLevel ?? -1) > failedRoute.capabilityLevel)
+    .map(routeId => resolveRoleByRoute(config, executionRole, routeId))
+  const floor = failedRoute.capabilityLevel
+  const fallbackCandidates = roleConfig.escalationFallbackRoutes
+    .filter(routeId => (config.routes[routeId]?.capabilityLevel ?? -1) > floor)
+    .map(routeId => resolveRoleByRoute(config, executionRole, routeId))
+  return { candidates, fallbackCandidates }
 }
 
 /**

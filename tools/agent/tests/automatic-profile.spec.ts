@@ -17,11 +17,13 @@ async function prepare(root: string, url: string, failReference: boolean, instal
   await new TaskRepository(root, join(root, '.agent/schemas'), { templateRoot: join(CHECKOUT, '.agent') }).init()
   const roleConfig = load(await readFile(join(CHECKOUT, '.agent/config/roles.yaml'), 'utf8')) as {
     schemaVersion: number
-    roles: Record<string, { route: string; fallbackRoutes?: string[] }>
+    roles: Record<string, { route: string; fallbackRoutes?: string[]; escalationRoutes?: string[]; escalationFallbackRoutes?: string[] }>
   }
   for (const [role, config] of Object.entries(roleConfig.roles)) {
     config.route = role
     if (config.fallbackRoutes !== undefined) config.fallbackRoutes = []
+    if (config.escalationRoutes !== undefined) config.escalationRoutes = []
+    if (config.escalationFallbackRoutes !== undefined) config.escalationFallbackRoutes = []
   }
   await writeFile(join(root, '.agent/config/roles.yaml'), dump(roleConfig))
   await writeFile(join(root, '.agent/config/models.yaml'), dump({

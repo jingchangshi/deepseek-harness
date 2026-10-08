@@ -209,82 +209,159 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "summary",
-          "findings",
-          "inspectedEvidenceIds",
-          "unresolvedQuestions"
+          "response"
         ],
         "properties": {
-          "summary": {
-            "type": "string"
-          },
-          "findings": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "severity",
-                "description",
-                "path",
-                "commit",
-                "startLine",
-                "endLine",
-                "failureCondition",
-                "changeRelation",
-                "evidenceIds"
-              ],
-              "properties": {
-                "severity": {
-                  "type": "string",
-                  "enum": [
-                    "critical",
-                    "high",
-                    "medium",
-                    "low"
-                  ]
-                },
-                "description": {
-                  "type": "string"
-                },
-                "path": {
-                  "type": "string"
-                },
-                "commit": {
-                  "type": "string"
-                },
-                "startLine": {
-                  "type": "integer"
-                },
-                "endLine": {
-                  "type": "integer"
-                },
-                "failureCondition": {
-                  "type": "string"
-                },
-                "changeRelation": {
-                  "type": "string"
-                },
-                "evidenceIds": {
-                  "type": "array",
-                  "items": {
+          "response": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "status",
+                  "output"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "success"
+                  },
+                  "output": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "summary",
+                      "findings",
+                      "inspectedEvidenceIds",
+                      "unresolvedQuestions"
+                    ],
+                    "properties": {
+                      "summary": {
+                        "type": "string"
+                      },
+                      "findings": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "severity",
+                            "description",
+                            "path",
+                            "commit",
+                            "startLine",
+                            "endLine",
+                            "failureCondition",
+                            "changeRelation",
+                            "evidenceIds"
+                          ],
+                          "properties": {
+                            "severity": {
+                              "type": "string",
+                              "enum": [
+                                "critical",
+                                "high",
+                                "medium",
+                                "low"
+                              ]
+                            },
+                            "description": {
+                              "type": "string"
+                            },
+                            "path": {
+                              "type": "string"
+                            },
+                            "commit": {
+                              "type": "string"
+                            },
+                            "startLine": {
+                              "type": "integer"
+                            },
+                            "endLine": {
+                              "type": "integer"
+                            },
+                            "failureCondition": {
+                              "type": "string"
+                            },
+                            "changeRelation": {
+                              "type": "string"
+                            },
+                            "evidenceIds": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "inspectedEvidenceIds": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "unresolvedQuestions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "status",
+                  "reason",
+                  "details",
+                  "partial"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "escalate"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "EVIDENCE_INSUFFICIENT",
+                      "TASK_COMPLEXITY",
+                      "REPAIR_FAILED",
+                      "DESIGN_ERROR"
+                    ]
+                  },
+                  "details": {
                     "type": "string"
+                  },
+                  "partial": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "observations",
+                      "unresolvedQuestions"
+                    ],
+                    "properties": {
+                      "observations": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "unresolvedQuestions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
                   }
                 }
               }
-            }
-          },
-          "inspectedEvidenceIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "unresolvedQuestions": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+            ]
           }
         }
       }

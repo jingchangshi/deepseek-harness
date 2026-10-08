@@ -117,108 +117,185 @@
       "description": "Report your final structured result. Call this exactly once, when your answer is complete; the arguments must match this tool's parameter schema exactly.",
       "parameters": {
         "type": "object",
-        "properties": {
-          "problemStatement": {
-            "type": "string"
-          },
-          "hypotheses": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "selectedApproach": {
-            "type": "string"
-          },
-          "rejectedAlternatives": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "invariants": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "expectedComponents": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "implementationScope": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "falsificationTests": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "acceptanceGates": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "unresolvedAssumptions": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "statement": {
-                  "type": "string"
-                },
-                "acceptanceBlocking": {
-                  "type": "boolean"
-                }
-              },
-              "required": [
-                "statement",
-                "acceptanceBlocking"
-              ],
-              "additionalProperties": false
-            }
-          },
-          "verificationExtras": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "name": {
-                  "type": "string"
-                },
-                "scope": {
-                  "type": "object",
-                  "properties": {}
-                }
-              },
-              "required": [
-                "name",
-                "scope"
-              ],
-              "additionalProperties": false
-            }
-          }
-        },
+        "additionalProperties": false,
         "required": [
-          "problemStatement",
-          "hypotheses",
-          "selectedApproach",
-          "rejectedAlternatives",
-          "invariants",
-          "expectedComponents",
-          "implementationScope",
-          "falsificationTests",
-          "acceptanceGates",
-          "unresolvedAssumptions"
+          "response"
         ],
-        "additionalProperties": false
+        "properties": {
+          "response": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "status",
+                  "output"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "success"
+                  },
+                  "output": {
+                    "type": "object",
+                    "properties": {
+                      "problemStatement": {
+                        "type": "string"
+                      },
+                      "hypotheses": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "selectedApproach": {
+                        "type": "string"
+                      },
+                      "rejectedAlternatives": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "invariants": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "expectedComponents": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "implementationScope": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "falsificationTests": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "acceptanceGates": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "unresolvedAssumptions": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "statement": {
+                              "type": "string"
+                            },
+                            "acceptanceBlocking": {
+                              "type": "boolean"
+                            }
+                          },
+                          "required": [
+                            "statement",
+                            "acceptanceBlocking"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "verificationExtras": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "scope": {
+                              "type": "object",
+                              "properties": {}
+                            }
+                          },
+                          "required": [
+                            "name",
+                            "scope"
+                          ],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "problemStatement",
+                      "hypotheses",
+                      "selectedApproach",
+                      "rejectedAlternatives",
+                      "invariants",
+                      "expectedComponents",
+                      "implementationScope",
+                      "falsificationTests",
+                      "acceptanceGates",
+                      "unresolvedAssumptions"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "status",
+                  "reason",
+                  "details",
+                  "partial"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "escalate"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "EVIDENCE_INSUFFICIENT",
+                      "TASK_COMPLEXITY",
+                      "REPAIR_FAILED",
+                      "DESIGN_ERROR"
+                    ]
+                  },
+                  "details": {
+                    "type": "string"
+                  },
+                  "partial": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "observations",
+                      "unresolvedQuestions"
+                    ],
+                    "properties": {
+                      "observations": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "unresolvedQuestions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
       }
     },
     {

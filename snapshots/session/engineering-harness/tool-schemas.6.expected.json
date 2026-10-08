@@ -117,35 +117,112 @@
       "description": "Report your final structured result. Call this exactly once, when your answer is complete; the arguments must match this tool's parameter schema exactly.",
       "parameters": {
         "type": "object",
-        "properties": {
-          "decision": {
-            "type": "string",
-            "enum": [
-              "ACCEPT",
-              "FIX_BOUNDED",
-              "REPLAN",
-              "BLOCKED"
-            ]
-          },
-          "summary": {
-            "type": "string"
-          },
-          "findings": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "blocker": {
-            "type": "string"
-          }
-        },
+        "additionalProperties": false,
         "required": [
-          "decision",
-          "summary",
-          "findings"
+          "response"
         ],
-        "additionalProperties": false
+        "properties": {
+          "response": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "status",
+                  "output"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "success"
+                  },
+                  "output": {
+                    "type": "object",
+                    "properties": {
+                      "decision": {
+                        "type": "string",
+                        "enum": [
+                          "ACCEPT",
+                          "FIX_BOUNDED",
+                          "REPLAN",
+                          "BLOCKED"
+                        ]
+                      },
+                      "summary": {
+                        "type": "string"
+                      },
+                      "findings": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "blocker": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "decision",
+                      "summary",
+                      "findings"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "status",
+                  "reason",
+                  "details",
+                  "partial"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "escalate"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "EVIDENCE_INSUFFICIENT",
+                      "TASK_COMPLEXITY",
+                      "REPAIR_FAILED",
+                      "DESIGN_ERROR"
+                    ]
+                  },
+                  "details": {
+                    "type": "string"
+                  },
+                  "partial": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "observations",
+                      "unresolvedQuestions"
+                    ],
+                    "properties": {
+                      "observations": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "unresolvedQuestions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
       }
     },
     {

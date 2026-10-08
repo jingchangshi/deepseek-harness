@@ -47,10 +47,10 @@ class ScriptedModel extends LlmAdapter {
           : reviewOnly && !called.includes('git_diff')
             ? scriptedCall('git_diff', { path: 'existing.txt' })
             : reviewOnly
-              ? scriptedCall('structured_output', {
+              ? scriptedCall('structured_output', { response: { status: 'success', output: {
                 summary: 'The pinned existing.txt change preserves its required content.', findings: [],
                 inspectedEvidenceIds: actualEvidenceIds, unresolvedQuestions: [],
-              })
+              } } })
               : options.model === 'scout-secondary' && !called.includes('bash')
       ? scriptedCall('bash', { command: 'printf unexpected > forbidden.txt' })
       : options.model === 'scout-secondary' && !called.includes('structured_output')

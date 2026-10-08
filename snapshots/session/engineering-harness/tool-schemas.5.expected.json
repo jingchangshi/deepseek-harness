@@ -294,15 +294,92 @@
       "description": "Report your final structured result. Call this exactly once, when your answer is complete; the arguments must match this tool's parameter schema exactly.",
       "parameters": {
         "type": "object",
-        "properties": {
-          "summary": {
-            "type": "string"
-          }
-        },
+        "additionalProperties": false,
         "required": [
-          "summary"
+          "response"
         ],
-        "additionalProperties": false
+        "properties": {
+          "response": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "status",
+                  "output"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "success"
+                  },
+                  "output": {
+                    "type": "object",
+                    "properties": {
+                      "summary": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "summary"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "status",
+                  "reason",
+                  "details",
+                  "partial"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "const": "escalate"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "EVIDENCE_INSUFFICIENT",
+                      "TASK_COMPLEXITY",
+                      "REPAIR_FAILED",
+                      "DESIGN_ERROR"
+                    ]
+                  },
+                  "details": {
+                    "type": "string"
+                  },
+                  "partial": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "observations",
+                      "unresolvedQuestions"
+                    ],
+                    "properties": {
+                      "observations": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "unresolvedQuestions": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
       }
     },
     {

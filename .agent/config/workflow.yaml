@@ -44,4 +44,8 @@ roleBounds:
     hardDeadlineMs: 600000
     maxToolCalls: 100
 maxInvestigationPaths: 40
+simpleMaxFiles: 3
+standardMaxFiles: 12
+maxCapabilityEscalations: 2
+repairEscalationThreshold: 2
 maxRoleContextBytes: 32768

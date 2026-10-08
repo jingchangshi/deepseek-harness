@@ -688,7 +688,13 @@ describe('automatic engineering workflow', () => {
     const options = await fixture()
     const transitions: string[] = []
     await writeFile(join(options.root, '.agent/config/project.yaml'), dump({ schemaVersion: 1, profile: 'small-feature', adapter: '.agent/adapters/test.yaml', dataClass: 'public', maxSteps: 12, maxRoleCalls: 30, commandTimeoutMs: 30000 }))
-    await expect(runEngineeringTask({ ...options, onProgress: state => { transitions.push(state.state) }, executeRole: async input => input.role === 'implementer' ? { summary: 'Claimed success without writing' } : options.executeRole(input) })).rejects.toThrow('step budget exhausted')
+    await expect(runEngineeringTask({ ...options, onProgress: state => { transitions.push(state.state) }, executeRole: async input => {
+      if (input.role === 'implementer') return { summary: 'Claimed success without writing' }
+      if (input.role === 'architect' && input.context.diagnosisObligation !== undefined) {
+        return { summary: 'The implementation did not create the required file.', observations: ['answer.txt is missing'], recommendation: 'REPLAN', repairConstraints: [], unresolvedQuestions: [] }
+      }
+      return options.executeRole(input)
+    } })).rejects.toThrow('step budget exhausted')
     expect(transitions).toContain('REPLAN')
     expect(transitions).not.toContain('ACCEPTED')
     await expect(runEngineeringTask(options)).rejects.toThrow('step budget exhausted')
@@ -863,13 +869,13 @@ describe('role route fallback', () => {
     expect(attemptLog.endsWith('\n')).toBe(true)
     expect(attempts).toEqual([
       {
-        schemaVersion: 1, role, attemptIndex: 1, routeId: 'worker-secondary', provider: 'magpie',
+        schemaVersion: 1, role, attemptIndex: 1, mode: 'PRIMARY', routeId: 'worker-secondary', provider: 'magpie',
         model: options.deployment.routes['worker-secondary']!.model, reasoningEffort: 'off',
         startedAt: expect.any(String), endedAt: expect.any(String), outcome: 'FAILED',
         failureClass: 'PROVIDER_REQUEST_FAILURE', fallbackReason: 'injected GLM provider failure',
       },
       {
-        schemaVersion: 1, role, attemptIndex: 2, routeId: 'worker-secondary-fallback', provider: 'magpie',
+        schemaVersion: 1, role, attemptIndex: 2, mode: 'FALLBACK', routeId: 'worker-secondary-fallback', provider: 'magpie',
         model: options.deployment.routes['worker-secondary-fallback']!.model, reasoningEffort: 'off',
         startedAt: expect.any(String), endedAt: expect.any(String), outcome: 'SUCCESS',
       },

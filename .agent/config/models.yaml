@@ -69,6 +69,7 @@ routes:
     maxDataClass: internal
     externalRelay: true
     costClass: premium
+    capabilityLevel: 1
   arbiter:
     displayName: Arbiter
     provider: ${DSH_ARBITER_PROVIDER:-magpie-responses}
