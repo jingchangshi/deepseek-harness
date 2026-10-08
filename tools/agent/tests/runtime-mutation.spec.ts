@@ -48,11 +48,23 @@ async function fixture(scenario: Scenario, bodyBarrier?: ReturnType<typeof defer
   observers.set(root, invocation => mutations.push({ role: invocation.role, attempt: invocation.attemptIndex }))
   try {
     await cp(join(SOURCE, '.agent'), join(root, '.agent'), { recursive: true, filter: source => !source.includes(join('.agent', 'tasks')) })
+    const scopedRead = ['read', 'grep', 'lsp', 'concurrent-scouts'].includes(scenario)
+    if (scopedRead) await writeFile(join(root, 'source.txt'), 'fixture source content\n')
+    if (scenario === 'concurrent-scouts') await writeFile(join(root, 'other.txt'), 'other fixture source content\n')
     const models = join(root, '.agent/config/models.yaml')
     await writeFile(models, (await readFile(models, 'utf8')).replaceAll('${DSH_MAGPIE_GATEWAY_URL}', 'https://fixture.invalid/v1'))
-    await writeFile(join(root, '.agent/config/project.yaml'), dump({ schemaVersion: 1, profile: 'small-feature', adapter: '.agent/adapters/test.yaml', dataClass: 'public', maxSteps: 40, maxRoleCalls: 30, commandTimeoutMs: 30_000 }))
+    await writeFile(join(root, '.agent/config/project.yaml'), dump({ schemaVersion: 1, profile: 'small-feature', adapter: '.agent/adapters/test.yaml', dataClass: 'public', maxSteps: 40, maxRoleCalls: 30, commandTimeoutMs: 30_000,
+      ...scopedRead ? { investigationUnits: scenario === 'concurrent-scouts' ? [
+        { id: 'primary-source', role: 'scout-primary', question: 'Inspect the primary source.', allowedPaths: ['source.txt'] },
+        { id: 'secondary-source', role: 'scout-secondary', question: 'Inspect the secondary source.', allowedPaths: ['other.txt'] },
+      ] : [{ id: 'secondary-source', role: 'scout-secondary', question: 'Inspect the source.', allowedPaths: ['source.txt'] }] } : {},
+    }))
     await writeFile(join(root, '.agent/adapters/test.yaml'), dump({ adapters: Object.fromEntries(['typecheck', 'unit', 'build'].map(name => [name, { executable: process.execPath, args: ['-e', 'process.exit(0)'] }])) }))
     await execa('git', ['init', '-q'], { cwd: root })
+    if (scopedRead) {
+      await execa('git', ['add', 'source.txt', ...(scenario === 'concurrent-scouts' ? ['other.txt'] : [])], { cwd: root })
+      await execa('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'scoped sources'], { cwd: root })
+    }
     await execa('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'fixture'], { cwd: root })
     await cp(join(root, '.agent'), join(deploymentRoot, '.agent'), { recursive: true })
     await mountAgentLoopTestDependencies(ctx)
@@ -61,7 +73,11 @@ async function fixture(scenario: Scenario, bodyBarrier?: ReturnType<typeof defer
     for (const name of ['read', 'grep', 'lsp', 'write']) ctx.tools.register(defineTool({
       name, description: 'Fixture tool',
       ...{ sideEffects: name === 'write' || scenario === 'concurrent-scouts' && name === 'read' ? 'potentially-mutating' as const : 'read-only' as const },
-      parameters: name === 'write' ? { file_path: { type: 'string', required: true }, content: { type: 'string', required: true } } : {},
+      parameters: name === 'write' ? { file_path: { type: 'string', required: true }, content: { type: 'string', required: true } }
+        : name === 'read' ? { file_path: { type: 'string', required: true } }
+          : name === 'grep' ? { pattern: { type: 'string', required: true }, path: { type: 'string' } }
+            : name === 'lsp' ? { operation: { type: 'string', required: true }, file_path: { type: 'string', required: true }, line: { type: 'number', required: true }, character: { type: 'number', required: true } }
+              : {},
       output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
       async execute() {
         bodyMutationCounts.push(mutations.length)
@@ -99,7 +115,11 @@ async function fixture(scenario: Scenario, bodyBarrier?: ReturnType<typeof defer
         const tool = scenario === 'concurrent-scouts' ? invocation.role === 'scout-primary' ? 'read' : 'grep' : scenario === 'unknown-bash' ? 'bash' : ['read', 'grep', 'lsp', 'concurrent-scouts'].includes(scenario) ? scenario : 'write'
         const arguments_ = scenario === 'invalid-arguments' ? { file_path: 'source.txt', content: 42 }
           : scenario === 'invalid-path' ? { file_path: '.git/config', content: 'forbidden' }
-          : tool === 'write' ? { file_path: 'source.txt', content: 'side effect' } : {}
+          : tool === 'write' ? { file_path: 'source.txt', content: 'side effect' }
+            : tool === 'read' ? { file_path: 'source.txt' }
+              : tool === 'grep' ? { pattern: 'fixture', path: scenario === 'concurrent-scouts' ? 'other.txt' : 'source.txt' }
+                : tool === 'lsp' ? { operation: 'hover', file_path: 'source.txt', line: 1, character: 1 }
+                  : {}
         const local = new AbortController()
         if (scenario === 'cancelled') local.abort(new Error('Fixture cancelled before execution'))
         const execution = child.agent.ctx.tools.execute({ callId: ToolCallId(`mutation-call-${calls.length}`), name: tool, arguments: arguments_, signal: AbortSignal.any([request.signal, local.signal]), agent: child.agent })

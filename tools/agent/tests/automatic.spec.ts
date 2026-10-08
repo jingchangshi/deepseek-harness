@@ -628,25 +628,31 @@ describe('automatic engineering workflow', () => {
     await expect(recoverEngineeringTask(options.root, task.task.id, true)).resolves.toMatchObject({ state: 'REPLAN', writer: null })
   })
 
-  it('renews bounded budgets without stop confirmation when no durable work remains active', async () => {
+  it('preserves an exhausted lifecycle budget after recovery when no durable work remains active', async () => {
     const options = await fixture()
     await writeFile(join(options.root, '.agent/config/project.yaml'), dump({ schemaVersion: 1, profile: 'small-feature', adapter: '.agent/adapters/test.yaml', dataClass: 'public', maxSteps: 40, maxRoleCalls: 6, commandTimeoutMs: 30000 }))
-    await expect(runEngineeringTask({ ...options, executeRole: async input => input.role === 'challenger'
+    const exhausted = await runEngineeringTask({ ...options, executeRole: async input => input.role === 'challenger'
       ? { decision: 'REVISE', summary: 'Refine the acceptance criteria', findings: ['Clarify output'] }
-      : options.executeRole(input) })).rejects.toThrow('role-call budget exhausted')
+      : options.executeRole(input) })
+    expect(exhausted).toMatchObject({ status: 'BUDGET_EXHAUSTED', nextAction: 'INCREASE_BUDGET', requiresStopConfirmation: false })
     const task = (await getEngineeringStatus(options.root)).tasks[0]
     if (task === undefined) throw new Error('fixture task missing')
-    expect(task.state).toMatchObject({ state: 'INVESTIGATED', writer: null })
+    expect(task.state).toMatchObject({ state: 'BUDGET_EXHAUSTED', writer: null })
     const directory = join(options.root, '.agent/tasks', task.task.id)
     expect(JSON.parse(await readFile(join(directory, 'AUTO.json'), 'utf8'))).toMatchObject({ roleCalls: 6 })
+    const lifecycle = await readFile(join(directory, 'LIFECYCLE.json'), 'utf8')
+    expect(JSON.parse(lifecycle)).toMatchObject({ counts: { logicalInvocations: 6 } })
     await expect(recoverEngineeringTask(options.root, task.task.id, false)).resolves.toMatchObject({ state: 'REPLAN', writer: null })
     expect(JSON.parse(await readFile(join(directory, 'AUTO.json'), 'utf8'))).toMatchObject({
       steps: 0, roleCalls: 0, completedWriterRevision: null, verifiedTreeHash: null, requests: [options.request],
     })
-    const resumed = await runEngineeringTask({ ...options, request: '', taskId: task.task.id })
-    expect(resumed.state!.state).toBe('ACCEPTED')
+    const executeRole = vi.fn(options.executeRole)
+    const resumed = await runEngineeringTask({ ...options, request: '', taskId: task.task.id, executeRole })
+    expect(resumed).toMatchObject({ status: 'BUDGET_EXHAUSTED', state: { state: 'BUDGET_EXHAUSTED', writer: null } })
+    expect(executeRole).not.toHaveBeenCalled()
     expect(resumed.taskId).toBe(task.task.id)
-    expect(JSON.parse(await readFile(join(directory, 'AUTO.json'), 'utf8'))).toMatchObject({ roleCalls: 6 })
+    expect(JSON.parse(await readFile(join(directory, 'AUTO.json'), 'utf8'))).toMatchObject({ roleCalls: 0 })
+    expect(await readFile(join(directory, 'LIFECYCLE.json'), 'utf8')).toBe(lifecycle)
   })
 
   it('invalidates verification checkpoints when recovering a paused review', async () => {
@@ -697,8 +703,10 @@ describe('automatic engineering workflow', () => {
   it('bounds rejected plans without granting a writer lease', async () => {
     const options = await fixture()
     await writeFile(join(options.root, '.agent/config/project.yaml'), dump({ schemaVersion: 1, profile: 'small-feature', adapter: '.agent/adapters/test.yaml', dataClass: 'public', maxSteps: 40, maxRoleCalls: 5, commandTimeoutMs: 30000 }))
-    await expect(runEngineeringTask({ ...options, executeRole: async input => input.role === 'challenger' ? { decision: 'REVISE', summary: 'Acceptance is underspecified', findings: ['Specify target'] } : options.executeRole(input) })).rejects.toThrow('role-call budget exhausted')
-    expect((await getEngineeringStatus(options.root)).tasks[0]?.state).toMatchObject({ state: 'INVESTIGATED', writer: null })
+    const result = await runEngineeringTask({ ...options, executeRole: async input => input.role === 'challenger' ? { decision: 'REVISE', summary: 'Acceptance is underspecified', findings: ['Specify target'] } : options.executeRole(input) })
+    expect(result).toMatchObject({ status: 'BUDGET_EXHAUSTED', nextAction: 'INCREASE_BUDGET' })
+    expect((await getEngineeringStatus(options.root)).tasks[0]?.state).toMatchObject({ state: 'BUDGET_EXHAUSTED', writer: null })
+    expect(JSON.parse(await readFile(join(options.root, '.agent/tasks', result.taskId, 'LIFECYCLE.json'), 'utf8'))).toMatchObject({ counts: { logicalInvocations: 5 } })
   })
 
   it('blocks invalid structured role output and preserves the investigation checkpoint', async () => {
@@ -995,15 +1003,23 @@ describe('role route fallback', () => {
   it('does not turn a fallbackable failure into BLOCKED after cancellation', async () => {
     const options = await fixture()
     const controller = new AbortController()
+    const cancellation = new Error('Parent cancelled the investigation')
     const routes: string[] = []
     await expect(runEngineeringTask({ ...options, signal: controller.signal, executeRole: async input => {
+      if (input.role === 'scout-primary') {
+        await new Promise<void>(resolve => {
+          if (input.signal.aborted) resolve()
+          else input.signal.addEventListener('abort', () => resolve(), { once: true })
+        })
+        input.signal.throwIfAborted()
+      }
       if (input.role === 'scout-secondary') {
         routes.push(input.route.routeId)
-        controller.abort()
+        controller.abort(cancellation)
         throw new RoleInvocationError('provider failed after cancellation', 'PROVIDER_REQUEST_FAILURE', true)
       }
       return options.executeRole(input)
-    } })).rejects.toThrow('provider failed after cancellation')
+    } })).rejects.toBe(cancellation)
     expect(routes).toEqual(['worker-secondary'])
     expect((await getEngineeringStatus(options.root)).tasks[0]?.state.state).not.toBe('BLOCKED')
   })

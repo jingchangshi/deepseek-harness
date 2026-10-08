@@ -349,6 +349,7 @@ describe('engineering project authority', () => {
         },
       },
       workflow: { provider: 'spawn', maxDepth: 1, maxConcurrentAgents: 3, maxTotalAgents: 12, minimumFanout: 2, boundedFixRounds: 2, ralphEnabled: false, arbiterEnabled: false, reviewMaxDirectFiles: 4, reviewMaxScouts: 2,
+        lifecycleBudget: {}, roleBounds: {}, maxInvestigationPaths: 40, maxRoleContextBytes: 32768,
         reviewGitCommandTimeoutMs: 30_000, reviewGitMaxOutputBytes: 8_388_608, reviewGitPageSize: 16_384 },
       dataPolicy: { classes: { public: 0, internal: 1, sensitive: 2 }, allowedSensitiveInputs: [], forbiddenCommittedPatterns: [] },
     })
