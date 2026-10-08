@@ -56,7 +56,7 @@ describe('incremental investigation recovery', () => {
     const options = await fixture()
     const read = TaskRepository.prototype.readInvestigationCheckpoint
     const controller = new AbortController()
-    let primaryPreparing = false
+    let secondaryCheckpointRead = false
     let secondaryPrepared = false
     let releasePrimary!: () => void
     let releaseScouts!: () => void
@@ -66,13 +66,15 @@ describe('incremental investigation recovery', () => {
     const bounds = options.deployment.workflow.roleBounds['scout-secondary']
     const roleBounds = { ...options.deployment.workflow.roleBounds }
     Object.defineProperty(roleBounds, 'scout-secondary', { enumerable: true, get() {
-      if (primaryPreparing) { secondaryPrepared = true; releasePrimary() }
+      if (secondaryCheckpointRead) { secondaryPrepared = true; releasePrimary() }
       return bounds
     } })
     const deployment = { ...options.deployment, workflow: { ...options.deployment.workflow, roleBounds } }
     const preparation = vi.spyOn(TaskRepository.prototype, 'readInvestigationCheckpoint').mockImplementation(async function (this: TaskRepository, taskId, workflow, unitId) {
-      if (unitId === 'scout-a') { primaryPreparing = true; await primaryReady }
-      return read.call(this, taskId, workflow, unitId)
+      if (unitId === 'scout-a' && !secondaryPrepared) await primaryReady
+      const checkpoint = await read.call(this, taskId, workflow, unitId)
+      if (unitId === 'scout-b') secondaryCheckpointRead = true
+      return checkpoint
     })
     const pending = runEngineeringTask({ ...options, deployment, signal: controller.signal, request: 'Inspect the scoped exports concurrently', executeRole: async input => {
       if (input.role.startsWith('scout-')) {
