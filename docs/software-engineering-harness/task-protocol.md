@@ -41,6 +41,8 @@ IMPLEMENTING -> VERIFYING -> VERIFIED -> REVIEWING -> REVIEWED -> ACCEPTED
 
 `engineering_run` returns `nextAction` with its status. `WAIT_FOR_CURRENT_RUN` means another run owns this repository; no additional task, role, writer, or command starts. `RECOVER` forbids an unchanged repeat and requires operator stop confirmation before `engineering_recover` only when `requiresStopConfirmation` is `true`. A `false` value means owned work already reached quiescence, so recovery proceeds without that confirmation. `REPLAN_WITH_SCOPE` requires missing product information rather than a mechanical retry. A verified plan with an acceptance-blocking assumption enters `BLOCKED` with this action and no stop confirmation; supplying changed scope to the same task explicitly replans it. Repeated calls naming a `BLOCKED` task return its blocker without dispatch. `NONE` accompanies terminal acceptance.
 
+An interrupted writer or uncertain child cleanup requires `RECOVER` with `requiresStopConfirmation: true`. Durable state can retain an `IMPLEMENTING` writer even after the model call returns. Do not dispatch another task while any task holds a writer or records uncertain termination.
+
 Replay identity uses the durable Session ID, tool call ID, logged call sequence, and canonical repository path, not request text. The sequence distinguishes later model calls that reuse an ID; direct API callers without a logged sequence must supply a stable distinct call ID themselves. Runtime-owned receipts under `.dsh/engineering/.runtime/invocations/` record the invocation claim before effects, then its selected task and completed result. Concurrent replay joins the in-process operation; completed replay returns the recorded result. An unfinished durable claim after process loss requires explicit recovery rather than starting another workflow. A new tool call with identical text is a distinct invocation.
 
 <a id="revisions-and-writers"></a>
@@ -49,6 +51,8 @@ Replay identity uses the durable Session ID, tool call ID, logged call sequence,
 Every mutating command requires `--revision <current>`. The store acquires `STATE.json.lock`, reloads and validates current state, and rejects a stale revision before writing. Each successful transition increments the revision exactly once; `verify` and `review` each perform two explicit transitions and therefore increment it twice.
 
 `implement` creates one opaque writer token. `verify` must present that exact token, clears the lease, and enters `VERIFYING`. A task cannot acquire another lease while one is active. Only the implementer operation creates a writer lease.
+
+Repository-wide writer admission serializes writer acquisition and checks every task state before a role dispatch or direct `agentctl implement`. An existing writer or uncertain-stop blocker prevents work on the same or another task. Direct `replan` and `block` reject an active writer; they never clear its lease. Use `engineering_recover` to recover an interrupted writer after the operator confirms that its agent and commands have stopped.
 
 Freezing a plan increments `workRevision` and resets `fixAttempts`. Plan, verification, and review artifacts carry the work revision they evaluate. Acceptance rejects artifacts from any other work revision.
 
@@ -86,6 +90,8 @@ The CLI uses executable argument arrays internally and does not invoke a platfor
 ## Recovery
 
 An interrupted artifact write leaves no partial final file because replacement uses a random sibling and atomic rename. An interruption after artifact replacement but before state replacement leaves the artifact's `taskRevision` ahead of authoritative state; readers ignore it until a successful command publishes that revision. Corrupt or missing artifacts fail validation and never become implicit defaults.
+
+If role-child disposal cannot confirm quiescence, the role call fails as `RoleQuiescenceError` and its writer lease remains active. `engineering_recover` requires `taskId` and `confirmedStopped`. Set `confirmedStopped: true` only after the previous agent and all its command work have actually stopped; recovery then releases the lease, enters `REPLAN`, and clears run counters and verification checkpoints. A fresh `engineering_run` or direct implementation remains blocked until recovery succeeds. For a task with no active writer and no uncertain work, pass `false` when stop confirmation is not required.
 
 ## Further Exploration
 

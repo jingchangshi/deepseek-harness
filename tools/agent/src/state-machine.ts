@@ -16,7 +16,7 @@ export type TaskAction =
   | { type: 'begin-review' }
   | { type: 'complete-review'; decision: ReviewDecision; blocker?: string }
   | { type: 'accept' }
-  | { type: 'replan' }
+  | { type: 'replan'; confirmedStopped?: boolean }
   | { type: 'block'; blocker: string }
 
 /** Error raised when an action is not legal for the current state. */
@@ -34,6 +34,17 @@ function requireState(current: TaskStateRecord, action: TaskAction['type'], allo
 
 function requireNoWriter(current: TaskStateRecord, action: TaskAction['type']): void {
   if (current.writer !== null) throw new TransitionError(action, current.state, 'a writer lease is already active')
+}
+
+/**
+ * Return whether durable state records uncertain work that needs operator confirmation.
+ * @param current - authoritative task state.
+ * @returns true when an active writer or stop-confirmation blocker remains.
+ */
+export function taskRequiresStopConfirmation(current: TaskStateRecord): boolean {
+  if (current.writer !== null) return true
+  const blocker = current.blocker ?? ''
+  return /interrupted writer|Docker cancellation|termination is uncertain|confirm.*stopped|all command writes have stopped|previous agent and container|post-verification worktree/i.test(blocker)
 }
 
 function nextRevision(current: TaskStateRecord, now: string): TaskStateRecord {
@@ -128,10 +139,18 @@ export function transition(current: TaskStateRecord, action: TaskAction, now: st
       return { ...nextRevision(current, now), state: 'ACCEPTED' }
     }
     case 'replan': {
+      requireNoWriter(current, action.type)
+      if (taskRequiresStopConfirmation(current) && action.confirmedStopped !== true) {
+        throw new TransitionError(action.type, current.state, 'confirm that all agent and command work has stopped')
+      }
       requireState(current, action.type, ['BASELINED', 'INVESTIGATED', 'PLAN_FROZEN', 'IMPLEMENTING', 'VERIFYING', 'VERIFIED', 'REVIEWING', 'REVIEWED', 'REPLAN', 'BLOCKED'])
       return { ...nextRevision(current, now), state: 'REPLAN', writer: null }
     }
     case 'block': {
+      requireNoWriter(current, action.type)
+      if (taskRequiresStopConfirmation(current)) {
+        throw new TransitionError(action.type, current.state, 'cannot replace a stop-confirmation blocker before recovery')
+      }
       if (action.blocker.trim().length === 0) throw new TransitionError(action.type, current.state, 'blocker is empty')
       return { ...nextRevision(current, now), state: 'BLOCKED', writer: null, blocker: action.blocker }
     }

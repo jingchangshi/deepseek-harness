@@ -14,7 +14,7 @@ import { loadHarnessConfig, resolveRoleRoute } from '../src/config.ts'
 import type { HarnessConfig } from '../src/config.ts'
 import { getEngineeringStatus, loadEngineeringProject, recoverEngineeringTask, runEngineeringTask } from '../src/automatic.ts'
 import type { EngineeringRole, EngineeringRunResult, RoleInvocation } from '../src/automatic.ts'
-import { RoleInvocationError, roleInvocationErrorForLlmCode, roleFailureAfterMutation } from '../src/role-execution.ts'
+import { RoleInvocationError, RoleQuiescenceError, roleInvocationErrorForLlmCode, roleFailureAfterMutation } from '../src/role-execution.ts'
 import { claimEngineeringInvocation, engineeringInvocationId, readEngineeringInvocationReceipt, withEngineeringInvocationLock, writeEngineeringInvocationReceipt } from '../src/invocation.ts'
 import type { EngineeringRunInvocationId } from '../src/invocation.ts'
 
@@ -154,9 +154,10 @@ export async function collectRole(run: SubagentRun, role: EngineeringRole, provi
     await run.dispose()
   } catch (error) {
     const cleanup = error instanceof Error ? error.message : String(error)
-    const disposal = new RoleInvocationError(`Role ${role} via ${provider}/${model} cleanup failed: ${cleanup}`, 'NON_FALLBACKABLE', false, { cause: error })
-    if (executionError !== undefined) throw new AggregateError([executionError, disposal], 'Role execution and cleanup failed')
-    throw disposal
+    const cause = executionError === undefined
+      ? error
+      : new AggregateError([executionError, error], 'Role execution and cleanup failed')
+    throw new RoleQuiescenceError(`Role ${role} via ${provider}/${model} cleanup failed: ${cleanup}`, { cause })
   }
   if (executionError !== undefined) {
     if (stoppedByLocalDeadline && !signal.aborted && executionError.failureClass === 'NON_FALLBACKABLE') {
@@ -178,7 +179,6 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
   const availableTools = new WeakMap<Agent, string[]>()
   const coordinators = new WeakSet<Agent>()
   const children = new WeakSet<Agent>()
-  const mutationObservers = new WeakMap<Agent, () => void>()
   const startingMutationObservers = new Map<string, () => void>()
   const childrenByParent = new Set<string>()
   let closing = false
@@ -195,9 +195,16 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
 
   ctx.on('agent/created', async ({ agent }) => {
     if (agent.session.header.parentSession !== undefined) {
-      if (childrenByParent.has(agent.session.header.parentSession)) children.add(agent)
-      const observer = startingMutationObservers.get(agent.session.header.parentSession)
-      if (observer !== undefined) mutationObservers.set(agent, observer)
+      if (childrenByParent.has(agent.session.header.parentSession)) {
+        children.add(agent)
+        agent.ctx.tools.presentAs('native')
+        const observer = startingMutationObservers.get(agent.session.header.parentSession)
+        if (observer !== undefined) {
+          agent.ctx.tools.observeBodyStart((_exec, sideEffects) => {
+            if (sideEffects === 'potentially-mutating') observer()
+          })
+        }
+      }
       return
     }
     const root = workspace(agent)
@@ -238,7 +245,6 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
     return undefined
   })
   ctx.on('tools/pre-execute', async (exec, next) => {
-    if (exec.agent !== undefined && !READ_TOOLS.includes(exec.name)) mutationObservers.get(exec.agent)?.()
     if (exec.agent !== undefined && children.has(exec.agent) && WRITE_TOOLS.includes(exec.name)) {
       const args = exec.arguments
       if (args === null || typeof args !== 'object') throw new Error('Engineering write requires a path')

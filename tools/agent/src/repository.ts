@@ -9,7 +9,7 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { ArtifactSchemas } from './schemas.ts'
 import type { ArtifactSchemaName } from './schemas.ts'
-import { transition } from './state-machine.ts'
+import { taskRequiresStopConfirmation, transition } from './state-machine.ts'
 import type { TaskAction } from './state-machine.ts'
 import { initializeMissingRepositoryFiles, repositoryTemplateFiles } from './templates.ts'
 import { assertVerificationEvidence, loadVerificationProfile, resolveVerificationCommand, verificationInstanceId } from './verification.ts'
@@ -184,7 +184,8 @@ export class TaskRepository {
 
   /** Acquire the sole writer lease and enter implementation. */
   async startImplementation(taskId: string, expectedRevision: number): Promise<TaskStateRecord> {
-    return withFileLock(join(this.taskDirectory(taskId), 'STATE.json'), async () => {
+    return withFileLock(join(this.root, '.agent', 'WRITER_ADMISSION'), () => withFileLock(join(this.taskDirectory(taskId), 'STATE.json'), async () => {
+      await this.assertDispatchAdmission(taskId)
       const current = await this.readState(taskId)
       this.assertRevision(current, expectedRevision)
       const plan = await this.readBoundPlan(taskId)
@@ -193,7 +194,30 @@ export class TaskRepository {
       await this.writeBoundPlan(taskId, { ...plan, binding: { ...plan.binding, seal: null } })
       await this.writeAtomic(join(this.taskDirectory(taskId), 'STATE.json'), json(next), { mode: 0o600 })
       return next
-    })
+    }))
+  }
+
+  /**
+   * Reject dispatch while any task owns a writer or records uncertain termination.
+   * @param taskId - selected task, whose completed writer may be allowed.
+   * @param allowedCompletedWriterRevision - revision of a successfully completed writer for this task.
+   * @param confirmedRecovery - whether recovery explicitly confirmed stopped work for the selected task.
+   * @returns void when no task blocks dispatch.
+   */
+  async assertDispatchAdmission(taskId: string, allowedCompletedWriterRevision?: number, confirmedRecovery = false): Promise<void> {
+    const tasksRoot = join(this.root, '.agent', 'tasks')
+    for (const entry of await readdir(tasksRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      const statePath = join(tasksRoot, entry.name, 'STATE.json')
+      if (await this.readOptional(statePath) === undefined) continue
+      const state = await this.readJson('state', statePath) as TaskStateRecord
+      if (confirmedRecovery && entry.name === taskId) continue
+      const allowedOwnWriter = entry.name === taskId && allowedCompletedWriterRevision !== undefined
+        && state.writer?.baseRevision === allowedCompletedWriterRevision
+      if (allowedOwnWriter) continue
+      if (state.writer !== null) throw new Error(`task ${state.taskId} has an interrupted writer; stop its agent and explicitly release its lease before dispatch`)
+      if (taskRequiresStopConfirmation(state)) throw new Error(`task ${state.taskId} requires confirmation that all agent and command work has stopped before dispatch`)
+    }
   }
 
   /** Release an owned lease after its executor has stopped, retaining partial work for resumption. */
@@ -414,8 +438,8 @@ export class TaskRepository {
   }
 
   /** Explicitly leave current work and require a new investigation and plan. */
-  async replan(taskId: string, expectedRevision: number): Promise<TaskStateRecord> {
-    return this.mutate(taskId, expectedRevision, current => transition(current, { type: 'replan' }, this.now()))
+  async replan(taskId: string, expectedRevision: number, confirmedStopped = false): Promise<TaskStateRecord> {
+    return this.mutate(taskId, expectedRevision, current => transition(current, { type: 'replan', confirmedStopped }, this.now()))
   }
 
   /** Record a blocker after all owned model writers have stopped. */

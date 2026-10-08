@@ -17,7 +17,8 @@ import { loadRepositoryVerificationContext } from './identity.ts'
 import type { RepositoryKnowledge } from './knowledge.ts'
 import { loadVerificationProfile, runCommand, runVerificationProfile, validateVerificationProfileId, verificationEvidence } from './verification.ts'
 import type { TaskDocument, TaskStateRecord } from './types.ts'
-import { RoleInvocationError, fallbackRoleAttempt, isAbortError, roleFailureAfterMutation } from './role-execution.ts'
+import { taskRequiresStopConfirmation } from './state-machine.ts'
+import { RoleInvocationError, RoleQuiescenceError, fallbackRoleAttempt, isAbortError, roleFailureAfterMutation } from './role-execution.ts'
 import type { RoleAttemptRecord } from './role-execution.ts'
 import { isLiveWriterLockTimeout } from './run-lock.ts'
 
@@ -125,26 +126,24 @@ function positive(value: unknown, name: string): number {
 
 function nextActionForState(state: TaskStateRecord): { nextAction: EngineeringNextAction; requiresStopConfirmation: boolean } {
   if (state.state === 'ACCEPTED') return { nextAction: 'NONE', requiresStopConfirmation: false }
+  if (taskRequiresStopConfirmation(state)) return { nextAction: 'RECOVER', requiresStopConfirmation: true }
   if (state.state !== 'BLOCKED') return { nextAction: 'RESUME', requiresStopConfirmation: false }
   const blocker = state.blocker ?? ''
   if (/unresolved plan assumption|product scope|product decision|missing product|scope information/i.test(blocker)) {
     return { nextAction: 'REPLAN_WITH_SCOPE', requiresStopConfirmation: false }
   }
-  return { nextAction: 'RECOVER', requiresStopConfirmation: requiresStopConfirmation(state) }
-}
-
-function requiresStopConfirmation(state: TaskStateRecord): boolean {
-  if (state.writer !== null) return true
-  const blocker = state.blocker ?? ''
-  return /interrupted writer|Docker cancellation|termination is uncertain|confirm.*stopped|all command writes have stopped|previous agent and container|post-verification worktree/i.test(blocker)
+  return { nextAction: 'RECOVER', requiresStopConfirmation: taskRequiresStopConfirmation(state) }
 }
 
 function resultForState(taskId: string, state: TaskStateRecord): EngineeringRunResult {
+  if (state.state !== 'ACCEPTED' && state.state !== 'BLOCKED') {
+    throw new Error(`task ${taskId} cannot return a run result from ${state.state}`)
+  }
   const action = nextActionForState(state)
   return {
     taskId,
     state,
-    status: state.state === 'ACCEPTED' ? 'ACCEPTED' : state.state === 'BLOCKED' ? 'BLOCKED' : 'ACCEPTED',
+    status: state.state === 'ACCEPTED' ? 'ACCEPTED' : 'BLOCKED',
     summary: state.state === 'ACCEPTED' ? 'Required verification and independent review passed.' : state.blocker ?? 'Task blocked.',
     nextAction: action.nextAction,
     requiresStopConfirmation: action.requiresStopConfirmation,
@@ -371,9 +370,10 @@ export async function recoverEngineeringTask(root: string, taskId: string, confi
     const verifiedState = state.state === 'VERIFIED' || state.state === 'REVIEWING' || state.state === 'REVIEWED'
     const changedAfterVerification = verifiedState && journal.verifiedTreeHash !== null
       && await worktreeHash(canonical) !== journal.verifiedTreeHash
-    if (!confirmedStopped && (requiresStopConfirmation(state) || changedAfterVerification)) {
+    if (!confirmedStopped && (taskRequiresStopConfirmation(state) || changedAfterVerification)) {
       throw new Error('recovery requires confirmation that the previous agent and container command have stopped')
     }
+    await repository.assertDispatchAdmission(taskId, undefined, true)
     // Recovery always discards the current work revision. When the artifacts
     // already satisfy acceptance, that discard throws away a completed result
     // for nothing, so refuse and point at the transition that consumes it.
@@ -383,7 +383,7 @@ export async function recoverEngineeringTask(root: string, taskId: string, confi
       throw new Error(`task ${taskId} holds an acceptable reviewed work revision; recovery would discard it. Call engineering_run with the same taskId to accept it, or supply a changed request to replan with explicit scope.`)
     }
     if (state.writer !== null) state = await repository.releaseImplementation(taskId, state.revision, state.writer.token)
-    const replanned = await repository.replan(taskId, state.revision)
+    const replanned = await repository.replan(taskId, state.revision, confirmedStopped)
     await writeFileAtomic(path, `${JSON.stringify({
       ...journal, steps: 0, roleCalls: 0, completedWriterRevision: null, verifiedTreeHash: null,
     }, null, 2)}\n`, { mode: 0o600 })
@@ -451,6 +451,7 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
     const task = await repository.readTask(taskId)
     if (task.profile !== project.profile || task.dataClass !== project.dataClass) throw new Error('project profile or dataClass changed since task creation')
     let state = await repository.readState(taskId)
+    await repository.assertDispatchAdmission(taskId, journal.completedWriterRevision ?? undefined)
     let reservation = Promise.resolve()
     const call = async (role: EngineeringRole, extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> => {
       signal.throwIfAborted()
@@ -496,6 +497,7 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
       if (schemas === undefined || primaryStart === undefined) throw new Error(`role ${role} did not start`)
       const validator = new Ajv({ strict: true, allErrors: true }).compile(schemas.validation)
       const records: RoleAttemptRecord[] = []
+      let quiescenceError: RoleQuiescenceError | undefined
       try {
         for (const [index, route] of attempts.entries()) {
           assertRouteDispatchAllowed(config, route.routeId, project.dataClass)
@@ -528,6 +530,10 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
                 : fallback === undefined ? { failureClass: 'NON_FALLBACKABLE' as const, fallbackReason: error instanceof Error ? error.message.slice(0, 1000) : String(error).slice(0, 1000) }
                 : { failureClass: fallback.failureClass, fallbackReason: fallback.fallbackReason } })
             if (fallback !== undefined && attemptIndex < attempts.length) continue
+            if (error instanceof RoleQuiescenceError) {
+              quiescenceError = error
+              throw error
+            }
             if (error instanceof EngineeringRoleFailure) throw error
             if (!(error instanceof RoleInvocationError)) throw error
             if (signal.aborted || isAbortError(error)) throw error
@@ -536,7 +542,14 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
         }
         throw new Error(`role ${role} exhausted its configured dispatch routes`)
       } finally {
-        await appendRoleAttempts(root, taskId, role, records)
+        try {
+          await appendRoleAttempts(root, taskId, role, records)
+        } catch (error) {
+          if (quiescenceError === undefined) throw error
+          throw new RoleQuiescenceError(quiescenceError.message, {
+            cause: new AggregateError([quiescenceError, error], 'Role quiescence and attempt audit persistence failed'),
+          })
+        }
       }
     }
     while (state.state !== 'ACCEPTED' && state.state !== 'BLOCKED') {
@@ -591,6 +604,7 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
               journal.completedWriterRevision = state.revision
               await save()
             } catch (error) {
+              if (error instanceof RoleQuiescenceError) throw error
               state = await repository.releaseImplementation(taskId, state.revision, token)
               throw error
             }
@@ -634,6 +648,13 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
           break
         }
       } catch (error) {
+        if (error instanceof RoleQuiescenceError) {
+          if (state.writer !== null) throw error
+          state = await repository.block(taskId, state.revision,
+            `${error.message}. Termination is uncertain. Confirm that all agent and command work has stopped before recovery.`)
+          if (signal.aborted) throw error
+          break
+        }
         if (signal.aborted) throw error
         if (!(error instanceof EngineeringRoleFailure) && !(error instanceof PlanAssumptionBlocker)) throw error
         state = await repository.block(taskId, state.revision, error.message)

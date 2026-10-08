@@ -53,6 +53,19 @@ export class RoleInvocationError extends Error {
   }
 }
 
+/** A role child could not be confirmed stopped after its result settled. */
+export class RoleQuiescenceError extends RoleInvocationError {
+  /**
+   * Create a non-fallbackable failure that requires stopped-work recovery.
+   * @param message - cleanup diagnostic retained for durable recovery.
+   * @param options - underlying cleanup or combined execution and cleanup failure.
+   */
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, 'NON_FALLBACKABLE', false, options)
+    this.name = 'RoleQuiescenceError'
+  }
+}
+
 const PROVIDER_REQUEST_FAILURE_CODES = new Set([
   'AUTH',
   'MISSING_CREDENTIAL',

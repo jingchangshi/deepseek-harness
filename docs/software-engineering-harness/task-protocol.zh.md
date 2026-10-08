@@ -41,6 +41,8 @@ IMPLEMENTING -> VERIFYING -> VERIFIED -> REVIEWING -> REVIEWED -> ACCEPTED
 
 `engineering_run` 在状态中返回 `nextAction`。`WAIT_FOR_CURRENT_RUN` 表示另一个运行拥有该仓库；不会启动额外任务、角色、writer 或命令。`RECOVER` 禁止未修改的重复调用；仅当 `requiresStopConfirmation` 为 `true` 时，才要求在 `engineering_recover` 前取得人工停机确认。`false` 表示拥有的工作已达到 quiescence，因此恢复不需要该确认。`REPLAN_WITH_SCOPE` 要求补充产品信息，而不是机械重试。已验证的计划若仍有阻止验收的假设，则进入 `BLOCKED` 并返回此操作，无需停机确认；为同一任务补充变更后的范围会显式重新规划。指定 `BLOCKED` 任务的重复调用返回其 blocker，不派发角色。`NONE` 对应终态验收。
 
+Writer 中断或 child cleanup 状态不确定时，`RECOVER` 会返回 `requiresStopConfirmation: true`。即使 model call 已返回，持久化状态仍可能保留 `IMPLEMENTING` writer。在任一 task 持有 writer 或记录了不确定的停机状态时，不要分派其他任务。
+
 重放身份由持久化 Session ID、tool call ID、已记录的调用序号和仓库规范路径组成，不使用请求文本。序号区分后续复用 ID 的模型调用；不带已记录序号的直接 API 调用方必须自行提供稳定且不同的 call ID。`.dsh/engineering/.runtime/invocations/` 下 runtime 拥有的回执在副作用前记录调用声明，随后记录所选任务和完成结果。并发重放共享进程内操作；完成后重放返回已记录结果。进程丢失后未完成的持久化声明要求显式恢复，不会启动另一条工作流。文本相同但 tool call 不同的请求属于独立调用。
 
 <a id="revisions-and-writers"></a>
@@ -49,6 +51,8 @@ IMPLEMENTING -> VERIFYING -> VERIFIED -> REVIEWING -> REVIEWED -> ACCEPTED
 每个 mutating command 都要求 `--revision <current>`。store 获取 `STATE.json.lock`，重新加载并验证 current state，并在写入前拒绝 stale revision。每次成功 transition 恰好递增一次 revision；`verify` 和 `review` 都执行两个显式 transition，因此各递增两次。
 
 `implement` 创建一个 opaque writer token。`verify` 必须提交该 exact token，清除 lease 并进入 `VERIFYING`。存在 active lease 时，task 不能获取另一个 lease。只有 implementer operation 可以创建 writer lease。
+
+Repository-wide writer admission 会串行化 writer 获取，并在分派角色或直接执行 `agentctl implement` 前检查所有 task 状态。已有 writer 或不确定停机的 blocker 会阻止对同一或其他 task 派发工作。直接调用 `replan` 和 `block` 遇到 active writer 会失败，且不会清除其 lease。恢复中断的 writer 时，使用 `engineering_recover`，并先由 operator 确认其 agent 和 command 均已停止。
 
 冻结 plan 会增加 `workRevision` 并重置 `fixAttempts`。Plan、verification 与 review artifact 携带其评估的 work revision。Acceptance 会拒绝来自其他 work revision 的 artifact。
 
@@ -86,6 +90,8 @@ CLI 在内部使用 executable argument array，不调用 platform shell。`veri
 ## 恢复
 
 中断的 artifact write 不会留下 partial final file，因为 replacement 使用 random sibling 和 atomic rename。在 artifact replacement 之后、state replacement 之前中断时，artifact 的 `taskRevision` 会领先 authoritative state；reader 会忽略它，直到成功 command 发布该 revision。corrupt 或 missing artifact 会 validation failure，且绝不成为 implicit default。
+
+如果 role child 的 dispose 无法确认 quiescence，role call 会以 `RoleQuiescenceError` 失败，并保留其 writer lease。`engineering_recover` 要求 `taskId` 和 `confirmedStopped`。只有在旧 agent 及其所有 command 确实停止后，才能设置 `confirmedStopped: true`；恢复随后释放 lease、进入 `REPLAN`，并清除运行计数器与 verification checkpoint。恢复成功前，新的 `engineering_run` 或直接 implementation 都无法开始。task 没有 active writer 且没有不确定工作时，如果不要求停机确认，则传入 `false`。
 
 ## 延伸阅读
 
