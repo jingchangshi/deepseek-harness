@@ -27,13 +27,15 @@ function evidenceId(result: ToolExecutionResult): string {
   return value.evidenceId
 }
 
-async function fixture(attemptForbiddenTools = false, unsafeRole = false, unsafeRead = false) {
+async function fixture(attemptForbiddenTools = false, unsafeRole = false, unsafeRead = false,
+  reviewPersona: 'configured' | 'missing-declaration' | 'missing-file' = 'configured') {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-runtime-review-')))
   const deploymentRoot = await realpath(await mkdtemp(join(tmpdir(), 'dsh-runtime-review-deployment-')))
   const ctx = new Context()
   const controller = new AbortController()
   let pending: Promise<ToolExecutionResult> | undefined
   const calls: string[] = []
+  const personas: string[] = []
   const toolResults: Array<{ name: string; result: ToolExecutionResult }> = []
   const writeBodies: string[] = []
   let mutations = 0
@@ -45,8 +47,15 @@ async function fixture(attemptForbiddenTools = false, unsafeRole = false, unsafe
     await writeFile(join(root, '.agent/config/project.yaml'), dump({ schemaVersion: 1, profile: 'small-feature', adapter: '.agent/adapters/test.yaml', dataClass: 'public', maxSteps: 40, maxRoleCalls: 30, commandTimeoutMs: 30_000 }))
     await writeFile(join(root, '.agent/adapters/test.yaml'), dump({ adapters: Object.fromEntries(['unit', 'typecheck', 'build'].map(name => [name, { executable: process.execPath, args: ['-e', 'process.exit(0)'] }])) }))
     await cp(join(root, '.agent'), join(deploymentRoot, '.agent'), { recursive: true })
+    const rolesPath = join(deploymentRoot, '.agent/config/roles.yaml')
+    const roles = load(await readFile(rolesPath, 'utf8')) as { roles: Record<string, { writable: boolean; toolPolicy: string; personaFile: string; reviewPersonaFile?: string }> }
+    if (reviewPersona !== 'missing-declaration') {
+      roles.roles.reviewer!.reviewPersonaFile = reviewPersona === 'configured' ? '.agent/roles/review-only.md' : '.agent/roles/missing-review.md'
+      if (reviewPersona === 'configured') await writeFile(join(deploymentRoot, '.agent/roles/review-only.md'), 'REVIEW_ONLY_PERSONA_SENTINEL\n')
+    } else delete roles.roles.reviewer!.reviewPersonaFile
+    await writeFile(rolesPath, dump(roles))
+    await writeFile(join(deploymentRoot, roles.roles.reviewer!.personaFile), 'DEVELOPMENT_REVIEWER_PERSONA_SENTINEL\n')
     if (unsafeRole) {
-      const rolesPath = join(deploymentRoot, '.agent/config/roles.yaml')
       const config = load(await readFile(rolesPath, 'utf8')) as { roles: Record<string, { writable: boolean; toolPolicy: string }> }
       config.roles.reviewer!.writable = true
       config.roles.reviewer!.toolPolicy = 'writer'
@@ -91,6 +100,8 @@ async function fixture(attemptForbiddenTools = false, unsafeRole = false, unsafe
         if (prompt?.type !== 'text') throw new Error('Missing review invocation')
         const invocation = JSON.parse(prompt.text) as { role: string }
         calls.push(invocation.role)
+        if (request.persona === undefined) throw new Error('Missing child persona')
+        personas.push(request.persona)
         const child = await ctx.agentLoop.createAgent(ctx, { sessionId: SessionId(`review-child-${calls.length}`), parentAgent: request.parent, meta: { cwd: root, parentSession: request.parent.id, origin: 'subagent', delegationDepth: 1 } })
         if (request.toolFilter === undefined) throw new Error('Review route has no tool filter')
         child.agent.ctx.tools.restrict(request.toolFilter)
@@ -117,7 +128,7 @@ async function fixture(attemptForbiddenTools = false, unsafeRole = false, unsafe
     await ctx.plugin(Runtime, { deploymentRoot, roleTimeoutMs: 30_000 })
     const parent = await ctx.agentLoop.create(SessionId('review-coordinator'), {}, { cwd: root })
     pending = parent.ctx.tools.execute({ callId: ToolCallId('review-call'), name: 'engineering_review', arguments: { targetKind: 'commit', target: commit }, signal: controller.signal, agent: parent })
-    return { root, pending, parent, controller, commit, calls, toolResults, writeBodies, beforeStatus, get mutations() { return mutations },
+    return { root, pending, parent, controller, commit, calls, personas, toolResults, writeBodies, beforeStatus, get mutations() { return mutations },
       async close() {
         controller.abort()
         if (pending !== undefined) await Promise.allSettled([pending])
@@ -200,5 +211,42 @@ describe('real runtime review-only authority', () => {
 
   it('rejects a writable Reviewer deployment before any review role dispatch', async () => {
     await expect(fixture(false, true)).rejects.toThrow(/only writable role|read.only|reviewer/i)
+  })
+
+  it('dispatches Review-only with its configured persona instead of the Development persona', async () => {
+    const run = await fixture()
+    try {
+      const result = await run.pending
+      expect(result.isError).toBe(false)
+      expect(run.personas).toHaveLength(1)
+      expect(run.personas[0]).toContain('REVIEW_ONLY_PERSONA_SENTINEL')
+      expect(run.personas[0]).not.toContain('DEVELOPMENT_REVIEWER_PERSONA_SENTINEL')
+    } finally { await run.close() }
+  })
+
+  it('fails before dispatch when Review-only has no configured persona', async () => {
+    const run = await fixture(false, false, false, 'missing-declaration')
+    try {
+      const result = await run.pending
+      expect(result.isError).toBe(false)
+      const review = JSON.parse(String(result.value)) as { status: string; unresolvedQuestions: string[] }
+      expect(review.status).toBe('PARTIAL')
+      expect(review.unresolvedQuestions.join('\n')).toMatch(/persona/i)
+      expect(run.calls).toEqual([])
+      expect(run.personas).toEqual([])
+    } finally { await run.close() }
+  })
+
+  it('fails before dispatch when the configured Review-only persona file is missing', async () => {
+    const run = await fixture(false, false, false, 'missing-file')
+    try {
+      const result = await run.pending
+      expect(result.isError).toBe(false)
+      const review = JSON.parse(String(result.value)) as { status: string; unresolvedQuestions: string[] }
+      expect(review.status).toBe('PARTIAL')
+      expect(review.unresolvedQuestions.join('\n')).toMatch(/persona|ENOENT|no such file/i)
+      expect(run.calls).toEqual([])
+      expect(run.personas).toEqual([])
+    } finally { await run.close() }
   })
 })
