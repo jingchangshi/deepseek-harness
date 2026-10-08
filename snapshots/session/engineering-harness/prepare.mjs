@@ -27,6 +27,9 @@ export async function prepareEngineeringWorkspace(cwd) {
   const roleConfig = load(await readFile(join(deployment, '.agent/config/roles.yaml'), 'utf8'))
   for (const [role, config] of Object.entries(roleConfig.roles)) {
     config.route = role
+    // The synthetic route registry below replaces every deployment route.
+    // Drop mappings from the source deployment that point at routes absent here.
+    delete config.routeReasoningEfforts
     config.escalationRoutes = []
     config.escalationFallbackRoutes = []
     if (config.fallbackRoutes !== undefined) config.fallbackRoutes = ['worker-fallback']

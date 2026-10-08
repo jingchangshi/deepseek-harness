@@ -5,7 +5,7 @@ import { runInNewContext } from 'node:vm'
 import { DEFAULT_SCHEMA, dump, load, Type } from 'js-yaml'
 import { describe, expect, it } from 'vitest'
 import { providerOptions } from '../runtime/bootstrap.ts'
-import { assertDispatchAllowed, assertRouteDispatchAllowed, loadHarnessConfig, resolveRoleAttempts, resolveRoleRoute } from '../src/config.ts'
+import { assertDispatchAllowed, assertRouteDispatchAllowed, loadHarnessConfig, resolveRoleAttempts, resolveRoleEscalations, resolveRoleRoute } from '../src/config.ts'
 
 const ROOT = resolve(import.meta.dirname, '../../..')
 
@@ -307,6 +307,25 @@ describe('harness configuration', () => {
     const config = await loadHarnessConfig(ROOT, { env: {} })
     expect(config.roles.implementer).toMatchObject({ writable: true, fallbackRoutes: ['worker-fallback'] })
     expect(resolveRoleAttempts(config, 'implementer')).toHaveLength(2)
+  })
+
+  it('uses the implementer architecture effort declared for its escalation route', async () => {
+    const config = await loadHarnessConfig(ROOT, { env: {} })
+    expect(config.roles.implementer?.routeReasoningEfforts).toEqual({ architecture: 'high' })
+    expect(resolveRoleEscalations(config, 'implementer', 'worker')).toMatchObject({ candidates: [{ routeId: 'architecture', reasoningEffort: 'high' }] })
+  })
+
+  it('rejects a per-route reasoning effort that the route does not declare', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-agent-config-'))
+    try {
+      await cp(join(ROOT, '.agent/config'), join(root, '.agent/config'), { recursive: true })
+      const filename = join(root, '.agent/config/roles.yaml')
+      const source = await readFile(filename, 'utf8')
+      await writeFile(filename, source.replace('architecture: high', 'architecture: max'))
+      await expect(loadHarnessConfig(root, { env: {} })).rejects.toThrow(/(?:route architecture requests unsupported reasoning effort max|escalation route architecture does not support reasoning effort max)/)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it('keeps the committed Cordis overlay aligned with fixed-role policy', async () => {
