@@ -10,7 +10,11 @@ import Ajv from 'ajv'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { assertObjectJsonSchema, type JsonSchemaNode, type ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
 import { assertRouteDispatchAllowed, resolveRoleAttempts } from './config.ts'
-import type { HarnessConfig, ResolvedRoleRoute } from './config.ts'
+import type { HarnessConfig, ResolvedRoleRoute, RoleBounds } from './config.ts'
+import { BudgetExhaustedError } from './lifecycle.ts'
+import type { TaskLifecycle, EngineeringInvocationId, EngineeringAttemptId } from './lifecycle.ts'
+import { captureInvestigationDependencies, investigationPath, investigationScopeDigest } from './investigation.ts'
+import type { InvestigationUnit, InspectionReceipt, InvestigationCheckpoint } from './investigation.ts'
 import { PlanAssumptionBlocker, TaskRepository } from './repository.ts'
 import { loadRepositoryKnowledge } from './knowledge.ts'
 import { loadRepositoryVerificationContext } from './identity.ts'
@@ -37,6 +41,24 @@ export interface EngineeringProject {
   commandTimeoutMs: number
   knowledgeFile?: string
   knowledge?: RepositoryKnowledge
+  /** Explicit bounded questions; omitted scope is generated from tracked source files. */
+  investigationUnits?: Array<Pick<InvestigationUnit, 'id' | 'role' | 'question' | 'allowedPaths'>>
+}
+
+/** Trusted accounting and actual inspection callbacks, excluded from model input. */
+export interface RoleExecutionControl {
+  taskId: string
+  routeId: string
+  lifecycle: TaskLifecycle
+  invocationId: EngineeringInvocationId
+  attemptId: EngineeringAttemptId
+  bounds: RoleBounds
+  startedAt: string
+  reserveToolCall: (executionId: string) => Promise<void>
+  recordInspection: (receipt: InspectionReceipt) => Promise<void>
+  checkpoint: () => Promise<void>
+  /** Synchronous final body barrier; retries consume the same logical tool allowance. */
+  markBodyStart: () => void
 }
 
 /** Model roles admitted by the automatic driver. */
@@ -58,6 +80,10 @@ export interface RoleInvocation {
   markMutationStarted?: () => void
   /** Trusted Git query owner for a Review-only child; excluded from model prompt serialization. */
   reviewEvidence?: GitEvidenceRepository
+  /** Structured read-only investigation assignment. */
+  workUnit?: InvestigationUnit
+  /** Process-local accounting authority; never serialized into a role prompt. */
+  executionControl?: RoleExecutionControl
 }
 
 /** Executors must settle only after their agent and its owned writes have stopped, including cancellation. */
@@ -86,7 +112,7 @@ export interface EngineeringRunOptions {
 
 /** Authoritative state and the identifier needed for subsequent resumption. */
 export interface EngineeringRunResult {
-  status: 'ACCEPTED' | 'BLOCKED' | 'RUN_ALREADY_ACTIVE'
+  status: 'ACCEPTED' | 'BLOCKED' | 'BUDGET_EXHAUSTED' | 'RUN_ALREADY_ACTIVE'
   taskId: string
   state?: TaskStateRecord
   summary: string
@@ -101,6 +127,7 @@ export type EngineeringNextAction =
   | 'RECOVER'
   | 'REPLAN_WITH_SCOPE'
   | 'WAIT_FOR_CURRENT_RUN'
+  | 'INCREASE_BUDGET'
 
 /** Read-only task listing used for status and explicit resumption choices. */
 export interface EngineeringStatus {
@@ -133,6 +160,7 @@ function positive(value: unknown, name: string): number {
 function nextActionForState(state: TaskStateRecord): { nextAction: EngineeringNextAction; requiresStopConfirmation: boolean } {
   if (state.state === 'ACCEPTED') return { nextAction: 'NONE', requiresStopConfirmation: false }
   if (taskRequiresStopConfirmation(state)) return { nextAction: 'RECOVER', requiresStopConfirmation: true }
+  if (state.state === 'BUDGET_EXHAUSTED') return { nextAction: 'INCREASE_BUDGET', requiresStopConfirmation: false }
   if (state.state !== 'BLOCKED') return { nextAction: 'RESUME', requiresStopConfirmation: false }
   const blocker = state.blocker ?? ''
   if (/unresolved plan assumption|product scope|product decision|missing product|scope information/i.test(blocker)) {
@@ -142,14 +170,14 @@ function nextActionForState(state: TaskStateRecord): { nextAction: EngineeringNe
 }
 
 function resultForState(taskId: string, state: TaskStateRecord): EngineeringRunResult {
-  if (state.state !== 'ACCEPTED' && state.state !== 'BLOCKED') {
+  if (state.state !== 'ACCEPTED' && state.state !== 'BLOCKED' && state.state !== 'BUDGET_EXHAUSTED') {
     throw new Error(`task ${taskId} cannot return a run result from ${state.state}`)
   }
   const action = nextActionForState(state)
   return {
     taskId,
     state,
-    status: state.state === 'ACCEPTED' ? 'ACCEPTED' : 'BLOCKED',
+    status: state.state === 'ACCEPTED' ? 'ACCEPTED' : state.state === 'BUDGET_EXHAUSTED' ? 'BUDGET_EXHAUSTED' : 'BLOCKED',
     summary: state.state === 'ACCEPTED' ? 'Required verification and independent review passed.' : state.blocker ?? 'Task blocked.',
     nextAction: action.nextAction,
     requiresStopConfirmation: action.requiresStopConfirmation,
@@ -165,6 +193,54 @@ async function optionalJson(path: string): Promise<unknown> {
     throw error
   }
   return JSON.parse(source)
+}
+
+/**
+ * Materialize oversized role context as a hashed, readable workflow artifact.
+ * @param directory - owning task artifact directory.
+ * @param role - context reader and artifact name.
+ * @param context - relevant current facts, without process-local controls.
+ * @param maxBytes - configured maximum serialized context size.
+ * @returns the inline context or an exact file reference; throws if the reference exceeds the limit.
+ */
+export async function boundedContext(directory: string, role: EngineeringRole, context: Record<string, unknown>, maxBytes: number): Promise<Record<string, unknown>> {
+  const source = JSON.stringify(context)
+  if (Buffer.byteLength(source) <= maxBytes) return context
+  const digest = createHash('sha256').update(source).digest('hex')
+  const path = join(directory, `CONTEXT-${role}-${digest}.json`)
+  await writeFileAtomic(path, `${source}\n`, { mode: 0o600 })
+  const result = { contextReference: { path, sha256: digest, bytes: Buffer.byteLength(source), instruction: 'Read the relevant fields from this workflow-owned context file; do not infer omitted facts.' } }
+  if (Buffer.byteLength(JSON.stringify(result)) > maxBytes) throw new Error('maxRoleContextBytes is too small for a context reference')
+  return result
+}
+
+/**
+ * Preserve oversized task requirements in a referenced workflow artifact.
+ * @param directory - owning task artifact directory.
+ * @param request - complete requirement and scope clarifications.
+ * @param maxBytes - configured maximum inline requirement size.
+ * @returns inline text or a hashed request file reference.
+ */
+export async function boundedRequest(directory: string, request: string, maxBytes: number): Promise<string> {
+  if (Buffer.byteLength(request) <= maxBytes) return request
+  const digest = createHash('sha256').update(request).digest('hex')
+  const path = join(directory, `REQUEST-${digest}.json`)
+  await writeFileAtomic(path, `${JSON.stringify({ request })}\n`, { mode: 0o600 })
+  const reference = `Read the complete task requirement from ${path}. Its request text SHA-256 is ${digest}. Apply all stated acceptance criteria; do not infer omitted requirements.`
+  if (Buffer.byteLength(reference) > maxBytes) throw new Error('maxRoleContextBytes is too small for a task request reference')
+  return reference
+}
+
+async function investigationUnits(root: string, project: EngineeringProject, config: HarnessConfig): Promise<InvestigationUnit[]> {
+  if (project.investigationUnits !== undefined) return project.investigationUnits.map(unit => ({ ...unit, ...config.workflow.roleBounds[unit.role]!, evidenceFormat: 'inspection-receipts' }))
+  const { stdout } = await execute('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', timeout: project.commandTimeoutMs, maxBuffer: config.workflow.reviewGitMaxOutputBytes })
+  const paths = stdout.split('\0').filter(path => path && !path.split('/').some(part => part === '.agent' || part === '.git'))
+  const maximum = config.workflow.maxInvestigationPaths
+  if (paths.length > maximum * 2) throw new EngineeringRoleFailure(`Investigation requires explicit partitioned questions: ${paths.length} tracked files exceed the ${maximum * 2}-file automatic scope limit. Configure project.investigationUnits for the relevant source paths.`)
+  return (['scout-primary', 'scout-secondary'] as const).map((role, index) => ({
+    id: role, role, question: 'Inspect only this assigned source partition for the task requirement. Identify concrete dependencies and unresolved questions.',
+    allowedPaths: paths.filter((_path, pathIndex) => pathIndex % 2 === index), ...config.workflow.roleBounds[role]!, evidenceFormat: 'inspection-receipts',
+  }))
 }
 
 async function worktreeHash(root: string): Promise<string> {
@@ -198,12 +274,28 @@ export async function loadEngineeringProject(root: string): Promise<EngineeringP
   if (isAbsolute(target) || target === '..' || target.startsWith('../') || target.startsWith('..\\')) throw new Error('project adapter must stay inside the project')
   if (source.knowledge !== undefined && typeof source.knowledge !== 'string') throw new Error('project knowledge must be a repository-relative filename')
   const knowledge = source.knowledge === undefined ? {} : { knowledgeFile: source.knowledge, knowledge: await loadRepositoryKnowledge(root, source.knowledge) }
+  let investigationUnits: EngineeringProject['investigationUnits']
+  if (source.investigationUnits !== undefined) {
+    if (!Array.isArray(source.investigationUnits) || source.investigationUnits.length === 0 || source.investigationUnits.length > 2) throw new Error('investigationUnits must contain one or two disjoint Scout questions')
+    investigationUnits = source.investigationUnits.map(raw => {
+      const unit = object(raw, 'investigation unit')
+      if (typeof unit.id !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/.test(unit.id) || typeof unit.question !== 'string' || !unit.question.trim()
+        || unit.role !== 'scout-primary' && unit.role !== 'scout-secondary' || !Array.isArray(unit.allowedPaths)
+        || unit.allowedPaths.length === 0 || !unit.allowedPaths.every(path => typeof path === 'string')) throw new Error('invalid investigation unit')
+      return { id: unit.id, role: unit.role, question: unit.question, allowedPaths: unit.allowedPaths.map(investigationPath) }
+    })
+    if (new Set(investigationUnits.map(unit => unit.id)).size !== investigationUnits.length || new Set(investigationUnits.map(unit => unit.role)).size !== investigationUnits.length) throw new Error('investigation unit IDs and Scout roles must be distinct')
+    const first = investigationUnits[0]!
+    const second = investigationUnits[1]
+    if (second !== undefined && first.allowedPaths.some(a => second.allowedPaths.some(b => a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`)))) throw new Error('investigation unit code scopes overlap')
+  }
   return {
     schemaVersion: 1, profile, adapter, dataClass,
     maxSteps: positive(source.maxSteps, 'maxSteps'),
     maxRoleCalls: positive(source.maxRoleCalls, 'maxRoleCalls'),
     commandTimeoutMs: positive(source.commandTimeoutMs, 'commandTimeoutMs'),
     ...knowledge,
+    ...(investigationUnits === undefined ? {} : { investigationUnits }),
   }
 }
 
@@ -369,7 +461,7 @@ export async function getEngineeringStatus(root: string, taskId?: string): Promi
 }
 
 /**
- * Recover an interrupted task with fresh bounded budgets, requiring confirmation only when durable state may own live work.
+ * Recover an interrupted task without renewing its cumulative lifecycle allowance.
  * @param root - project root.
  * @param taskId - exact interrupted task.
  * @param confirmedStopped - explicit confirmation when the current durable state may still own agent or command work.
@@ -440,7 +532,7 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
     signal.throwIfAborted()
     const directory = join(root, '.agent/tasks', taskId)
     let journal: Journal
-    if (selected === undefined) {
+  if (selected === undefined) {
       if (!options.request.trim()) throw new Error('a development request is required')
       journal = {
         schemaVersion: 1, requests: [options.request], steps: 0, roleCalls: 0, completedWriterRevision: null,
@@ -464,7 +556,13 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
     await save()
     if (journal.pendingTask !== null) {
       if (journal.pendingTask.id !== taskId) throw new Error('pending task identity does not match its directory')
-      if (await optionalJson(join(directory, 'STATE.json')) === undefined) await repository.createTask(journal.pendingTask)
+      if (await optionalJson(join(directory, 'STATE.json')) === undefined) {
+        await repository.createTask(journal.pendingTask)
+        await repository.initializeLifecycle(taskId, 'development', {
+          ...config.workflow.lifecycleBudget,
+          maxLogicalInvocations: Math.min(config.workflow.lifecycleBudget.maxLogicalInvocations ?? project.maxRoleCalls, project.maxRoleCalls),
+        })
+      }
       journal.pendingTask = null
       await save()
     }
@@ -472,9 +570,87 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
     if (task.profile !== project.profile || task.dataClass !== project.dataClass) throw new Error('project profile or dataClass changed since task creation')
     let state = await repository.readState(taskId)
     await repository.assertDispatchAdmission(taskId, journal.completedWriterRevision ?? undefined)
+    const lifecycle = await repository.lifecycle(taskId, 'development', {
+      ...config.workflow.lifecycleBudget,
+      maxLogicalInvocations: Math.min(config.workflow.lifecycleBudget.maxLogicalInvocations ?? project.maxRoleCalls, project.maxRoleCalls),
+    })
+    const roleRequest = await boundedRequest(directory, journal.requests.join('\n\n'), config.workflow.maxRoleContextBytes)
     let reservation = Promise.resolve()
-    const call = async (role: EngineeringRole, extra: Record<string, unknown> = {}): Promise<Record<string, unknown>> => {
+    const call = async (role: EngineeringRole, extra: Record<string, unknown> = {}, unit?: InvestigationUnit): Promise<Record<string, unknown>> => {
       signal.throwIfAborted()
+      const dependencies = unit === undefined ? undefined : await captureInvestigationDependencies(root, unit.allowedPaths, config.workflow.maxInvestigationPaths)
+      const scopeDigest = unit === undefined ? undefined : investigationScopeDigest(journal.requests.join('\n\n'), unit)
+      const previous = unit === undefined ? undefined : await repository.readInvestigationCheckpoint(taskId, 'development', unit.id)
+      const validPrevious = previous !== undefined && dependencies !== undefined && previous.scopeDigest === scopeDigest
+        && previous.repositorySnapshot === dependencies.repositorySnapshot && previous.scopeMembershipDigest === dependencies.scopeMembershipDigest
+        && JSON.stringify(previous.dependencies) === JSON.stringify(dependencies.dependencies)
+      if (validPrevious) {
+        for (const receipt of previous.evidence) {
+          if (!await lifecycle.validateInspection(previous.attemptIds, receipt.executionId)) throw new Error('checkpoint inspection has no durable task attempt and tool execution')
+        }
+      }
+      if (validPrevious && previous.status === 'COMPLETE' && previous.output !== null) {
+        const schema = await outputSchemas(root, role)
+        const validate = new Ajv({ strict: true, allErrors: true }).compile(schema.validation)
+        if (!validate(previous.output)) throw new Error('persisted investigation output fails the current role schema')
+        await repository.saveInvestigationCheckpoint({ ...previous, validatedForRevision: state.revision, updatedAt: new Date().toISOString() })
+        return previous.output
+      }
+      const startedAt = new Date().toISOString()
+      if (unit !== undefined) unit = { ...unit, question: await boundedRequest(directory, unit.question, config.workflow.maxRoleContextBytes) }
+      let checkpoint: InvestigationCheckpoint | undefined = unit === undefined || dependencies === undefined || scopeDigest === undefined ? undefined : {
+        schemaVersion: 1, taskId, workflow: 'development', unitId: unit.id, taskRevision: state.revision, validatedForRevision: state.revision,
+        ...dependencies, scopeDigest, allowedPaths: unit.allowedPaths, evidence: validPrevious ? previous.evidence : [],
+        output: null, status: 'PARTIAL', startedAt, updatedAt: startedAt, attemptIds: validPrevious ? [...previous.attemptIds] : [],
+      }
+      let checkpointTail = Promise.resolve()
+      const persistCheckpoint = (): Promise<void> => {
+        const pending = checkpointTail.then(async () => {
+          if (checkpoint !== undefined) await repository.saveInvestigationCheckpoint({ ...checkpoint, updatedAt: new Date().toISOString() })
+        })
+        checkpointTail = pending.catch(() => {})
+        return pending
+      }
+      let tools = 0
+      let bodies = 0
+      const seenTools = new Set<string>()
+      let toolReservation = Promise.resolve()
+      const bounds = config.workflow.roleBounds[role]!
+      let invocationId: EngineeringInvocationId
+      const control = async (route: ResolvedRoleRoute): Promise<RoleExecutionControl> => {
+        const attemptId = await lifecycle.reserveAttempt(invocationId, route)
+        if (checkpoint !== undefined) { checkpoint.attemptIds.push(attemptId); await persistCheckpoint() }
+        const reserveToolCall = (executionId: string): Promise<void> => {
+          const reservation = toolReservation.then(async () => {
+            if (seenTools.has(executionId)) return
+            if (tools >= bounds.maxToolCalls) throw new BudgetExhaustedError(`Role ${role} exhausted its ${bounds.maxToolCalls}-tool work-unit budget`)
+            await lifecycle.reserveToolCall(attemptId, executionId)
+            seenTools.add(executionId); tools += 1
+          })
+          toolReservation = reservation.catch(() => {})
+          return reservation
+        }
+        return {
+          taskId, routeId: route.routeId, lifecycle, invocationId, attemptId, bounds, startedAt,
+          reserveToolCall,
+          recordInspection: async receipt => {
+            if (checkpoint === undefined || unit === undefined) return
+            if (!unit.allowedPaths.some(path => receipt.path === path || receipt.path.startsWith(`${path}/`))) throw new Error('inspection receipt is outside the assigned investigation scope')
+            const dependency = checkpoint.dependencies.find(item => item.path === receipt.path)
+            if (dependency === undefined || dependency.hash !== receipt.contentHash) throw new Error('inspection content hash does not match the assigned source snapshot')
+            await reserveToolCall(receipt.executionId)
+            const existing = checkpoint.evidence.find(item => item.executionId === receipt.executionId)
+            if (existing !== undefined && JSON.stringify(existing) !== JSON.stringify(receipt)) throw new Error('inspection receipt identity conflict')
+            if (existing === undefined) checkpoint.evidence.push(receipt)
+            await persistCheckpoint()
+          },
+          checkpoint: persistCheckpoint,
+          markBodyStart: () => {
+            if (bodies >= bounds.maxToolCalls) throw new BudgetExhaustedError(`Role ${role} exhausted its tool body budget`)
+            bodies += 1
+          },
+        }
+      }
       const attempts = resolveRoleAttempts(config, role)
       const primary = attempts[0]
       if (primary === undefined) throw new Error(`role ${role} has no dispatch route`)
@@ -485,7 +661,7 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
       let preparedContext: Record<string, unknown> | undefined
       const start = reservation.then(async () => {
         signal.throwIfAborted()
-        if (journal.roleCalls >= project.maxRoleCalls) throw new Error(`role-call budget exhausted for ${taskId}`)
+        invocationId = await lifecycle.reserveInvocation(role)
         journal.roleCalls += 1
         await save()
         const context: Record<string, unknown> = project.knowledge === undefined ? {} : { repositoryKnowledge: project.knowledge }
@@ -497,18 +673,21 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
           const value = await optionalJson(join(directory, `${artifact}.json`))
           if (value !== undefined) context[artifact] = value
         }
-        preparedContext = context
+        preparedContext = { ...context, ...extra }
+        if (validPrevious && previous.evidence.length > 0) preparedContext.partialInvestigationEvidence = previous.evidence
+        preparedContext = await boundedContext(directory, role, preparedContext, config.workflow.maxRoleContextBytes)
         schemas = await outputSchemas(root, role)
         const primaryAttempt = attempts[0]!
-        const startedAt = new Date().toISOString()
+        const executionControl = await control(primaryAttempt)
         primaryStart = {
           startedAt,
           execution: options.executeRole({
             role, route: primaryAttempt, attemptIndex: 1, root, taskId,
-            request: journal.requests.join('\n\n'),
+            request: roleRequest,
             state: { state: state.state, revision: state.revision, workRevision: state.workRevision, fixAttempts: state.fixAttempts },
-            context: { ...preparedContext, ...extra }, outputSchema: schemas.structured, signal,
+            context: preparedContext, outputSchema: schemas.structured, signal,
             markMutationStarted: () => { primaryMutation.started = true },
+            executionControl, ...(unit === undefined ? {} : { workUnit: unit }),
           }),
         }
       })
@@ -517,15 +696,20 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
       if (schemas === undefined || primaryStart === undefined) throw new Error(`role ${role} did not start`)
       const validator = new Ajv({ strict: true, allErrors: true }).compile(schemas.validation)
       try {
-        return await runRoleAttempts({
+        const output = await runRoleAttempts({
           role, attempts, signal, primary: { ...primaryStart, mutation: primaryMutation },
-          executeAttempt: (route, attemptIndex, markMutationStarted) => {
+          executeAttempt: async (route, attemptIndex, markMutationStarted) => {
             assertRouteDispatchAllowed(config, route.routeId, project.dataClass)
+            const executionControl = await control(route)
+            const fallbackContext = await boundedContext(directory, role, {
+              ...preparedContext, ...(checkpoint === undefined ? {} : { partialInvestigationEvidence: checkpoint.evidence }),
+            }, config.workflow.maxRoleContextBytes)
             return options.executeRole({
               role, route, attemptIndex, root, taskId,
-              request: journal.requests.join('\n\n'),
+              request: roleRequest,
               state: { state: state.state, revision: state.revision, workRevision: state.workRevision, fixAttempts: state.fixAttempts },
-              context: { ...preparedContext, ...extra }, outputSchema: schemas!.structured, signal, markMutationStarted,
+              context: fallbackContext, outputSchema: schemas!.structured, signal, markMutationStarted,
+              executionControl, ...(unit === undefined ? {} : { workUnit: unit }),
             })
           },
           validateOutput: result => {
@@ -534,18 +718,33 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
           },
           persistAttempts: records => appendRoleAttempts(root, taskId, role, records),
         })
+        if (checkpoint !== undefined && checkpoint.evidence.length > 0 && !JSON.stringify(output).match(/\bplaceholder\b/i)) {
+          const after = await captureInvestigationDependencies(root, checkpoint.allowedPaths, config.workflow.maxInvestigationPaths)
+          if (after.repositorySnapshot !== checkpoint.repositorySnapshot) throw new Error('investigation source changed while evidence was collected')
+          checkpoint = { ...checkpoint, output, status: 'COMPLETE' }
+          await persistCheckpoint()
+        }
+        await lifecycle.remainingElapsedMs()
+        return output
       } catch (error) {
+        try { await persistCheckpoint() }
+        catch (persistenceError) {
+          if (error instanceof RoleQuiescenceError) throw new RoleQuiescenceError(error.message, { cause: new AggregateError([error, persistenceError], 'Uncertain role shutdown and checkpoint persistence failed') })
+          throw persistenceError
+        }
+        if (error instanceof BudgetExhaustedError) throw error
         if (error instanceof RoleQuiescenceError || !(error instanceof RoleInvocationError) || signal.aborted || isAbortError(error)) throw error
         throw new EngineeringRoleFailure(error.message)
       }
     }
-    while (state.state !== 'ACCEPTED' && state.state !== 'BLOCKED') {
+    while (state.state !== 'ACCEPTED' && state.state !== 'BLOCKED' && state.state !== 'BUDGET_EXHAUSTED') {
       signal.throwIfAborted()
       if (journal.steps >= project.maxSteps) throw new Error(`step budget exhausted for ${taskId}`)
       journal.steps += 1
       await save()
       options.onProgress?.(state)
       try {
+        await lifecycle.remainingElapsedMs()
         switch (state.state) {
         case 'NEW': {
           const head = await runCommand(root, { executable: 'git', args: ['rev-parse', 'HEAD'] }, project.commandTimeoutMs, signal)
@@ -557,7 +756,12 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
         }
         case 'BASELINED':
         case 'REPLAN': {
-          const results = await Promise.allSettled([call('scout-primary'), call('scout-secondary')])
+          const units = await investigationUnits(root, project, config)
+          const results = await Promise.allSettled(units.map(unit => call(unit.role, {}, unit)))
+          const uncertain = results.find(result => result.status === 'rejected' && result.reason instanceof RoleQuiescenceError)
+          if (uncertain?.status === 'rejected') throw uncertain.reason
+          const exhausted = results.find(result => result.status === 'rejected' && result.reason instanceof BudgetExhaustedError)
+          if (exhausted?.status === 'rejected') throw exhausted.reason
           const scouts: Record<string, unknown>[] = []
           for (const result of results) {
             if (result.status === 'rejected') throw result.reason
@@ -643,6 +847,10 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
           break
         }
         if (signal.aborted) throw error
+        if (error instanceof BudgetExhaustedError) {
+          state = await repository.budgetExhausted(taskId, state.revision, error.message)
+          break
+        }
         if (!(error instanceof EngineeringRoleFailure) && !(error instanceof PlanAssumptionBlocker)) throw error
         state = await repository.block(taskId, state.revision, error.message)
       }

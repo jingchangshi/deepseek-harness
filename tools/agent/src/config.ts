@@ -4,6 +4,14 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { isCredentialRefName } from '@deepseek-ai/dsh-credentials'
 import { load } from 'js-yaml'
+import type { LifecycleLimits } from './lifecycle.ts'
+
+/** Per-logical-invocation limits, shared by its configured fallback attempts. */
+export interface RoleBounds {
+  softDeadlineMs: number
+  hardDeadlineMs: number
+  maxToolCalls: number
+}
 
 /** Data classifications ordered from least to most restricted. */
 export type DataClass = 'public' | 'internal' | 'sensitive'
@@ -55,6 +63,14 @@ export interface RoleConfig {
 
 /** Repository workflow limits that complement DSH's process-local limits. */
 export interface WorkflowConfig {
+  /** Cumulative limits across task recovery and scope replanning. */
+  lifecycleBudget: LifecycleLimits
+  /** Runtime-enforced role limits, independent of prompt instructions. */
+  roleBounds: Readonly<Record<string, RoleBounds>>
+  /** Maximum source files assigned to one automatically generated Scout unit. */
+  maxInvestigationPaths: number
+  /** Maximum serialized context bytes per role request. */
+  maxRoleContextBytes: number
   provider: 'spawn'
   maxDepth: number
   maxConcurrentAgents: number
@@ -148,6 +164,11 @@ function booleanDict(value: unknown, field: string): Record<string, boolean> {
 
 function positiveInteger(value: unknown, field: string): number {
   if (!Number.isSafeInteger(value) || typeof value !== 'number' || value < 1) throw new Error(`${field} must be a positive integer`)
+  return value
+}
+
+function positiveNumber(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) throw new Error(`${field} must be a positive finite number`)
   return value
 }
 
@@ -327,7 +348,37 @@ export async function loadHarnessConfig(
     }
   }
 
+  const budget = record(workflowDocument.lifecycleBudget ?? {}, 'workflow.lifecycleBudget')
+  const lifecycleBudget: LifecycleLimits = {
+    maxLogicalInvocations: positiveInteger(budget.maxLogicalInvocations ?? 60, 'workflow.lifecycleBudget.maxLogicalInvocations'),
+    maxModelAttempts: positiveInteger(budget.maxModelAttempts ?? 120, 'workflow.lifecycleBudget.maxModelAttempts'),
+    maxProviderRequests: positiveInteger(budget.maxProviderRequests ?? 600, 'workflow.lifecycleBudget.maxProviderRequests'),
+    maxToolCalls: positiveInteger(budget.maxToolCalls ?? 1200, 'workflow.lifecycleBudget.maxToolCalls'),
+    maxElapsedMs: positiveInteger(budget.maxElapsedMs ?? 7_200_000, 'workflow.lifecycleBudget.maxElapsedMs'),
+    ...(budget.maxTotalTokens === undefined ? {} : { maxTotalTokens: positiveInteger(budget.maxTotalTokens, 'workflow.lifecycleBudget.maxTotalTokens') }),
+    ...(budget.maxKnownCostUsd === undefined ? {} : { maxKnownCostUsd: positiveNumber(budget.maxKnownCostUsd, 'workflow.lifecycleBudget.maxKnownCostUsd') }),
+  }
+  const roleLimits = record(workflowDocument.roleBounds ?? {}, 'workflow.roleBounds')
+  const roleBounds: Record<string, RoleBounds> = {}
+  for (const [role, defaults] of Object.entries({
+    'scout-primary': [90_000, 240_000, 40], 'scout-secondary': [90_000, 240_000, 40],
+    architect: [300_000, 480_000, 40], challenger: [180_000, 300_000, 30],
+    reviewer: [300_000, 600_000, 50], implementer: [300_000, 600_000, 100],
+  })) {
+    const configured = record(roleLimits[role] ?? {}, `workflow.roleBounds.${role}`)
+    const bounds = {
+      softDeadlineMs: positiveInteger(configured.softDeadlineMs ?? defaults[0], `workflow.roleBounds.${role}.softDeadlineMs`),
+      hardDeadlineMs: positiveInteger(configured.hardDeadlineMs ?? defaults[1], `workflow.roleBounds.${role}.hardDeadlineMs`),
+      maxToolCalls: positiveInteger(configured.maxToolCalls ?? defaults[2], `workflow.roleBounds.${role}.maxToolCalls`),
+    }
+    if (bounds.softDeadlineMs >= bounds.hardDeadlineMs) throw new Error(`workflow.roleBounds.${role} soft deadline must precede its hard deadline`)
+    roleBounds[role] = bounds
+  }
+  for (const role of Object.keys(roleLimits)) if (!(role in roleBounds)) throw new Error(`workflow.roleBounds references unknown role ${role}`)
   const workflow: WorkflowConfig = {
+    lifecycleBudget, roleBounds,
+    maxInvestigationPaths: positiveInteger(workflowDocument.maxInvestigationPaths ?? 40, 'workflow.maxInvestigationPaths'),
+    maxRoleContextBytes: positiveInteger(workflowDocument.maxRoleContextBytes ?? 32_768, 'workflow.maxRoleContextBytes'),
     provider: oneOf(workflowDocument.provider, 'workflow.provider', ['spawn']),
     maxDepth: positiveInteger(workflowDocument.maxDepth, 'workflow.maxDepth'),
     maxConcurrentAgents: positiveInteger(workflowDocument.maxConcurrentAgents, 'workflow.maxConcurrentAgents'),

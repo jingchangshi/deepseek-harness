@@ -6,6 +6,7 @@ import { realpath } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import { promisify } from 'node:util'
 import { brandString, type Branded } from '@deepseek-ai/dsh-brand'
+import { assertNever } from '@deepseek-ai/dsh-util-values'
 
 const execute = promisify(execFile)
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -300,6 +301,43 @@ export class GitEvidenceRepository {
    */
   observedEvidence(): readonly GitEvidenceReceipt[] {
     return Object.freeze(this.receipts.slice())
+  }
+
+  /**
+   * Revalidate persisted query receipts against the pinned Git objects before reuse.
+   * @param receipts - trusted checkpoint receipts with their original inspection identities.
+   * @param signal - cancellation while validating the immutable source pages.
+   */
+  async restoreEvidence(receipts: readonly GitEvidenceReceipt[], signal?: AbortSignal): Promise<void> {
+    const verifier = new GitEvidenceRepository(this.snapshot, { commandTimeoutMs: this.commandTimeoutMs, maxOutputBytes: this.maxOutputBytes, defaultPageSize: this.defaultPageSize })
+    for (const receipt of receipts) {
+      if (receipt.snapshotId !== this.snapshot.id) throw new Error('checkpoint Git receipt belongs to a different snapshot')
+      switch (receipt.operation) {
+        case 'show':
+          if (receipt.path === undefined || receipt.startLine === undefined || receipt.endLine === undefined) throw new Error('checkpoint source receipt has no line range')
+          await verifier.show({ path: receipt.path, startLine: receipt.startLine, lineCount: Math.max(1, receipt.endLine - receipt.startLine + 1) }, signal)
+          break
+        case 'diff':
+          if (receipt.path === undefined || receipt.offset === undefined || receipt.endOffset === undefined) throw new Error('checkpoint diff receipt has no page range')
+          await verifier.diff({ path: receipt.path, offset: receipt.offset, limit: Math.max(1, receipt.endOffset - receipt.offset) }, signal)
+          break
+        case 'changed-files':
+          if (receipt.offset === undefined || receipt.endOffset === undefined) throw new Error('checkpoint changed-file receipt has no page range')
+          await verifier.changedFiles({ offset: receipt.offset, limit: Math.max(1, receipt.endOffset - receipt.offset) }, signal)
+          break
+        case 'history':
+          if (receipt.offset === undefined || receipt.endOffset === undefined) throw new Error('checkpoint history receipt has no page range')
+          await verifier.history({ offset: receipt.offset, limit: Math.max(1, receipt.endOffset - receipt.offset) }, signal)
+          break
+        default: assertNever(receipt.operation)
+      }
+      const actual = verifier.observedEvidence().at(-1)!
+      const keys = new Set([...Object.keys(actual), ...Object.keys(receipt)])
+      for (const key of keys) {
+        if (key !== 'id' && Reflect.get(actual, key) !== Reflect.get(receipt, key)) throw new Error(`checkpoint Git receipt ${receipt.id} fails pinned-content verification`)
+      }
+      if (!this.receipts.some(existing => existing.id === receipt.id)) this.receipts.push(frozen({ ...receipt }))
+    }
   }
 
   /**

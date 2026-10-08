@@ -9,12 +9,17 @@
 import { Context } from '@deepseek-ai/cordis'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { deepFreeze } from '@deepseek-ai/dsh-util-values'
+import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type {
   GenerateOptions,
   RequestMessage,
   LlmConfigurableProvider,
   LlmDiscoveredModel,
   LlmFailure,
+  LlmDispatchOutcome,
+  LlmPreDispatch,
+  LlmPostDispatch,
+  TokenUsage,
   LlmImageRequestPricing,
   LlmModelContext,
   LlmModelDiscoveryRequest,
@@ -27,6 +32,7 @@ import type {
   ToolSchema,
   ToolUpdate,
 } from './types.ts'
+import { LlmRequestId } from './types.ts'
 import { freezeMessage } from './message.ts'
 import { resolveRetryPolicy } from './retry-policy.ts'
 import type { ResolvedRetryPolicy } from './retry-policy.ts'
@@ -1027,13 +1033,15 @@ export class LlmRuntime extends TypertRemoteService {
     options: GenerateOptions,
     prepared?: PreparedDispatch,
   ): AsyncGenerator<StreamChunk> {
-    let iterator: AsyncIterator<StreamChunk>
+    let registration: AdapterRegistration
+    let adapter: LlmAdapter
+    let projectedOptions: GenerateOptions
+    let dispatch: (options: GenerateOptions) => AsyncIterable<StreamChunk>
     try {
-      const registration = prepared?.registration ?? this.registration(options.provider)
-      const adapter = registration.adapter
+      registration = prepared?.registration ?? this.registration(options.provider)
+      adapter = registration.adapter
       let modelInfo: LlmResolvedModelInfo
       let resolvedConfig: LlmCallConfig
-      let dispatch: (options: GenerateOptions) => AsyncIterable<StreamChunk>
       if (prepared === undefined) {
         const adapterCall = await adapter.prepareCall(options.provider, options.model, options.signal)
         modelInfo = this.normalizeModelInfo(registration, options.model, adapterCall.model)
@@ -1068,7 +1076,7 @@ export class LlmRuntime extends TypertRemoteService {
       // Tool changes are logged on every route; the route's declared mode selects what it receives.
       const projectedTools = projectToolUpdates(projectedMessages, resolvedOptions.tools, modelInfo.toolUpdate, resolvedOptions.toolHistory)
       projectedMessages = projectedTools.messages
-      let projectedOptions = resolvedOptions
+      projectedOptions = resolvedOptions
       if (projectedMessages !== resolvedOptions.messages || projectedTools.tools !== resolvedOptions.tools) {
         projectedOptions = {
           ...resolvedOptions,
@@ -1077,16 +1085,38 @@ export class LlmRuntime extends TypertRemoteService {
         }
         if (Object.isFrozen(resolvedOptions)) deepFreeze(projectedOptions)
       }
-      const stream = dispatch(this.forAdapter(projectedOptions, adapter))
-      iterator = stream[Symbol.asyncIterator]()
     } catch (error: unknown) {
       yield adapterFailureChunk(error, options.signal)
       return
     }
 
+    const adapterOptions = immutableAdapterOptions(this.forAdapter(projectedOptions, adapter))
+    const record: LlmPreDispatch = Object.freeze({
+      requestId: LlmRequestId(randomUUID()),
+      options: adapterOptions,
+      startedAt: new Date().toISOString(),
+    })
+    // Admission is a plugin policy decision. Keep it outside adapter failure
+    // normalization so a refusal cannot masquerade as a provider response.
+    await this.ctx.serial(this, 'llm/pre-dispatch', record)
+    adapterOptions.signal?.throwIfAborted()
+
+    let iterator: AsyncIterator<StreamChunk> | undefined
+    let usage: TokenUsage | undefined
+    let outcome: LlmDispatchOutcome = 'SUCCESS'
     let completed = false
+    let thrown: unknown
+    let hasThrown = false
+    let streamFailure = false
     try {
-      while (true) {
+      try {
+        iterator = dispatch(adapterOptions)[Symbol.asyncIterator]()
+      } catch (error: unknown) {
+        streamFailure = true
+        outcome = options.signal?.aborted ? 'ABORTED' : 'FAILED'
+        yield adapterFailureChunk(error, options.signal)
+      }
+      while (iterator !== undefined) {
         let item: { done: true } | { done: false; value: StreamChunk }
         try {
           const next = await iterator.next()
@@ -1094,24 +1124,59 @@ export class LlmRuntime extends TypertRemoteService {
             ? { done: true }
             : { done: false, value: next.value }
         } catch (error: unknown) {
+          streamFailure = true
           completed = true
+          outcome = options.signal?.aborted ? 'ABORTED' : 'FAILED'
           yield adapterFailureChunk(error, options.signal)
-          return
+          break
         }
         if (item.done) {
           completed = true
-          return
+          break
+        }
+        if (item.value.type === 'usage') usage = deepFreeze(structuredClone(item.value.usage))
+        if (item.value.type === 'finish') {
+          outcome = item.value.reason.kind === 'aborted' ? 'ABORTED'
+            : item.value.reason.kind === 'error' ? 'FAILED' : 'SUCCESS'
         }
         // End the adapter-owned try before yielding: consumer/middleware
         // failures resumed into this generator must remain thrown.
         yield item.value
       }
+    } catch (error: unknown) {
+      hasThrown = true
+      thrown = error
     } finally {
-      if (!completed) {
-        const close = iterator.return?.bind(iterator)
-        if (close) await close()
+      let closeError: unknown
+      let closeFailed = false
+      if (!completed && iterator !== undefined) {
+        if (outcome === 'SUCCESS') outcome = options.signal?.aborted ? 'ABORTED' : 'INTERRUPTED'
+        try {
+          const close = iterator.return?.bind(iterator)
+          if (close) await close()
+        } catch (error: unknown) {
+          closeFailed = true
+          closeError = error
+        }
       }
+      let observerError: unknown
+      let observerFailed = false
+      try {
+        const post: LlmPostDispatch = Object.freeze({
+          ...record,
+          endedAt: new Date().toISOString(),
+          ...(usage === undefined ? {} : { usage }),
+          outcome,
+        })
+        await this.ctx.serial(this, 'llm/post-dispatch', post)
+      } catch (error: unknown) {
+        observerFailed = true
+        observerError = error
+      }
+      if (!hasThrown && !streamFailure && closeFailed) throw closeError
+      if (!hasThrown && !streamFailure && observerFailed) throw observerError
     }
+    if (hasThrown) throw thrown
   }
 
   /**
@@ -1151,6 +1216,11 @@ function adapterFailureChunk(error: unknown, signal?: AbortSignal): StreamChunk 
       ? { kind: 'aborted', failure }
       : { kind: 'error', failure },
   }
+}
+
+/** Publish a readonly top-level request record without taking ownership of caller data. */
+function immutableAdapterOptions(options: GenerateOptions): GenerateOptions {
+  return Object.freeze({ ...options })
 }
 
 interface AdapterRegistration {

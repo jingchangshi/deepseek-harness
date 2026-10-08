@@ -7,7 +7,7 @@
   "properties": {
     "schemaVersion": { "const": 1 },
     "taskId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
-    "state": { "enum": ["NEW", "BASELINED", "INVESTIGATED", "PLAN_FROZEN", "IMPLEMENTING", "VERIFYING", "VERIFIED", "REVIEWING", "REVIEWED", "ACCEPTED", "REPLAN", "BLOCKED"] },
+    "state": { "enum": ["NEW", "BASELINED", "INVESTIGATED", "PLAN_FROZEN", "IMPLEMENTING", "VERIFYING", "VERIFIED", "REVIEWING", "REVIEWED", "ACCEPTED", "REPLAN", "BLOCKED", "BUDGET_EXHAUSTED"] },
     "revision": { "type": "integer", "minimum": 0 },
     "workRevision": { "type": "integer", "minimum": 0 },
     "fixAttempts": { "type": "integer", "minimum": 0, "maximum": 2 },

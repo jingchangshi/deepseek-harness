@@ -17,6 +17,7 @@ export const TASK_STATES = [
   'ACCEPTED',
   'REPLAN',
   'BLOCKED',
+  'BUDGET_EXHAUSTED',
 ] as const
 
 /** One state in the repository task protocol. */

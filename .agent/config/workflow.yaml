@@ -12,3 +12,36 @@ reviewMaxScouts: 2
 reviewGitCommandTimeoutMs: 30000
 reviewGitMaxOutputBytes: 8388608
 reviewGitPageSize: 16384
+lifecycleBudget:
+  maxLogicalInvocations: 60
+  maxModelAttempts: 120
+  maxProviderRequests: 600
+  maxToolCalls: 1200
+  maxElapsedMs: 7200000
+roleBounds:
+  scout-primary:
+    softDeadlineMs: 90000
+    hardDeadlineMs: 240000
+    maxToolCalls: 40
+  scout-secondary:
+    softDeadlineMs: 90000
+    hardDeadlineMs: 240000
+    maxToolCalls: 40
+  architect:
+    softDeadlineMs: 300000
+    hardDeadlineMs: 480000
+    maxToolCalls: 40
+  challenger:
+    softDeadlineMs: 180000
+    hardDeadlineMs: 300000
+    maxToolCalls: 30
+  reviewer:
+    softDeadlineMs: 300000
+    hardDeadlineMs: 600000
+    maxToolCalls: 50
+  implementer:
+    softDeadlineMs: 300000
+    hardDeadlineMs: 600000
+    maxToolCalls: 100
+maxInvestigationPaths: 40
+maxRoleContextBytes: 32768

@@ -1,13 +1,15 @@
 /** DSH tools that own automatic engineering runs and isolated role delegation. */
 
 import { readFile, realpath } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, TurnEndReason } from '@deepseek-ai/dsh-session'
-import { POLICY_REFUSAL_CODE, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { POLICY_REFUSAL_CODE, ReasoningEffortId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { SubagentRun } from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { loadHarnessConfig, resolveRoleRoute } from '../src/config.ts'
@@ -20,6 +22,9 @@ import type { GitEvidenceRepository, GitReviewTarget } from '../src/git-evidence
 import { RoleInvocationError, RoleQuiescenceError, roleInvocationErrorForLlmCode, roleFailureAfterMutation } from '../src/role-execution.ts'
 import { claimEngineeringInvocation, engineeringInvocationId, readEngineeringInvocationReceipt, withEngineeringInvocationLock, writeEngineeringInvocationReceipt } from '../src/invocation.ts'
 import type { EngineeringRunInvocationId } from '../src/invocation.ts'
+import { BudgetExhaustedError } from '../src/lifecycle.ts'
+import type { RoleExecutionControl } from '../src/automatic.ts'
+import type { InvestigationUnit } from '../src/investigation.ts'
 
 export const name = 'engineering-harness'
 export const inject = ['tools', 'subagents', 'systemPrompt']
@@ -65,6 +70,54 @@ function workspace(agent: Agent): string {
 function within(root: string, target: string): boolean {
   const path = relative(root, target)
   return path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path)
+}
+
+/**
+ * Match a successful `read` value to the current local file before issuing source evidence.
+ * @param root - canonical workspace root.
+ * @param requestedPath - path passed to the `read` tool.
+ * @param value - canonical structured result returned by the tool body.
+ * @returns the matched repository path and full-file hash, or `undefined` for stale, remote, or incomplete output.
+ */
+export async function inspectionHashForReadResult(
+  root: string,
+  requestedPath: string,
+  value: unknown,
+): Promise<{ path: string; contentHash: string } | undefined> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const result = value as Record<string, unknown>
+  if (typeof result.path !== 'string' || typeof result.offset !== 'number' || !Number.isInteger(result.offset) || result.offset < 1
+    || typeof result.totalLines !== 'number' || !Number.isInteger(result.totalLines) || result.totalLines < 0
+    || !Array.isArray(result.lines) || result.lines.length === 0) return undefined
+  const requestedCandidate = resolve(root, requestedPath)
+  if (!within(root, requestedCandidate)) return undefined
+  const requested = await realpath(requestedCandidate)
+  const reportedPath = resolve(root, result.path)
+  if (!within(root, reportedPath)) return undefined
+  let reported: string
+  try {
+    reported = await realpath(reportedPath)
+  } catch (error: unknown) {
+    if (error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) return undefined
+    throw error
+  }
+  if (reported !== requested) return undefined
+  const bytes = await readFile(requested)
+  const text = bytes.toString('utf8')
+  const currentLines = text.split('\n')
+  if (currentLines.at(-1) === '') currentLines.pop()
+  const normalizedLines = currentLines.map(line => line.endsWith('\r') ? line.slice(0, -1) : line)
+  if (result.totalLines !== normalizedLines.length) return undefined
+  let previousLine = result.offset - 1
+  for (const line of result.lines) {
+    if (line === null || typeof line !== 'object' || Array.isArray(line)) return undefined
+    const entry = line as Record<string, unknown>
+    if (typeof entry.number !== 'number' || !Number.isInteger(entry.number) || typeof entry.text !== 'string') return undefined
+    const number = entry.number
+    if (number !== previousLine + 1 || normalizedLines[number - 1] !== entry.text) return undefined
+    previousLine = number
+  }
+  return { path: requested, contentHash: createHash('sha256').update(bytes).digest('hex') }
 }
 
 /**
@@ -187,6 +240,41 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
   const startingMutationObservers = new Map<string, () => void>()
   const startingReviewEvidence = new Map<string, GitEvidenceRepository>()
   const reviewEvidenceByAgent = new WeakMap<Agent, GitEvidenceRepository>()
+  const startingExecution = new Map<string, { control: RoleExecutionControl; unit?: InvestigationUnit; budget: AbortController }>()
+  const executions = new WeakMap<Agent, { control: RoleExecutionControl; unit?: InvestigationUnit; budget: AbortController }>()
+  const executionsBySession = new Map<string, { control: RoleExecutionControl; unit?: InvestigationUnit; budget: AbortController }>()
+  const executionIds = new Map<symbol, string>()
+
+  const executionId = (exec: ToolExecution): string => {
+    let id = executionIds.get(exec.token)
+    if (id === undefined) {
+      id = exec.agent !== undefined && exec.loggedCallSeq !== undefined ? `${exec.agent.session.id}:${exec.loggedCallSeq}:${exec.callId}` : randomUUID()
+      executionIds.set(exec.token, id)
+    }
+    return id
+  }
+
+  ctx.on('llm/pre-dispatch', async dispatch => {
+    const execution = dispatch.options.sessionId === undefined ? undefined : executionsBySession.get(dispatch.options.sessionId)
+    if (execution === undefined) return
+    try {
+      await execution.control.lifecycle.reserveProviderRequest(execution.control.attemptId, dispatch.requestId, {
+        provider: dispatch.options.provider, model: dispatch.options.model, routeId: execution.control.routeId,
+        purpose: dispatch.options.purpose === 'compaction' ? 'compaction' : dispatch.options.purpose === undefined ? 'agent' : 'other',
+        ...(dispatch.options.sessionId === undefined ? {} : { sessionId: dispatch.options.sessionId }),
+      })
+    } catch (error) {
+      if (error instanceof BudgetExhaustedError) execution.budget.abort(error)
+      throw error
+    }
+  })
+  ctx.on('tools/result', exec => { executionIds.delete(exec.token) })
+  ctx.effect(() => () => { executionIds.clear() })
+  ctx.on('llm/post-dispatch', async dispatch => {
+    const execution = dispatch.options.sessionId === undefined ? undefined : executionsBySession.get(dispatch.options.sessionId)
+    if (execution === undefined || dispatch.usage === undefined) return
+    await execution.control.lifecycle.recordUsage(dispatch.requestId, dispatch.usage)
+  })
   const childrenByParent = new Set<string>()
   let closing = false
   let roleStartTail = Promise.resolve()
@@ -243,10 +331,20 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
         children.add(agent)
         agent.ctx.tools.presentAs('native')
         const evidence = startingReviewEvidence.get(agent.session.header.parentSession)
+        const execution = startingExecution.get(agent.session.header.parentSession)
+        if (execution !== undefined) {
+          executions.set(agent, execution)
+          executionsBySession.set(agent.session.id, execution)
+          agent.ctx.effect(() => () => { executionsBySession.delete(agent.session.id); executions.delete(agent) })
+        }
         if (evidence !== undefined) reviewEvidenceByAgent.set(agent, evidence)
         const observer = startingMutationObservers.get(agent.session.header.parentSession)
         if (observer !== undefined) {
           agent.ctx.tools.observeBodyStart((_exec, sideEffects) => {
+            if (execution !== undefined) {
+              try { execution.control.markBodyStart() }
+              catch (error) { if (error instanceof BudgetExhaustedError) execution.budget.abort(error); throw error }
+            }
             if (evidence !== undefined && sideEffects !== 'read-only') {
               throw new Error('Review-only children may only execute tools with explicit read-only effects')
             }
@@ -264,7 +362,7 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
     coordinators.add(agent)
     ctx.effect(() => agent.ctx.systemPrompt.section({
       name: 'engineering:coordinator', order: 1, interpolate: false,
-      text: `${persona}\nFor Review-only, PR review, commit review or branch review, call engineering_review with the requested local Git target; never start an Implementer or engineering_run for that intent. For a new development request, call engineering_run with the complete user requirement and no taskId. This tool owns investigation, planning, implementation, verification, review and acceptance. For progress or resumption, first use engineering_status, then call engineering_run with only the returned taskId and omit request. Supply both taskId and request only to change scope after the task explicitly enters REPLAN. Respect engineering_run.nextAction: WAIT_FOR_CURRENT_RUN means do not start another run; REPLAN_WITH_SCOPE means ask only for missing product/scope information; RECOVER means do not repeat engineering_run unchanged and call engineering_recover. Obtain operator confirmation that previous agent and command work stopped only when requiresStopConfirmation is true. Ask only for missing product decisions. Do not ask users to run agentctl or manage revisions, artifacts, or writer tokens. Report ACCEPTED only when the tool returns that state.`,
+      text: `${persona}\nFor Review-only, PR review, commit review or branch review, call engineering_review with the requested local Git target; never start an Implementer or engineering_run for that intent. For a new development request, call engineering_run with the complete user requirement and no taskId. This tool owns investigation, planning, implementation, verification, review and acceptance. For progress or resumption, first use engineering_status, then call engineering_run with only the returned taskId and omit request. Supply both taskId and request only to change scope after the task explicitly enters REPLAN. Respect engineering_run.nextAction: WAIT_FOR_CURRENT_RUN means do not start another run; REPLAN_WITH_SCOPE means ask only for missing product/scope information; RECOVER means do not repeat engineering_run unchanged and call engineering_recover; INCREASE_BUDGET means stop dispatching and request an operator increase to the exhausted deployment budget before recovery. Obtain operator confirmation that previous agent and command work stopped only when requiresStopConfirmation is true. Ask only for missing product decisions. Do not ask users to run agentctl or manage revisions, artifacts, or writer tokens. Report ACCEPTED only when the tool returns that state.`,
     }))
     // `restrict` refuses a name the composition does not expose and cannot mask
     // a tool the Session registered into its OWN scope, which is exactly where
@@ -294,6 +392,25 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
     return undefined
   })
   ctx.on('tools/pre-execute', async (exec, next) => {
+    const execution = exec.agent === undefined ? undefined : executions.get(exec.agent)
+    if (execution !== undefined) {
+      try { await execution.control.reserveToolCall(executionId(exec)) }
+      catch (error) { if (error instanceof BudgetExhaustedError) execution.budget.abort(error); throw error }
+      if (execution.unit !== undefined && ['read', 'read_image', 'grep', 'glob', 'lsp'].includes(exec.name)) {
+        const args = exec.arguments
+        const path = args !== null && typeof args === 'object' ? 'file_path' in args ? args.file_path : 'path' in args ? args.path : undefined : undefined
+        if (typeof path !== 'string') throw new Error('Investigation code tools require an explicit path inside the assigned work unit')
+        const absolute = await realpath(resolve(workspace(exec.agent!), path))
+        const local = relative(await realpath(workspace(exec.agent!)), absolute).split(sep).join('/')
+        const contextAllowed = (local.startsWith(`.agent/tasks/${execution.control.taskId}/`) || local.startsWith(`.agent/reviews/${execution.control.taskId}/`)) && /\/(?:CONTEXT|REQUEST)-[^/]+\.json$/.test(local)
+        if (!contextAllowed && !execution.unit.allowedPaths.some(scope => local === scope || local.startsWith(`${scope}/`))) throw new Error(`Investigation path is outside the assigned scope: ${path}`)
+      }
+      if (execution.unit !== undefined && (exec.name === 'git_show' || exec.name === 'git_diff')) {
+        const args = exec.arguments
+        const path = args !== null && typeof args === 'object' && 'path' in args ? args.path : undefined
+        if (typeof path !== 'string' || !execution.unit.allowedPaths.includes(path)) throw new Error('Review Scout Git path is outside the assigned work unit')
+      }
+    }
     if (exec.agent !== undefined && children.has(exec.agent) && WRITE_TOOLS.includes(exec.name)) {
       const args = exec.arguments
       if (args === null || typeof args !== 'object') throw new Error('Engineering write requires a path')
@@ -315,6 +432,34 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
     return next()
   })
 
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    const decision = await next()
+    const execution = exec.agent === undefined ? undefined : executions.get(exec.agent)
+    if (decision.kind !== 'accept' || decision.value !== undefined || decision.content !== undefined) return decision
+    if (execution !== undefined && !result.isError && (exec.name === 'git_show' || exec.name === 'git_diff')) {
+      if (typeof result.value !== 'string') throw new Error('Git evidence tool result must contain its JSON receipt')
+      const page: unknown = JSON.parse(result.value)
+      if (page === null || typeof page !== 'object' || !('evidenceId' in page) || !('path' in page) || !('contentHash' in page)
+        || typeof page.evidenceId !== 'string' || typeof page.path !== 'string' || typeof page.contentHash !== 'string') throw new Error('Git evidence tool result is missing its inspection fields')
+      await execution.control.recordInspection({ executionId: executionId(exec), evidenceId: page.evidenceId, path: page.path, contentHash: page.contentHash, toolName: exec.name })
+    }
+    if (execution !== undefined && !result.isError && exec.name === 'read') {
+      const args = exec.arguments
+      const path = args !== null && typeof args === 'object' ? 'file_path' in args ? args.file_path : 'path' in args ? args.path : undefined : undefined
+      if (typeof path === 'string') {
+        const root = await realpath(workspace(exec.agent!))
+        const receipt = await inspectionHashForReadResult(root, path, result.value)
+        if (receipt !== undefined) {
+          const local = relative(root, receipt.path).split(sep).join('/')
+          if (execution.unit?.allowedPaths.some(scope => local === scope || local.startsWith(`${scope}/`))) {
+            await execution.control.recordInspection({ executionId: executionId(exec), path: local, toolName: exec.name, contentHash: receipt.contentHash })
+          }
+        }
+      }
+    }
+    return decision
+  })
+
   const executeRole = async (parent: Agent, invocation: RoleInvocation): Promise<unknown> => {
     const previousStart = roleStartTail
     let releaseStart!: () => void
@@ -326,6 +471,9 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
       invocation.markMutationStarted?.()
     }
     let timer: NodeJS.Timeout | undefined
+    let softTimer: NodeJS.Timeout | undefined
+    let lifetimeTimer: NodeJS.Timeout | undefined
+    let lifetimeStopped = false
     try {
       const loaded = await project(invocation.root)
       const route = invocation.route
@@ -334,15 +482,26 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
       const allowed = availableTools.get(parent)!
         .filter(name => invocation.reviewEvidence !== undefined ? GIT_REVIEW_TOOLS.includes(name) || READ_TOOLS.includes(name) : route.writable || READ_TOOLS.includes(name))
       const timeout = new AbortController()
-      timer = setTimeout(() => timeout.abort(new Error(`Engineering role ${invocation.role} timed out`)), config.roleTimeoutMs)
+      const budget = new AbortController()
+      const scheduleLifetime = async (): Promise<void> => {
+        const remainingLifetime = await invocation.executionControl?.lifecycle.remainingElapsedMs()
+        if (!lifetimeStopped && remainingLifetime !== undefined) {
+          lifetimeTimer = setTimeout(() => { void scheduleLifetime().catch(error => budget.abort(error)) }, Math.min(remainingLifetime, 2_147_483_647))
+        }
+      }
+      await scheduleLifetime()
+      const elapsed = invocation.executionControl === undefined ? 0 : Math.max(0, Date.now() - Date.parse(invocation.executionControl.startedAt))
+      const hardDeadline = Math.min(config.roleTimeoutMs, invocation.executionControl?.bounds.hardDeadlineMs ?? config.roleTimeoutMs)
+      timer = setTimeout(() => timeout.abort(new Error(`Engineering role ${invocation.role} timed out`)), Math.max(0, hardDeadline - elapsed))
       const externalSignal = AbortSignal.any([invocation.signal, shutdown.signal])
-      const signal = AbortSignal.any([externalSignal, timeout.signal])
+      const signal = AbortSignal.any([externalSignal, timeout.signal, budget.signal])
       childrenByParent.add(parent.id)
       signal.throwIfAborted()
-      const { signal: _signal, markMutationStarted: _markMutationStarted, reviewEvidence, ...payload } = invocation
+      const { signal: _signal, markMutationStarted: _markMutationStarted, reviewEvidence, executionControl, ...payload } = invocation
       await previousStart
       signal.throwIfAborted()
       startingMutationObservers.set(parent.id, markMutationStarted)
+      if (executionControl !== undefined) startingExecution.set(parent.id, { control: executionControl, ...(invocation.workUnit === undefined ? {} : { unit: invocation.workUnit }), budget })
       if (reviewEvidence !== undefined) startingReviewEvidence.set(parent.id, reviewEvidence)
       const run = await ctx.subagents.start('spawn', {
         parent, signal, label: `Engineering ${invocation.role}`, maxDepth: 1,
@@ -355,18 +514,37 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
       })
       startingMutationObservers.delete(parent.id)
       startingReviewEvidence.delete(parent.id)
+      startingExecution.delete(parent.id)
       started = true
       releaseStart()
-      const result = await collectRole(run, invocation.role, route.provider, route.model, externalSignal, timeout.signal, () => mutationStarted)
+      if (executionControl !== undefined) {
+        softTimer = setTimeout(() => {
+          if (run.localAgent !== undefined && !signal.aborted) run.localAgent.inject(createUserMessage({ content: [{ type: 'text', text: 'The investigation soft deadline has arrived. Return a structured handoff containing only evidence actually obtained and explicit unresolved questions. Do not start broad new investigation.' }], source: { kind: 'user' } }))
+          void executionControl.checkpoint().catch(error => budget.abort(error))
+        }, Math.max(0, executionControl.bounds.softDeadlineMs - elapsed))
+      }
+      let result: unknown
+      try {
+        result = await collectRole(run, invocation.role, route.provider, route.model, externalSignal, timeout.signal, () => mutationStarted)
+      } catch (error) {
+        if (error instanceof RoleQuiescenceError) throw error
+        if (budget.signal.reason instanceof BudgetExhaustedError) throw budget.signal.reason
+        throw error
+      }
+      if (budget.signal.aborted) throw budget.signal.reason
       externalSignal.throwIfAborted()
       return result
     } finally {
       if (!started) {
         if (startingMutationObservers.get(parent.id) === markMutationStarted) startingMutationObservers.delete(parent.id)
         if (startingReviewEvidence.get(parent.id) === invocation.reviewEvidence) startingReviewEvidence.delete(parent.id)
+        startingExecution.delete(parent.id)
         releaseStart()
       }
       if (timer !== undefined) clearTimeout(timer)
+      if (softTimer !== undefined) clearTimeout(softTimer)
+      lifetimeStopped = true
+      if (lifetimeTimer !== undefined) clearTimeout(lifetimeTimer)
     }
   }
 

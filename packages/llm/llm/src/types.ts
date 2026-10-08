@@ -5,12 +5,58 @@
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { MessageId, ToolCallId, ProviderRequestId, ReasoningEffortId } from './brand.ts'
 import type { Message, UserMessage } from './message.ts'
 
+/** Opaque identity for one call made to a provider adapter. */
+export type LlmRequestId = Branded<'LlmRequestId'>
+
+/**
+ * Brand the identity of one adapter dispatch.
+ * @param id - unique opaque dispatch identity.
+ * @returns the same string with the LLM request id brand.
+ */
+export function LlmRequestId(id: string): LlmRequestId {
+  return brandString<LlmRequestId>(id)
+}
+
+/** Readonly top-level facts emitted immediately before an adapter stream call. */
+export interface LlmPreDispatch {
+  readonly requestId: LlmRequestId
+  /** Exact projected options passed to the adapter; nested caller values keep their existing ownership. */
+  readonly options: Readonly<GenerateOptions>
+  readonly startedAt: string
+}
+
+/** Settled outcome of one adapter stream call. */
+export type LlmDispatchOutcome = 'SUCCESS' | 'FAILED' | 'ABORTED' | 'INTERRUPTED'
+
+/** Readonly top-level facts emitted after an adapter iterator has closed. */
+export interface LlmPostDispatch extends LlmPreDispatch {
+  readonly endedAt: string
+  /** Latest usage chunk observed; omitted when the adapter supplied none. */
+  readonly usage?: Readonly<TokenUsage>
+  readonly outcome: LlmDispatchOutcome
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Events {
+    /**
+     * Admit one final adapter stream dispatch. A rejection prevents the adapter
+     * call and propagates as a plugin failure.
+     * @param record - readonly final projected request record and dispatch identity.
+     * @mode serial
+     */
+    'llm/pre-dispatch'(record: LlmPreDispatch): void | Promise<void>
+    /**
+     * Observe one adapter stream after its iterator has closed.
+     * @param record - readonly dispatch facts, latest usage, and outcome.
+     * @mode serial
+     */
+    'llm/post-dispatch'(record: LlmPostDispatch): void | Promise<void>
+
     /**
      * The provider topology changed: an adapter registered or unregistered
      * routes, or the configurable-provider directory gained or lost entries.

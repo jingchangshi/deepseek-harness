@@ -8,7 +8,7 @@
     "schemaVersion": { "const": 1 },
     "taskId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
     "revision": { "type": "integer", "minimum": 1 },
-    "status": { "enum": ["REVIEW_COMPLETE", "PARTIAL", "BLOCKED"] },
+    "status": { "enum": ["REVIEW_COMPLETE", "PARTIAL", "BLOCKED", "BUDGET_EXHAUSTED"] },
     "snapshot": {
       "type": "object", "additionalProperties": false,
       "required": ["schemaVersion", "id", "repositoryRoot", "targetCommit", "baseCommit", "objectFormat"],
@@ -25,7 +25,7 @@
       "required": ["schemaVersion", "taskId", "state", "revision", "workRevision", "fixAttempts", "writer", "updatedAt"],
       "properties": {
         "schemaVersion": { "const": 1 }, "taskId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
-        "state": { "enum": ["REQUEST", "SNAPSHOT", "SCOPE_CLASSIFIED", "REVIEW_INVESTIGATION", "INDEPENDENT_REVIEW", "EVIDENCE_VALIDATION", "REVIEW_COMPLETE", "PARTIAL", "BLOCKED"] },
+        "state": { "enum": ["REQUEST", "SNAPSHOT", "SCOPE_CLASSIFIED", "REVIEW_INVESTIGATION", "INDEPENDENT_REVIEW", "EVIDENCE_VALIDATION", "REVIEW_COMPLETE", "PARTIAL", "BLOCKED", "BUDGET_EXHAUSTED"] },
         "revision": { "type": "integer", "minimum": 1 }, "workRevision": { "const": 0 }, "fixAttempts": { "const": 0 }, "writer": { "type": "null" },
         "updatedAt": { "type": "string", "format": "date-time" }, "blocker": { "type": "string", "minLength": 1 }, "requiresStopConfirmation": { "type": "boolean" }
       }

@@ -55,10 +55,10 @@ async function validateReceipt(value: unknown, invocationId: EngineeringRunInvoc
       type: 'object', additionalProperties: false,
       required: ['status', 'taskId', 'summary', 'nextAction'],
       properties: {
-        status: { enum: ['ACCEPTED', 'BLOCKED', 'RUN_ALREADY_ACTIVE'] },
+        status: { enum: ['ACCEPTED', 'BLOCKED', 'BUDGET_EXHAUSTED', 'RUN_ALREADY_ACTIVE'] },
         taskId: { anyOf: [taskIdSchema, { const: '' }] },
         summary: { type: 'string', minLength: 1 },
-        nextAction: { enum: ['NONE', 'RESUME', 'RECOVER', 'REPLAN_WITH_SCOPE', 'WAIT_FOR_CURRENT_RUN'] },
+        nextAction: { enum: ['NONE', 'RESUME', 'RECOVER', 'REPLAN_WITH_SCOPE', 'WAIT_FOR_CURRENT_RUN', 'INCREASE_BUDGET'] },
         requiresStopConfirmation: { type: 'boolean' }, state: { $ref: '#/definitions/state' },
       },
     }
@@ -102,6 +102,7 @@ async function validateReceipt(value: unknown, invocationId: EngineeringRunInvoc
     if (result.state !== undefined && result.state.taskId !== result.taskId
       || result.status === 'ACCEPTED' && (result.nextAction !== 'NONE' || result.taskId === '' || result.state !== undefined && result.state.state !== 'ACCEPTED')
       || result.status === 'BLOCKED' && !['RESUME', 'RECOVER', 'REPLAN_WITH_SCOPE'].includes(result.nextAction)
+      || result.status === 'BUDGET_EXHAUSTED' && (result.nextAction !== 'INCREASE_BUDGET' || result.state?.state !== 'BUDGET_EXHAUSTED')
       || result.status === 'RUN_ALREADY_ACTIVE' && result.nextAction !== 'WAIT_FOR_CURRENT_RUN') {
       throw new Error(`Engineering invocation receipt result mismatch: ${invocationId}`)
     }

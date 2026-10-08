@@ -1,6 +1,6 @@
 /** Read-only review workflow over immutable Git snapshots and cited evidence. */
 
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
@@ -11,9 +11,11 @@ import { assertRouteDispatchAllowed, resolveRoleAttempts } from './config.ts'
 import type { HarnessConfig } from './config.ts'
 import { createGitSnapshot, GitEvidenceRepository } from './git-evidence.ts'
 import type { GitEvidenceReceipt, GitReviewTarget, GitSnapshot } from './git-evidence.ts'
-import { loadEngineeringProject, type RoleExecutor, type RoleInvocation, type EngineeringRole } from './automatic.ts'
+import { boundedContext, boundedRequest, loadEngineeringProject, type RoleExecutor, type RoleInvocation, type EngineeringRole } from './automatic.ts'
+import type { InspectionReceipt, InvestigationCheckpoint } from './investigation.ts'
 import { TaskRepository } from './repository.ts'
 import { RoleInvocationError, RoleQuiescenceError, runRoleAttempts } from './role-execution.ts'
+import { BudgetExhaustedError } from './lifecycle.ts'
 import type { ReviewFinding, ReviewOutput, ReviewStateRecord, ReviewTaskDocument } from './review-types.ts'
 import type { RoleAttemptRecord } from './role-execution.ts'
 
@@ -71,7 +73,7 @@ export interface EngineeringReviewOptions {
 export interface ReviewRunResult {
   schemaVersion: 1
   revision: number
-  status: 'REVIEW_COMPLETE' | 'PARTIAL' | 'BLOCKED'
+  status: 'REVIEW_COMPLETE' | 'PARTIAL' | 'BLOCKED' | 'BUDGET_EXHAUSTED'
   taskId: string
   snapshot: GitSnapshot
   state: ReviewStateRecord
@@ -275,6 +277,10 @@ export async function runEngineeringReview(options: EngineeringReviewOptions): P
       })
       task = { schemaVersion: 1 as const, id, target: options.target, snapshot, scope: [], dataClass: project.dataClass, createdAt: new Date().toISOString() }
       state = await repository.createReview(task)
+      await repository.initializeLifecycle(id, 'review-only', {
+        ...deployment.workflow.lifecycleBudget,
+        maxLogicalInvocations: Math.min(deployment.workflow.lifecycleBudget.maxLogicalInvocations ?? project.maxRoleCalls, project.maxRoleCalls),
+      })
     }
     if (!deepEqualJson(task.target, options.target)) throw new Error(`review task ${id} is already pinned to a different Git target`)
     if (task.dataClass !== project.dataClass) throw new Error(`project dataClass changed since review task ${id} was created`)
@@ -282,7 +288,7 @@ export async function runEngineeringReview(options: EngineeringReviewOptions): P
     if (state === undefined) state = await repository.readReviewState(id)
     await options.onTaskSelected?.(id)
     signal.throwIfAborted()
-    if (state.state === 'REVIEW_COMPLETE' || state.state === 'PARTIAL' || state.state === 'BLOCKED') {
+    if (state.state === 'REVIEW_COMPLETE' || state.state === 'PARTIAL' || state.state === 'BLOCKED' || state.state === 'BUDGET_EXHAUSTED') {
       const result = await repository.readReviewResult(id)
       if (result.taskId !== id || result.revision !== state.revision || result.status !== state.state
         || !deepEqualJson(result.snapshot, task.snapshot) || !deepEqualJson(result.state, state)) {
@@ -293,6 +299,10 @@ export async function runEngineeringReview(options: EngineeringReviewOptions): P
     options.onProgress?.(state)
     signal.throwIfAborted()
     const snapshot = task.snapshot
+    const lifecycle = await repository.lifecycle(id, 'review-only', {
+      ...deployment.workflow.lifecycleBudget,
+      maxLogicalInvocations: Math.min(deployment.workflow.lifecycleBudget.maxLogicalInvocations ?? project.maxRoleCalls, project.maxRoleCalls),
+    })
     if (state.state === 'REQUEST') state = await repository.advanceReview(id, state.revision, 'SNAPSHOT')
     const evidenceOptions = {
       commandTimeoutMs: deployment.workflow.reviewGitCommandTimeoutMs,
@@ -319,26 +329,153 @@ export async function runEngineeringReview(options: EngineeringReviewOptions): P
     const invoke = async (role: EngineeringRole, scope: readonly { path: string; status: string }[], phaseState: ReviewStateRecord['state'], request: string): Promise<ReviewOutput> => {
       const currentState = state
       if (currentState === undefined) throw new Error('review has no current state')
-      return runRoleAttempts<ReviewOutput>({
+      const hash = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex')
+      const receiptHash = (receipts: readonly GitEvidenceReceipt[]): string => hash(receipts.map(receipt => [
+        receipt.id, receipt.snapshotId, receipt.operation, receipt.path, receipt.commit, receipt.startLine, receipt.endLine,
+        receipt.totalLines, receipt.offset, receipt.endOffset, receipt.totalLength, receipt.contentHash, receipt.complete, receipt.binary,
+      ]))
+      const scout = role === 'scout-primary' || role === 'scout-secondary'
+      const scopeDigest = hash([snapshot.id, role, scope])
+      const membership = hash(scope)
+      const previous = scout ? await repository.readInvestigationCheckpoint(id, 'review-only', role) : undefined
+      const validPrevious = previous !== undefined && previous.repositorySnapshot === snapshot.id && previous.scopeDigest === scopeDigest
+        && previous.scopeMembershipDigest === membership
+      if (validPrevious) {
+        for (const receipt of previous.gitEvidence ?? []) {
+          const binding = previous.gitExecutions?.find(item => item.evidenceId === receipt.id)
+          if (binding === undefined || !await lifecycle.validateInspection(previous.attemptIds, binding.executionId)) throw new Error('review checkpoint inspection has no durable task attempt')
+        }
+        await evidence.restoreEvidence(previous.gitEvidence ?? [], signal)
+      }
+      if (validPrevious && previous.status === 'COMPLETE' && previous.output !== null) {
+        if (previous.gitEvidence === undefined || previous.gitExecutions === undefined) throw new Error('completed review checkpoint has no pinned Git receipt bindings')
+        if (!deepEqualJson(previous.allowedPaths, scope.map(item => item.path)) || previous.evidence.length !== scope.length || previous.dependencies.length !== scope.length) throw new Error('review checkpoint scope or dependency count mismatch')
+        for (const { path } of scope) {
+          const expected = receiptHash(previous.gitEvidence.filter(receipt => receipt.path === path))
+          if (previous.evidence.find(receipt => receipt.path === path)?.contentHash !== expected || previous.dependencies.find(dependency => dependency.path === path)?.hash !== expected) throw new Error('review checkpoint content references do not match its Git pages')
+        }
+        const output = parseOutput(previous.output)
+        const problems = validateSemantics(output, snapshot, scope, evidence, inspection.changedLines, inspection.unsupported.filter(path => scope.some(item => item.path === path)))
+        if (problems.length !== 0) throw new Error(`completed review checkpoint has invalid evidence: ${problems.join('; ')}`)
+        await repository.saveInvestigationCheckpoint({ ...previous, validatedForRevision: currentState.revision, updatedAt: new Date().toISOString() })
+        return output
+      }
+      const invocationId = await lifecycle.reserveInvocation(role)
+      const startedAt = new Date().toISOString()
+      const bounds = deployment.workflow.roleBounds[role]!
+      const observations: InspectionReceipt[] = validPrevious ? (previous.gitEvidence ?? []).map(receipt => ({
+        executionId: previous.gitExecutions!.find(item => item.evidenceId === receipt.id)!.executionId,
+        evidenceId: receipt.id, path: receipt.path!, contentHash: receipt.contentHash, toolName: `git_${receipt.operation}`,
+      })) : []
+      const checkpoint: InvestigationCheckpoint | undefined = !scout ? undefined : {
+        schemaVersion: 1, taskId: id, workflow: 'review-only', unitId: role, taskRevision: currentState.revision, validatedForRevision: currentState.revision,
+        repositorySnapshot: snapshot.id, scopeMembershipDigest: membership, scopeDigest, allowedPaths: scope.map(item => item.path),
+        dependencies: [], evidence: [], gitEvidence: validPrevious ? [...previous.gitEvidence ?? []] : [],
+        gitExecutions: validPrevious ? [...previous.gitExecutions ?? []] : [], output: null, status: 'PARTIAL', startedAt, updatedAt: startedAt,
+        attemptIds: validPrevious ? [...previous.attemptIds] : [],
+      }
+      let checkpointTail = Promise.resolve()
+      const persistCheckpoint = (): Promise<void> => {
+        const pending = checkpointTail.then(async () => {
+          if (checkpoint === undefined) return
+          checkpoint.updatedAt = new Date().toISOString()
+          await repository.saveInvestigationCheckpoint(checkpoint)
+        })
+        checkpointTail = pending.catch(() => {})
+        return pending
+      }
+      const requestText = await boundedRequest(join(root, '.agent/reviews', id), `${request}\nPinned target: ${snapshot.targetCommit}\nBase: ${snapshot.baseCommit}\nChanged paths: ${JSON.stringify(scope)}`, deployment.workflow.maxRoleContextBytes)
+      let tools = 0
+      let bodies = 0
+      const seenTools = new Set<string>()
+      let reservations = Promise.resolve()
+      const output = await runRoleAttempts<ReviewOutput>({
         role, attempts: resolveRoleAttempts(deployment, role), signal,
         executeAttempt: async (route, attemptIndex, markMutationStarted) => {
           signal.throwIfAborted()
           assertRouteDispatchAllowed(deployment, route.routeId, task.dataClass)
+          const attemptId = await lifecycle.reserveAttempt(invocationId, route)
+          if (checkpoint !== undefined) { checkpoint.attemptIds.push(attemptId); await persistCheckpoint() }
+          const before = new Set(evidence.observedEvidence().map(receipt => receipt.id))
+          const reserveToolCall = (executionId: string): Promise<void> => {
+            const reservation = reservations.then(async () => {
+              if (seenTools.has(executionId)) return
+              if (tools >= bounds.maxToolCalls) throw new BudgetExhaustedError(`Review role ${role} exhausted its tool budget`)
+              await lifecycle.reserveToolCall(attemptId, executionId)
+              seenTools.add(executionId); tools += 1
+            })
+            reservations = reservation.catch(() => {})
+            return reservation
+          }
+          const observe = async (receipt: InspectionReceipt): Promise<void> => {
+            const actual = evidence.observedEvidence().find(item => (receipt.evidenceId ?? receipt.executionId) === item.id && item.path === receipt.path && item.contentHash === receipt.contentHash)
+            if (actual === undefined || !scope.some(item => item.path === receipt.path)) throw new Error('review inspection receipt does not match an acquired pinned Git page')
+            await reserveToolCall(receipt.executionId)
+            if (!observations.some(item => item.executionId === receipt.executionId && item.evidenceId === actual.id)) observations.push({ ...receipt, evidenceId: actual.id })
+            if (checkpoint !== undefined && !checkpoint.gitEvidence!.some(item => item.id === actual.id)) {
+              checkpoint.gitEvidence!.push(actual)
+              checkpoint.gitExecutions!.push({ evidenceId: actual.id, executionId: receipt.executionId })
+              await persistCheckpoint()
+            }
+          }
+          const preparedContext = await boundedContext(join(root, '.agent/reviews', id), role, {
+            ...context, reviewScope: scope, ...(checkpoint === undefined ? {} : { partialInvestigationEvidence: checkpoint.gitEvidence }),
+          }, deployment.workflow.maxRoleContextBytes)
           const invocation: RoleInvocation = {
             role, route, attemptIndex, root, taskId: id,
-            request: `${request}\nPinned target: ${snapshot.targetCommit}\nBase: ${snapshot.baseCommit}\nChanged paths: ${JSON.stringify(scope)}`,
+            request: requestText,
             state: { state: phaseState, revision: currentState.revision, workRevision: 0, fixAttempts: 0 },
-            context: { ...context, reviewScope: scope }, outputSchema: REVIEW_OUTPUT_SCHEMA, signal,
+            context: preparedContext, outputSchema: REVIEW_OUTPUT_SCHEMA, signal,
             reviewEvidence: evidence,
+            executionControl: {
+              taskId: id, routeId: route.routeId, lifecycle, invocationId, attemptId, bounds, startedAt,
+              checkpoint: persistCheckpoint, recordInspection: observe,
+              markBodyStart: () => {
+                if (bodies >= bounds.maxToolCalls) throw new BudgetExhaustedError(`Review role ${role} exhausted its tool body budget`)
+                bodies += 1
+              },
+              reserveToolCall,
+            },
+            ...(scout ? { workUnit: { id: role, role: role as 'scout-primary' | 'scout-secondary', question: 'Inspect the assigned pinned Git changes and report unresolved questions.', allowedPaths: scope.map(item => item.path), ...bounds, evidenceFormat: 'inspection-receipts' as const } } : {}),
             markMutationStarted: () => { potentiallyMutatingDispatch = true; markMutationStarted() },
           }
-          const result = await options.executeRole(invocation)
+          let result: unknown
+          let executionError: unknown
+          try { result = await options.executeRole(invocation) }
+          catch (error) { executionError = error; throw error }
+          finally {
+            try {
+              for (const receipt of evidence.observedEvidence()) {
+                if (before.has(receipt.id) || receipt.path === undefined || !scope.some(item => item.path === receipt.path) || observations.some(item => item.evidenceId === receipt.id)) continue
+                await observe({ executionId: receipt.id, evidenceId: receipt.id, path: receipt.path, contentHash: receipt.contentHash, toolName: `git_${receipt.operation}` })
+              }
+            } catch (error) {
+              if (executionError instanceof RoleQuiescenceError) throw new RoleQuiescenceError(executionError.message, { cause: new AggregateError([executionError, error], 'Uncertain review shutdown and checkpoint audit failed') })
+              throw error
+            }
+          }
           if (potentiallyMutatingDispatch) throw new RoleInvocationError('review role dispatched a potentially mutating tool', 'NON_FALLBACKABLE', false)
           return result
         },
         validateOutput: parseOutput,
         persistAttempts: records => persistAttempts(root, id, role, records),
       })
+      if (checkpoint !== undefined) {
+        const problems = validateSemantics(output, snapshot, scope, evidence, inspection.changedLines, inspection.unsupported.filter(path => scope.some(item => item.path === path)))
+        if (problems.length === 0) {
+          checkpoint.output = { ...output }
+          checkpoint.status = 'COMPLETE'
+          checkpoint.evidence = scope.map(({ path }) => {
+            const receipts = checkpoint.gitEvidence!.filter(receipt => receipt.path === path)
+            const first = observations.find(item => item.path === path)!
+            return { executionId: first.executionId, path, toolName: 'git_scope', contentHash: receiptHash(receipts), evidenceId: first.evidenceId! }
+          })
+          checkpoint.dependencies = checkpoint.evidence.map(receipt => ({ path: receipt.path, hash: receipt.contentHash }))
+        }
+        await persistCheckpoint()
+      }
+      await lifecycle.remainingElapsedMs()
+      return output
     }
     try {
       inspection = await inspectScope(validationEvidence, paths, signal)
@@ -365,6 +502,7 @@ export async function runEngineeringReview(options: EngineeringReviewOptions): P
       const evidenceRecords = evidence.observedEvidence().filter(receipt => citedIds.has(receipt.id))
       const result = { snapshot, summary: output.summary, findings, evidence: evidenceRecords,
         inspectedEvidenceIds: output.inspectedEvidenceIds, unresolvedQuestions }
+      await lifecycle.remainingElapsedMs()
       state = await repository.completeReviewOnly(id, state.revision, result, status)
       options.onProgress?.(state)
       return { schemaVersion: 1, revision: state.revision, status, taskId: id, snapshot, state, summary: output.summary, findings, evidence: evidenceRecords, inspectedEvidenceIds: output.inspectedEvidenceIds, unresolvedQuestions }
@@ -374,7 +512,7 @@ export async function runEngineeringReview(options: EngineeringReviewOptions): P
       const blocker = error instanceof Error ? error.message.slice(0, 1000) : String(error)
       if (state.state === 'REVIEW_INVESTIGATION') state = await repository.advanceReview(id, state.revision, 'INDEPENDENT_REVIEW')
       if (state.state === 'INDEPENDENT_REVIEW') state = await repository.advanceReview(id, state.revision, 'EVIDENCE_VALIDATION')
-      const status = quiescent || unsafe ? 'BLOCKED' : 'PARTIAL'
+      const status = quiescent || unsafe ? 'BLOCKED' : error instanceof BudgetExhaustedError ? 'BUDGET_EXHAUSTED' : 'PARTIAL'
       const unresolvedQuestions = [blocker]
       const stopConfirmation = quiescent || unsafe
       const evidenceRecords = [...evidence.observedEvidence()]

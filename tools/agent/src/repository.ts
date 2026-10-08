@@ -32,6 +32,10 @@ import type {
 import type { ReviewStateRecord, ReviewTaskDocument } from './review-types.ts'
 import type { ReviewRunResult } from './review-only.ts'
 import { transitionReview } from './state-machine.ts'
+import { FileTaskLifecycle } from './lifecycle.ts'
+import type { LifecycleLimits, TaskLifecycle } from './lifecycle.ts'
+import { readInvestigationCheckpoint, saveInvestigationCheckpoint } from './investigation.ts'
+import type { InvestigationCheckpoint } from './investigation.ts'
 
 const ARTIFACT_FILES = {
   baseline: 'BASELINE.json',
@@ -153,6 +157,99 @@ export class TaskRepository {
     })
   }
 
+  /** Initialize the cumulative lifecycle ledger for a newly admitted task.
+   * @param taskId - task identity.
+   * @param workflow - artifact namespace owning the task.
+   * @param limits - cumulative lifecycle ceilings.
+   * @returns the initialized durable ledger.
+  */
+  async initializeLifecycle(taskId: string, workflow: 'development' | 'review-only', limits: LifecycleLimits): Promise<TaskLifecycle> {
+    if (workflow === 'development') {
+      const state = await this.readState(taskId)
+      if (state.state !== 'NEW') throw new Error('new lifecycle initialization requires a NEW task')
+      if (await this.legacyRoleCalls(taskId) !== 0) throw new Error('new lifecycle initialization cannot replace historical role calls')
+      if (await this.legacyRoleAttempts(taskId, workflow) !== 0) throw new Error('new lifecycle initialization cannot replace historical role attempts')
+    } else {
+      const state = await this.readReviewState(taskId)
+      if (state.state !== 'REQUEST') throw new Error('new lifecycle initialization requires a REQUEST review')
+      if (await this.legacyRoleAttempts(taskId, workflow) !== 0) throw new Error('new lifecycle initialization cannot replace historical role attempts')
+    }
+    const lifecycle = new FileTaskLifecycle(this.root, taskId, workflow, limits, this.now, 0, false, 0)
+    await lifecycle.initialize()
+    return lifecycle
+  }
+
+  /** Open a task's durable lifecycle ledger, importing legacy counters conservatively when absent.
+   * @param taskId - task identity.
+   * @param workflow - artifact namespace owning the task.
+   * @param limits - cumulative lifecycle ceilings.
+   * @returns a facade over the durable ledger.
+   */
+  async lifecycle(taskId: string, workflow: 'development' | 'review-only', limits: LifecycleLimits): Promise<TaskLifecycle> {
+    const historicalCreatedAt = workflow === 'development'
+      ? (await this.readTask(taskId)).createdAt
+      : (await this.readReview(taskId)).createdAt
+    const legacyAttempts = await this.legacyRoleAttempts(taskId, workflow)
+    const lifecycle = new FileTaskLifecycle(this.root, taskId, workflow, limits, this.now, workflow === 'development' ? await this.legacyRoleCalls(taskId) : 0, true, legacyAttempts, historicalCreatedAt)
+    return lifecycle
+  }
+
+  /** Read one validated checkpoint for a bounded investigation unit.
+   * @param taskId - owning task identity.
+   * @param workflow - artifact namespace owning the task.
+   * @param unitId - assigned investigation unit identity.
+   * @returns the validated checkpoint or undefined when none was saved.
+   */
+  async readInvestigationCheckpoint(taskId: string, workflow: 'development' | 'review-only', unitId: string): Promise<InvestigationCheckpoint | undefined> {
+    return readInvestigationCheckpoint(this.root, taskId, workflow, unitId)
+  }
+
+  /** Atomically save only source-bound evidence for one bounded investigation unit.
+   * @param checkpoint - checkpoint with validated source and task identities.
+   */
+  async saveInvestigationCheckpoint(checkpoint: InvestigationCheckpoint): Promise<void> {
+    await saveInvestigationCheckpoint(this.root, checkpoint)
+  }
+
+  /** Read the task's known historical AUTO role-call total without treating absence as proof of zero. */
+  private async legacyRoleCalls(taskId: string): Promise<number> {
+    const source = await this.readOptional(join(this.taskDirectory(taskId), 'AUTO.json'))
+    if (source === undefined) return 0
+    let value: unknown
+    try { value = JSON.parse(source) } catch (error) { throw new Error(`invalid AUTO.json for lifecycle import: ${String(error)}`) }
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('invalid AUTO.json for lifecycle import')
+    const roleCalls = Reflect.get(value, 'roleCalls')
+    if (typeof roleCalls !== 'number' || !Number.isSafeInteger(roleCalls) || roleCalls < 0) throw new Error('invalid AUTO.json roleCalls for lifecycle import')
+    return roleCalls
+  }
+
+  /** Count durable legacy route attempts from append-only role audit files. */
+  private async legacyRoleAttempts(taskId: string, workflow: 'development' | 'review-only' = 'development'): Promise<number> {
+    const directory = workflow === 'development' ? this.taskDirectory(taskId) : this.reviewDirectory(taskId)
+    let filenames: string[]
+    try { filenames = await readdir(directory) }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0; throw error }
+    const audits = filenames.filter(filename => filename.startsWith('ROUTE_ATTEMPTS.') && filename.endsWith('.jsonl'))
+    let count = 0
+    for (const filename of audits) {
+      const source = await this.readOptional(join(directory, filename)) ?? ''
+      for (const line of source.split('\n').filter(value => value.length > 0)) {
+        let value: unknown
+        try { value = JSON.parse(line) } catch (error) { throw new Error(`invalid ${filename} lifecycle history: ${String(error)}`) }
+        if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error(`invalid ${filename} lifecycle history`)
+        const field = (name: string): unknown => Reflect.get(value, name)
+        if (field('schemaVersion') !== 1 || typeof field('role') !== 'string' || typeof field('attemptIndex') !== 'number'
+          || !Number.isSafeInteger(field('attemptIndex')) || (field('attemptIndex') as number) < 1
+          || typeof field('routeId') !== 'string' || typeof field('provider') !== 'string' || typeof field('model') !== 'string'
+          || typeof field('startedAt') !== 'string' || !Number.isFinite(Date.parse(field('startedAt') as string))
+          || typeof field('endedAt') !== 'string' || !Number.isFinite(Date.parse(field('endedAt') as string))
+          || (field('outcome') !== 'SUCCESS' && field('outcome') !== 'FAILED')) throw new Error(`invalid ${filename} lifecycle history`)
+        count += 1
+      }
+    }
+    return count
+  }
+
   /** Read the immutable review target and pinned Git snapshot. */
   async readReview(taskId: string): Promise<ReviewTaskDocument> {
     return this.readJson('review-task', join(this.reviewDirectory(taskId), 'TASK.json')) as Promise<ReviewTaskDocument>
@@ -220,7 +317,7 @@ export class TaskRepository {
   }
 
   /** Persist one review result and terminal state with a revision compare-and-swap. */
-  async completeReviewOnly(taskId: string, expectedRevision: number, result: object, status: 'REVIEW_COMPLETE' | 'PARTIAL' | 'BLOCKED', blocker?: string, requiresStopConfirmation = false): Promise<ReviewStateRecord> {
+  async completeReviewOnly(taskId: string, expectedRevision: number, result: object, status: 'REVIEW_COMPLETE' | 'PARTIAL' | 'BLOCKED' | 'BUDGET_EXHAUSTED', blocker?: string, requiresStopConfirmation = false): Promise<ReviewStateRecord> {
     const directory = this.reviewDirectory(taskId)
     const statePath = join(directory, 'STATE.json')
     return withFileLock(statePath, async () => {
@@ -566,6 +663,16 @@ export class TaskRepository {
   /** Explicitly leave current work and require a new investigation and plan. */
   async replan(taskId: string, expectedRevision: number, confirmedStopped = false): Promise<TaskStateRecord> {
     return this.mutate(taskId, expectedRevision, current => transition(current, { type: 'replan', confirmedStopped }, this.now()))
+  }
+
+  /** Persist lifecycle exhaustion as a terminal, recoverable task state.
+   * @param taskId - task identity.
+   * @param expectedRevision - current task revision.
+   * @param blocker - durable budget diagnostic.
+   * @returns the updated task state.
+   */
+  async budgetExhausted(taskId: string, expectedRevision: number, blocker: string): Promise<TaskStateRecord> {
+    return this.mutate(taskId, expectedRevision, current => transition(current, { type: 'exhausted', blocker }, this.now()))
   }
 
   /** Record a blocker after all owned model writers have stopped. */

@@ -19,6 +19,7 @@ export type TaskAction =
   | { type: 'accept' }
   | { type: 'replan'; confirmedStopped?: boolean }
   | { type: 'block'; blocker: string }
+  | { type: 'exhausted'; blocker: string }
 
 /** Error raised when an action is not legal for the current state. */
 export class TransitionError extends Error {
@@ -33,7 +34,7 @@ export class TransitionError extends Error {
 export type ReviewAction =
   | { type: 'advance'; state: 'SNAPSHOT' | 'SCOPE_CLASSIFIED' | 'REVIEW_INVESTIGATION' | 'INDEPENDENT_REVIEW' | 'EVIDENCE_VALIDATION' }
   | { type: 'recover'; confirmedStopped: boolean }
-  | { type: 'complete'; status: 'REVIEW_COMPLETE' | 'PARTIAL' | 'BLOCKED'; blocker?: string; requiresStopConfirmation?: boolean }
+  | { type: 'complete'; status: 'REVIEW_COMPLETE' | 'PARTIAL' | 'BLOCKED' | 'BUDGET_EXHAUSTED'; blocker?: string; requiresStopConfirmation?: boolean }
 
 /**
  * Advance review-only state without entering the development transition graph.
@@ -44,11 +45,12 @@ export type ReviewAction =
  */
 export function transitionReview(current: ReviewStateRecord, action: ReviewAction, now: string): ReviewStateRecord {
   if (action.type === 'recover') {
-    if (current.state !== 'BLOCKED' || current.requiresStopConfirmation !== true || action.confirmedStopped !== true) {
+    if ((current.state !== 'BLOCKED' && current.state !== 'PARTIAL' && current.state !== 'BUDGET_EXHAUSTED')
+      || current.requiresStopConfirmation === true && action.confirmedStopped !== true) {
       throw new Error('review recovery requires a stop-confirmation blocker and explicit stopped confirmation')
     }
     const { blocker: _blocker, requiresStopConfirmation: _confirmation, ...recovered } = current
-    return { ...recovered, state: 'INDEPENDENT_REVIEW', revision: current.revision + 1, updatedAt: now }
+    return { ...recovered, state: 'REVIEW_INVESTIGATION', revision: current.revision + 1, updatedAt: now }
   }
   const sequence: ReviewStateRecord['state'][] = ['REQUEST', 'SNAPSHOT', 'SCOPE_CLASSIFIED', 'REVIEW_INVESTIGATION', 'INDEPENDENT_REVIEW', 'EVIDENCE_VALIDATION']
   if (action.type === 'advance') {
@@ -187,16 +189,17 @@ export function transition(current: TaskStateRecord, action: TaskAction, now: st
       if (taskRequiresStopConfirmation(current) && action.confirmedStopped !== true) {
         throw new TransitionError(action.type, current.state, 'confirm that all agent and command work has stopped')
       }
-      requireState(current, action.type, ['BASELINED', 'INVESTIGATED', 'PLAN_FROZEN', 'IMPLEMENTING', 'VERIFYING', 'VERIFIED', 'REVIEWING', 'REVIEWED', 'REPLAN', 'BLOCKED'])
+      requireState(current, action.type, ['BASELINED', 'INVESTIGATED', 'PLAN_FROZEN', 'IMPLEMENTING', 'VERIFYING', 'VERIFIED', 'REVIEWING', 'REVIEWED', 'REPLAN', 'BLOCKED', 'BUDGET_EXHAUSTED'])
       return { ...nextRevision(current, now), state: 'REPLAN', writer: null }
     }
+    case 'exhausted':
     case 'block': {
       requireNoWriter(current, action.type)
       if (taskRequiresStopConfirmation(current)) {
         throw new TransitionError(action.type, current.state, 'cannot replace a stop-confirmation blocker before recovery')
       }
       if (action.blocker.trim().length === 0) throw new TransitionError(action.type, current.state, 'blocker is empty')
-      return { ...nextRevision(current, now), state: 'BLOCKED', writer: null, blocker: action.blocker }
+      return { ...nextRevision(current, now), state: action.type === 'exhausted' ? 'BUDGET_EXHAUSTED' : 'BLOCKED', writer: null, blocker: action.blocker }
     }
   }
 }

@@ -3,7 +3,7 @@
 import type { GitReviewTarget, GitSnapshot } from './git-evidence.ts'
 
 /** Review-only state; it carries no development writer lease. */
-export type ReviewState = 'REQUEST' | 'SNAPSHOT' | 'SCOPE_CLASSIFIED' | 'REVIEW_INVESTIGATION' | 'INDEPENDENT_REVIEW' | 'EVIDENCE_VALIDATION' | 'REVIEW_COMPLETE' | 'PARTIAL' | 'BLOCKED'
+export type ReviewState = 'REQUEST' | 'SNAPSHOT' | 'SCOPE_CLASSIFIED' | 'REVIEW_INVESTIGATION' | 'INDEPENDENT_REVIEW' | 'EVIDENCE_VALIDATION' | 'REVIEW_COMPLETE' | 'PARTIAL' | 'BLOCKED' | 'BUDGET_EXHAUSTED'
 
 /** Revisioned review state stored beside development tasks. */
 export interface ReviewStateRecord {
