@@ -106,6 +106,77 @@ afterEach(async () => {
 })
 
 describe('task repository', () => {
+  async function freezeOther(store: TaskRepository): Promise<number> {
+    await store.createTask({ schemaVersion: 1, id: 'other-task', title: 'Other task', profile: 'webapp', dataClass: 'internal', createdAt: '2026-10-04T00:00:00.000Z' })
+    await store.baseline('other-task', 0, baseline)
+    await store.investigate('other-task', 1, investigation)
+    return (await store.freezePlan('other-task', 2, plan)).revision
+  }
+
+  it('admits at most one direct writer when two frozen tasks start concurrently', async () => {
+    const store = await repository()
+    const firstRevision = await frozen(store)
+    const secondRevision = await freezeOther(store)
+    const root = temporaryRoots.at(-1)
+    if (root === undefined) throw new Error('repository fixture missing')
+    const competingStore = new TaskRepository(root, schemaRoot)
+    const outcomes = await Promise.allSettled([
+      store.startImplementation('sample-task', firstRevision),
+      competingStore.startImplementation('other-task', secondRevision),
+    ])
+    const states = await Promise.all(['sample-task', 'other-task'].map(id => store.readState(id)))
+    expect(states.filter(state => state.writer !== null)).toHaveLength(1)
+    expect(outcomes.filter(outcome => outcome.status === 'fulfilled')).toHaveLength(1)
+    expect(outcomes.filter(outcome => outcome.status === 'rejected')).toHaveLength(1)
+    expect(states.filter(state => state.writer === null)[0]).toMatchObject({ state: 'PLAN_FROZEN', revision: 3 })
+  })
+
+  it('rejects direct implementation while another task has a durable writer', async () => {
+    const store = await repository()
+    const first = await store.startImplementation('sample-task', await frozen(store))
+    const secondRevision = await freezeOther(store)
+    await expect(store.startImplementation('other-task', secondRevision)).rejects.toThrow()
+    expect(await store.readState('sample-task')).toEqual(first)
+    expect(await store.readState('other-task')).toMatchObject({ state: 'PLAN_FROZEN', revision: secondRevision, writer: null })
+  })
+
+  it('rejects direct implementation while another writer termination is uncertain', async () => {
+    const store = await repository()
+    const firstRevision = await frozen(store)
+    const secondRevision = await freezeOther(store)
+    const blocked = await store.block('sample-task', firstRevision, 'Writer termination is uncertain. Confirm that all command writes have stopped before explicitly replanning this task.')
+    expect(blocked).toMatchObject({ state: 'BLOCKED', writer: null })
+    await expect(store.startImplementation('other-task', secondRevision)).rejects.toThrow()
+    expect(await store.readState('sample-task')).toEqual(blocked)
+    expect(await store.readState('other-task')).toMatchObject({ state: 'PLAN_FROZEN', revision: secondRevision, writer: null })
+  })
+
+  it('preserves uncertain-termination quarantine when direct replanning lacks stop confirmation', async () => {
+    const store = await repository()
+    const revision = await frozen(store)
+    const blocked = await store.block('sample-task', revision, 'Writer termination is uncertain. Confirm that all command writes have stopped before explicitly replanning this task.')
+    expect(blocked).toMatchObject({ state: 'BLOCKED', writer: null })
+    await expect(store.replan('sample-task', blocked.revision)).rejects.toThrow(/confirm.*work has stopped/)
+    expect(await store.readState('sample-task')).toEqual(blocked)
+  })
+
+  it.each(['replan', 'block'] as const)('rejects repository %s while the writer lease is active', async action => {
+    const store = await repository()
+    const implementing = await store.startImplementation('sample-task', await frozen(store))
+    const pending = action === 'replan'
+      ? store.replan('sample-task', implementing.revision)
+      : store.block('sample-task', implementing.revision, 'External dependency unavailable')
+    await expect(pending).rejects.toThrow()
+    expect(await store.readState('sample-task')).toEqual(implementing)
+  })
+
+  it('permits repository replanning after explicit writer release', async () => {
+    const store = await repository()
+    const implementing = await store.startImplementation('sample-task', await frozen(store))
+    const released = await store.releaseImplementation('sample-task', implementing.revision, implementing.writer?.token ?? '')
+    expect(await store.replan('sample-task', released.revision)).toMatchObject({ state: 'REPLAN', writer: null, revision: released.revision + 1 })
+  })
+
   it('captures resolved commands, gates, arguments and the seal for one verification attempt', async () => {
     const store = await repository()
     let state = await store.startImplementation('sample-task', await frozen(store))

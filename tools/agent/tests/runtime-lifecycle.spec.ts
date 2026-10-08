@@ -25,6 +25,7 @@ function deferred<T>() {
 
 async function fixture(roleTimeoutMs = 30_000, holdFallback = false, writerTool?: 'none' | 'read' | 'bash' | 'write') {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-engineering-lifecycle-')))
+  const deploymentRoot = await realpath(await mkdtemp(join(tmpdir(), 'dsh-engineering-lifecycle-deployment-')))
   const ctx = new Context()
   const entered = deferred<void>()
   const aborted = deferred<void>()
@@ -34,6 +35,8 @@ async function fixture(roleTimeoutMs = 30_000, holdFallback = false, writerTool?
   const release = deferred<void>()
   const completed = deferred<SubagentResult>()
   const calls: Array<{ role: string; routeId: string; signal: AbortSignal; primaryDisposed: boolean; reasoningEffort: string | undefined }> = []
+  const bodies: string[] = []
+  const toolErrors: boolean[] = []
   let disposed = false
   let active = false
   let detach = () => {}
@@ -45,14 +48,23 @@ async function fixture(roleTimeoutMs = 30_000, holdFallback = false, writerTool?
     await writeFile(join(root, '.agent/adapters/test.yaml'), dump({ adapters: Object.fromEntries(['typecheck', 'unit', 'build'].map(name => [name, { executable: process.execPath, args: ['-e', 'process.exit(0)'] }])) }))
     await execa('git', ['init', '-q'], { cwd: root })
     await execa('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'fixture'], { cwd: root })
+    await cp(join(root, '.agent'), join(deploymentRoot, '.agent'), { recursive: true })
     await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(AgentLoop, { agents: [] })
     await ctx.plugin(Subagents)
     if (writerTool !== undefined) {
       for (const name of ['read', 'bash', 'write']) ctx.tools.register(defineTool({
-        name, description: 'Fixture tool', parameters: {},
+        name, description: 'Fixture tool',
+        parameters: name === 'write'
+          ? { file_path: { type: 'string', required: true }, content: { type: 'string', required: true } }
+          : name === 'bash' ? { workdir: { type: 'string', required: true } } : {},
+        ...{ sideEffects: name === 'read' ? 'read-only' as const : 'potentially-mutating' as const },
         output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
-        async execute() { return 'unchanged' },
+        async execute() {
+          bodies.push(name)
+          if (name !== 'read') await writeFile(join(root, 'writer-output.txt'), 'Fixture mutation')
+          return 'fixture body completed'
+        },
       }))
     }
     ctx.subagents.registerProvider({
@@ -66,7 +78,12 @@ async function fixture(roleTimeoutMs = 30_000, holdFallback = false, writerTool?
         if (writerTool !== undefined) {
           if (invocation.role === 'implementer') {
             const child = await ctx.agentLoop.createAgent(ctx, { sessionId: SessionId(`writer-${calls.length}`), parentAgent: request.parent, meta: { cwd: root, parentSession: request.parent.id, origin: 'subagent', delegationDepth: 1 } })
-            if (writerTool !== 'none') await child.agent.ctx.tools.execute({ callId: ToolCallId(`writer-tool-${calls.length}`), name: writerTool, arguments: {}, signal: request.signal, agent: child.agent })
+            if (writerTool !== 'none') {
+              const arguments_ = writerTool === 'write' ? { file_path: 'writer-output.txt', content: 'Fixture mutation' }
+                : writerTool === 'bash' ? { workdir: '.' } : {}
+              const toolResult = await child.agent.ctx.tools.execute({ callId: ToolCallId(`writer-tool-${calls.length}`), name: writerTool, arguments: arguments_, signal: request.signal, agent: child.agent })
+              toolErrors.push(toolResult.isError)
+            }
             child.agent.session.append('turn/end', { turn: 1, reason: { kind: 'error', error: { code: 'PI_AI_ERROR', message: 'Fixture provider failure' } } })
             return { id: child.agent.id, localAgent: child.agent, result: Promise.resolve({ stopReason: 'error' as const, output: [] }), dispose: () => child.dispose() }
           }
@@ -87,7 +104,7 @@ async function fixture(roleTimeoutMs = 30_000, holdFallback = false, writerTool?
           detach = () => request.signal.removeEventListener('abort', onAbort)
           entered.resolve()
         }
-        const fallback = holdFallback && invocation.role === 'scout-secondary' && invocation.route.routeId === 'worker-secondary-fallback'
+        const fallback = holdFallback && invocation.role === 'scout-secondary' && !primary
         const fallbackResult = deferred<SubagentResult>()
         const stopFallback = () => {
           fallbackAborted.resolve()
@@ -113,7 +130,7 @@ async function fixture(roleTimeoutMs = 30_000, holdFallback = false, writerTool?
         }
       },
     })
-    const profile = ctx.plugin(Runtime, { deploymentRoot: root, roleTimeoutMs })
+    const profile = ctx.plugin(Runtime, { deploymentRoot, roleTimeoutMs })
     await profile
     const parent = await ctx.agentLoop.create(SessionId('coordinator'), {}, { cwd: root })
     const controller = new AbortController()
@@ -121,20 +138,20 @@ async function fixture(roleTimeoutMs = 30_000, holdFallback = false, writerTool?
     let settled = false
     void pending.then(() => { settled = true }, () => { settled = true })
     return {
-      root, profile, controller, pending, calls, entered, aborted, disposing, release, fallbackEntered, fallbackAborted,
+      root, profile, controller, pending, calls, bodies, toolErrors, entered, aborted, disposing, release, fallbackEntered, fallbackAborted,
       get active() { return active }, get disposed() { return disposed }, get settled() { return settled },
       async close() {
         controller.abort()
         release.resolve()
         await Promise.allSettled([pending])
         await ctx.fiber.dispose()
-        await rm(root, { recursive: true, force: true })
+        await Promise.all([rm(root, { recursive: true, force: true }), rm(deploymentRoot, { recursive: true, force: true })])
       },
     }
   } catch (error) {
     release.resolve()
     await ctx.fiber.dispose()
-    await rm(root, { recursive: true, force: true })
+    await Promise.all([rm(root, { recursive: true, force: true }), rm(deploymentRoot, { recursive: true, force: true })])
     throw error
   }
 }
@@ -144,6 +161,9 @@ describe('active engineering runtime cancellation', () => {
     const run = await fixture(30_000, false, tool)
     try {
       const result = await run.pending
+      expect(run.toolErrors).toEqual(tool === 'none' ? [] : tool === 'read' ? [false, false] : [false])
+      expect(run.bodies).toEqual(tool === 'none' ? [] : tool === 'read' ? ['read', 'read'] : [tool])
+      if (tool === 'bash' || tool === 'write') expect(await readFile(join(run.root, 'writer-output.txt'), 'utf8')).toBe('Fixture mutation')
       const writers = run.calls.filter(call => call.role === 'implementer')
       expect(writers, String(result.value)).toHaveLength(tool === 'none' || tool === 'read' ? 2 : 1)
       expect(run.calls.find(call => call.routeId === 'worker-secondary')?.reasoningEffort).toBeUndefined()

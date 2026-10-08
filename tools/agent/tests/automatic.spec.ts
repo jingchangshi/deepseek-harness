@@ -7,10 +7,12 @@ import { dump, load } from 'js-yaml'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EngineeringRoleFailure, getEngineeringStatus, recoverEngineeringTask, runEngineeringTask as executeEngineeringTask } from '../src/automatic.ts'
 import type { EngineeringRunOptions, RoleExecutor, RoleInvocation } from '../src/automatic.ts'
-import { RoleInvocationError, roleInvocationErrorForLlmCode } from '../src/role-execution.ts'
+import { RoleInvocationError, RoleQuiescenceError, roleInvocationErrorForLlmCode } from '../src/role-execution.ts'
 import { TaskRepository } from '../src/repository.ts'
 import { loadHarnessConfig } from '../src/config.ts'
 import { resolveVerificationPolicy } from '../src/policy.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { collectRole } from '../runtime/index.ts'
 import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 
 const exec = promisify(execFile)
@@ -348,6 +350,163 @@ describe('automatic engineering workflow', () => {
       return options.executeRole(input)
     } })
     expect(failed).toMatchObject({ state: { state: 'BLOCKED', writer: null, blocker: 'implementer stopped' }, nextAction: 'RECOVER', requiresStopConfirmation: false })
+  })
+
+  it('quarantines cancelled Scout cleanup until stopped work is explicitly confirmed', async () => {
+    const options = await fixture()
+    const controller = new AbortController()
+    const disposing = deferred()
+    const rejectCleanup = deferred()
+    const stopBackground = deferred()
+    let backgroundLive = true
+    const backgroundStopped = stopBackground.promise.then(() => { backgroundLive = false })
+    const repository = new TaskRepository(options.root)
+    let taskId = ''
+    const noDispatch = vi.fn(async () => { throw new Error('Role dispatched before cleanup was confirmed') })
+    const pending = runEngineeringTask({ ...options, signal: controller.signal,
+      onTaskSelected: async id => { taskId = id }, executeRole: async input => {
+        if (input.role !== 'scout-primary') return options.executeRole(input)
+        return collectRole({
+          id: SessionId('cancelled-scout-child'), localAgent: undefined,
+          result: Promise.resolve({ stopReason: 'completed', output: [], structured: investigation }),
+          async dispose() {
+            disposing.resolve()
+            await rejectCleanup.promise
+            if (backgroundLive) throw new Error('Scout background work termination is uncertain')
+          },
+        }, input.role, input.route.provider, input.route.model, input.signal)
+      },
+    })
+    const settled = pending.then(result => {
+      expect(result.status).not.toBe('ACCEPTED')
+      return undefined
+    }, (error: unknown) => error)
+    try {
+      await disposing.promise
+      controller.abort()
+      rejectCleanup.resolve()
+      expect(await settled).toBeInstanceOf(Error)
+      const state = await repository.readState(taskId)
+      expect(state).toMatchObject({ state: 'BLOCKED', writer: null, blocker: expect.stringMatching(/termination is uncertain/i) })
+      expect(backgroundLive).toBe(true)
+      await expect(runEngineeringTask({ ...options, taskId, request: '', executeRole: noDispatch })).rejects.toThrow(/requires confirmation/)
+      const otherTaskId = 'other-cancelled-scout-task'
+      await repository.createTask({ schemaVersion: 1, id: otherTaskId, title: 'Other task', profile: 'small-feature', dataClass: 'public', createdAt: new Date().toISOString() })
+      await expect(runEngineeringTask({ ...options, taskId: otherTaskId, request: '', executeRole: noDispatch })).rejects.toThrow()
+      expect(noDispatch).not.toHaveBeenCalled()
+      await expect(recoverEngineeringTask(options.root, taskId, false)).rejects.toThrow(/requires confirmation/)
+      stopBackground.resolve()
+      await backgroundStopped
+      await expect(recoverEngineeringTask(options.root, taskId, true)).resolves.toMatchObject({ state: 'REPLAN', writer: null })
+    } finally {
+      rejectCleanup.resolve()
+      stopBackground.resolve()
+      await Promise.all([settled, backgroundStopped])
+    }
+  })
+
+  it('retains uncertain writer authority when route-attempt audit persistence fails', async () => {
+    const options = await fixture()
+    const stopBackground = deferred()
+    let backgroundLive = true
+    const backgroundStopped = stopBackground.promise.then(() => { backgroundLive = false })
+    const repository = new TaskRepository(options.root)
+    let taskId = ''
+    try {
+      await runEngineeringTask({ ...options, onTaskSelected: async id => { taskId = id }, executeRole: async input => {
+        if (input.role !== 'implementer') return options.executeRole(input)
+        await mkdir(join(options.root, '.agent/tasks', taskId, 'ROUTE_ATTEMPTS.implementer.jsonl'))
+        input.markMutationStarted?.()
+        return collectRole({
+          id: SessionId('audit-failed-writer-child'), localAgent: undefined,
+          result: Promise.resolve({ stopReason: 'completed', output: [], structured: { summary: 'Child result before uncertain cleanup' } }),
+          async dispose() { if (backgroundLive) throw new Error('Writer background work termination is uncertain') },
+        }, input.role, input.route.provider, input.route.model, input.signal)
+      } }).then(result => {
+        expect(result.status).not.toBe('ACCEPTED')
+        expect(result).toMatchObject({ status: 'BLOCKED', nextAction: 'RECOVER', requiresStopConfirmation: true })
+        expect(result.summary).toMatch(/cleanup failed/)
+      }, (error: unknown) => {
+        expect(error).toBeInstanceOf(RoleQuiescenceError)
+        if (!(error instanceof RoleQuiescenceError)) throw new Error('Fixture did not retain its quiescence error')
+        expect(error.message).toMatch(/cleanup failed/)
+        expect(error.cause).toBeInstanceOf(AggregateError)
+        if (!(error.cause instanceof AggregateError)) throw new Error('Fixture did not retain both failure causes')
+        const causes: unknown[] = error.cause.errors
+        expect(causes).toEqual(expect.arrayContaining([
+          expect.objectContaining({ message: expect.stringContaining('Writer background work termination is uncertain') }),
+          expect.objectContaining({ code: 'EISDIR' }),
+        ]))
+      })
+      expect((await repository.readState(taskId)).writer).not.toBeNull()
+      expect(backgroundLive).toBe(true)
+      const noDispatch = vi.fn(async () => { throw new Error('Role dispatched before uncertain writer stopped') })
+      await expect(runEngineeringTask({ ...options, taskId, request: '', executeRole: noDispatch })).rejects.toThrow()
+      const otherTaskId = 'other-audit-failed-task'
+      await repository.createTask({ schemaVersion: 1, id: otherTaskId, title: 'Other task', profile: 'small-feature', dataClass: 'public', createdAt: new Date().toISOString() })
+      await expect(runEngineeringTask({ ...options, taskId: otherTaskId, request: '', executeRole: noDispatch })).rejects.toThrow()
+      expect(noDispatch).not.toHaveBeenCalled()
+      await expect(recoverEngineeringTask(options.root, taskId, false)).rejects.toThrow(/requires confirmation/)
+      stopBackground.resolve()
+      await backgroundStopped
+      await expect(recoverEngineeringTask(options.root, taskId, true)).resolves.toMatchObject({ state: 'REPLAN', writer: null })
+    } finally {
+      stopBackground.resolve()
+      await backgroundStopped
+    }
+  })
+
+  it.each(['completed', 'error'] as const)('retains repository writer authority when %s child cleanup cannot confirm stopped work', async stopReason => {
+    const options = await fixture()
+    const repository = new TaskRepository(options.root)
+    const otherTaskId = 'other-frozen-task'
+    const stopBackground = deferred()
+    let backgroundLive = true
+    const backgroundStopped = stopBackground.promise.then(() => { backgroundLive = false })
+    let taskId = ''
+    const noDispatch = vi.fn(async () => { throw new Error('A second role was dispatched while background work was live') })
+    try {
+      await runEngineeringTask({ ...options, onTaskSelected: async id => { taskId = id }, executeRole: async input => {
+        if (input.role !== 'implementer') return options.executeRole(input)
+        input.markMutationStarted?.()
+        return collectRole({
+          id: SessionId('uncertain-writer-child'), localAgent: undefined,
+          result: Promise.resolve({ stopReason, output: [], ...(stopReason === 'completed' ? { structured: { summary: 'Child finished while owned command remained active' } } : {}) }),
+          async dispose() {
+            if (backgroundLive) throw new Error('Background command termination is uncertain')
+          },
+        }, 'implementer', input.route.provider, input.route.model, input.signal)
+      } }).then(result => {
+        expect(result.status).not.toBe('ACCEPTED')
+        expect(result).toMatchObject({ status: 'BLOCKED', summary: expect.stringMatching(/cleanup failed/) })
+      }, (error: unknown) => {
+        expect(error).toBeInstanceOf(Error)
+        expect((error as Error).message).toMatch(/cleanup failed/)
+      })
+      expect(backgroundLive).toBe(true)
+      const interrupted = await repository.readState(taskId)
+      expect.soft(interrupted.writer).not.toBeNull()
+      await expect.soft(runEngineeringTask({ ...options, taskId, request: '', executeRole: noDispatch })).rejects.toThrow(/interrupted writer/)
+      await repository.createTask({ schemaVersion: 1, id: otherTaskId, title: 'Other frozen task', profile: 'small-feature', dataClass: 'public', createdAt: new Date().toISOString() })
+      await repository.baseline(otherTaskId, 0, { repositoryHead: 'fixture', dirty: false, summary: 'Clean baseline' })
+      await repository.investigate(otherTaskId, 1, investigation)
+      await repository.freezePlan(otherTaskId, 2, plan)
+      await writeFile(join(options.root, '.agent/tasks', otherTaskId, 'AUTO.json'), JSON.stringify({
+        schemaVersion: 1, requests: [options.request], steps: 0, roleCalls: 0, completedWriterRevision: null,
+        pendingTask: null, verifiedTreeHash: null,
+      }))
+      await expect.soft(runEngineeringTask({ ...options, taskId: otherTaskId, request: '', executeRole: noDispatch })).rejects.toThrow(/interrupted writer|writer.*active|writer.*stop/i)
+      expect.soft(noDispatch).not.toHaveBeenCalled()
+      await expect.soft(recoverEngineeringTask(options.root, taskId, false)).rejects.toThrow(/requires confirmation/)
+      expect(backgroundLive).toBe(true)
+      stopBackground.resolve()
+      await backgroundStopped
+      expect(backgroundLive).toBe(false)
+      await expect(recoverEngineeringTask(options.root, taskId, true)).resolves.toMatchObject({ state: 'REPLAN', writer: null })
+    } finally {
+      stopBackground.resolve()
+      await backgroundStopped
+    }
   })
 
   it('uses the repository lock to reject a concurrent run before another writer starts', async () => {

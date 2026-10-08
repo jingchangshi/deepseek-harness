@@ -2794,9 +2794,9 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
     expect(result.content[0]).toMatchObject({ text: 'Error: just a message' })
   })
 
-  it('raw-registered tools are NOT validated by defineTool (MCP keeps its own)', async () => {
+  it('rejects invalid raw-tool arguments before invoking the body', async () => {
     const ctx = await setup()
-    // A raw ToolDefinition: no defineTool wrapping, so no validateArgs guard.
+    let bodyCalls = 0
     ctx.tools.register({
       name: 'raw',
       description: 'raw tool',
@@ -2806,13 +2806,18 @@ describe('defineTool validation (the runtime-validation Agent Note, part 1)', ()
         render: (_args, value) => [{ type: 'text', text: value as string }],
       },
       async execute(args: unknown) {
+        bodyCalls++
         return typeof args
       },
     })
-    // Missing the "required" path — but raw tools validate their own input, so
-    // this reaches execute rather than being rejected by the harness.
     const result = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c1'), name: 'raw', arguments: {} })
-    expect(result.isError).toBe(false)
+    expect(result.isError).toBe(true)
+    expect(result.error?.message).toMatch(/invalid arguments.*path/)
+    expect(bodyCalls).toBe(0)
+    const valid = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c2'), name: 'raw', arguments: { path: 'source.ts' } })
+    expect(valid.isError).toBe(false)
+    expect(valid.value).toBe('object')
+    expect(bodyCalls).toBe(1)
   })
 
   it('attaches a positive-finite timeoutMs to the definition', () => {

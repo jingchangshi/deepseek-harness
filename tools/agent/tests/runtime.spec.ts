@@ -12,7 +12,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import * as Runtime from '../runtime/index.ts'
 import { providerOptions } from '../runtime/bootstrap.ts'
 import { loadHarnessConfig } from '../src/config.ts'
-import { fallbackRoleAttempt, RoleInvocationError, roleInvocationErrorForLlmCode } from '../src/role-execution.ts'
+import { fallbackRoleAttempt, RoleInvocationError, RoleQuiescenceError, roleInvocationErrorForLlmCode } from '../src/role-execution.ts'
 
 const SOURCE = resolve(import.meta.dirname, '../../..')
 const disposals: (() => Promise<unknown>)[] = []
@@ -241,10 +241,16 @@ describe('engineering role lifecycle', () => {
       dispose: async () => { throw new Error('cleanup failed') },
     }
     const error = await Runtime.collectRole(run, 'architect', 'provider', 'model').catch((error: unknown) => error)
-    expect(error).toBeInstanceOf(AggregateError)
-    if (!(error instanceof AggregateError)) throw new Error('missing aggregate')
-    expect(String(error.errors[0])).toContain('completed without structured output')
-    expect(String(error.errors[1])).toContain('cleanup failed')
+    expect(error).toBeInstanceOf(RoleQuiescenceError)
+    if (!(error instanceof RoleQuiescenceError)) throw new Error('missing quiescence failure')
+    expect(error.failureClass).toBe('NON_FALLBACKABLE')
+    expect(error.fallbackable).toBe(false)
+    expect(fallbackRoleAttempt(error, new AbortController().signal)).toBeUndefined()
+    expect(error.cause).toBeInstanceOf(AggregateError)
+    if (!(error.cause instanceof AggregateError)) throw new Error('missing aggregate cause')
+    expect(error.cause.errors).toHaveLength(2)
+    expect(String(error.cause.errors[0])).toContain('completed without structured output')
+    expect(String(error.cause.errors[1])).toContain('cleanup failed')
   })
 })
 

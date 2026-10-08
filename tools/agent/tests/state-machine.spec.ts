@@ -42,6 +42,19 @@ describe('task state transitions', () => {
       .toThrow('writer lease is already active')
   })
 
+  it.each(['replan', 'block'] as const)('rejects %s without releasing an active writer', type => {
+    const implementing = transition({ ...initial(), state: 'PLAN_FROZEN' }, { type: 'start-implementation', writerToken: 'owner' }, '2026-10-04T00:00:01.000Z')
+    const action = type === 'replan' ? { type } : { type, blocker: 'External dependency unavailable' }
+    expect(() => transition(implementing, action, '2026-10-04T00:00:02.000Z')).toThrow(TransitionError)
+    expect(implementing).toMatchObject({ state: 'IMPLEMENTING', writer: { token: 'owner' } })
+  })
+
+  it('permits replanning after the owner explicitly releases its writer', () => {
+    const implementing = transition({ ...initial(), state: 'PLAN_FROZEN' }, { type: 'start-implementation', writerToken: 'owner' }, '2026-10-04T00:00:01.000Z')
+    const released = transition(implementing, { type: 'release-implementation', writerToken: 'owner' }, '2026-10-04T00:00:02.000Z')
+    expect(transition(released, { type: 'replan' }, '2026-10-04T00:00:03.000Z')).toMatchObject({ state: 'REPLAN', writer: null })
+  })
+
   it('forces replan after the second failed repair', () => {
     let state: TaskStateRecord = { ...initial(), state: 'VERIFYING', workRevision: 1 }
     state = transition(state, { type: 'complete-verification', status: 'FAIL' }, '2026-10-04T00:00:01.000Z')

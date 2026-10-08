@@ -85,10 +85,10 @@ describe('web_fetch spill showcase', () => {
     expect(estimateContent([{ type: 'text', text }])).toBeLessThanOrEqual(MAX_INLINE_TOKENS)
     expect(text).toContain(`Fetched ${base}`) // the head of the formatted result survives
     expect(text).toContain('Full formatted result stored at:')
-    expect(text).toContain('Use read with offset/limit, or grep this path')
+    expect(text).toContain('Use spill_read with this locator to retrieve the full content.')
 
     // The spill file holds the FULL formatted result the tool returned.
-    const match = /stored at: (\S+?)\. Use read/.exec(text)
+    const match = /stored at: (\S+?)\. Use spill_read/.exec(text)
     expect(match).not.toBeNull()
     const spillPath = match![1]!
     const saved = readFileSync(spillPath, 'utf8')
