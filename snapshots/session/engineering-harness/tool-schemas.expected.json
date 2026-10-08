@@ -22,6 +22,41 @@
       }
     },
     {
+      "name": "engineering_review",
+      "description": "Review a pinned local Git commit, branch tip, commit range or resolvable local PR without an Implementer. Completion requires observed evidence for the complete changed scope.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "targetKind": {
+            "type": "string",
+            "description": "Selector type; PR uses an existing local refs/pull/<number>/head.",
+            "enum": [
+              "commit",
+              "branch",
+              "range",
+              "pr"
+            ]
+          },
+          "target": {
+            "type": "string",
+            "description": "Full commit SHA or HEAD; local branch; baseSHA..targetSHA range; or local PR number."
+          },
+          "base": {
+            "type": "string",
+            "description": "Optional full base commit SHA; required for local PR. Omit for the selected commit parent."
+          },
+          "taskId": {
+            "type": "string",
+            "description": "Resume a review with its persisted snapshot; supplied target must match its original selector."
+          }
+        },
+        "required": [
+          "targetKind",
+          "target"
+        ]
+      }
+    },
+    {
       "name": "engineering_run",
       "description": "Implement or resume a development requirement in the current Session repository using isolated Scouts, Architect, Challenger, one Implementer, command verification and independent Reviewer. Returns authoritative acceptance or a concrete blocker.",
       "parameters": {

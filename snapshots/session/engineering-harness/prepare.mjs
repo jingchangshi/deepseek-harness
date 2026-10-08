@@ -45,7 +45,8 @@ export async function prepareEngineeringWorkspace(cwd) {
   await writeFile(join(cwd, 'existing.txt'), 'preserve this exact content\n')
   await execa('git', ['init', '-q'], { cwd })
   await writeFile(join(cwd, '.git/info/exclude'), '.agent/\n.dsh/\n.agents/\n.snapshot-patches/\n')
-  await execa('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-qm', 'Fixture baseline'], {
+  await execa('git', ['add', 'existing.txt'], { cwd })
+  await execa('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'Fixture baseline'], {
     cwd, env: { GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z' },
   })
 }
