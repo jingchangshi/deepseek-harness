@@ -644,16 +644,25 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
     if (task.profile !== project.profile || task.dataClass !== project.dataClass) throw new Error('project profile or dataClass changed since task creation')
     let state = await repository.readState(taskId)
     const scheduling = new TaskSchedulingRepository(root, taskId, 'development', { maxEscalations: config.workflow.maxCapabilityEscalations })
+    if (state.state === 'ACCEPTED') return resultForState(taskId, state)
     const storedScheduling = await optionalJson(join(directory, 'SCHEDULING.json'))
     const history = storedScheduling === undefined ? undefined : await scheduling.read()
     let classification = await classifyProject(root, project, journal.requests.join('\n\n'), config, history?.classifications.at(-1))
     if (storedScheduling === undefined) classification = { ...classification, taskClass: 'complex', needsInvestigation: true, needsChallenge: true, reasons: [...classification.reasons, 'UNKNOWN_LEGACY_HISTORY'] }
     else classification = await scheduling.recordClassification(classification)
     await repository.assertDispatchAdmission(taskId, journal.completedWriterRevision ?? undefined, false, history?.diagnoses.some(item => item.status !== 'APPLIED') ?? false)
+    if (state.state === 'BLOCKED' || state.state === 'BUDGET_EXHAUSTED') return resultForState(taskId, state)
     const lifecycle = await repository.lifecycle(taskId, 'development', {
       ...config.workflow.lifecycleBudget,
       maxLogicalInvocations: Math.min(config.workflow.lifecycleBudget.maxLogicalInvocations ?? project.maxRoleCalls, project.maxRoleCalls),
     })
+    const priorUsage = await lifecycle.read()
+    const invocationLimit = Math.min(config.workflow.lifecycleBudget.maxLogicalInvocations ?? project.maxRoleCalls, project.maxRoleCalls)
+    if (priorUsage.counts.logicalInvocations >= invocationLimit) {
+      state = await repository.budgetExhausted(taskId, state.revision, 'task lifecycle budget exhausted: logicalInvocations')
+      return resultForState(taskId, state)
+    }
+    await lifecycle.recordRunState({ state: 'RUNNING', at: new Date().toISOString() })
     const roleRequest = await boundedRequest(directory, journal.requests.join('\n\n'), config.workflow.maxRoleContextBytes)
     let writerCapabilityFailureKey: string | undefined
     let reservation = Promise.resolve()
@@ -852,7 +861,15 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
             if (!validator(result)) throw new RoleInvocationError(`${role} returned invalid output: ${JSON.stringify(validator.errors)}`, 'SCHEMA_INVALID', true)
             return object(result, `${role} output`)
           },
-          persistAttempts: records => appendRoleAttempts(root, taskId, role, records),
+          persistAttempts: async records => {
+            await appendRoleAttempts(root, taskId, role, records)
+            for (const record of records) {
+              const attemptId = attemptIds.get(record.attemptIndex)
+              if (attemptId !== undefined) await lifecycle.settleAttempt(attemptId, {
+                startedAt: record.startedAt, endedAt: record.endedAt, outcome: record.semanticOutcome ?? record.outcome,
+              })
+            }
+          },
         })
         if (checkpoint !== undefined && checkpoint.evidence.length > 0 && !JSON.stringify(output).match(/\bplaceholder\b/i)) {
           const after = await captureInvestigationDependencies(root, checkpoint.allowedPaths, config.workflow.maxInvestigationPaths)
@@ -1120,6 +1137,7 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
         state = await repository.block(taskId, state.revision, error.message)
       }
     }
+    await lifecycle.recordRunState({ state: state.state === 'ACCEPTED' ? 'COMPLETE' : state.state === 'BUDGET_EXHAUSTED' ? 'BUDGET_EXHAUSTED' : 'BLOCKED', at: state.updatedAt })
     options.onProgress?.(state)
     return resultForState(taskId, state)
   }, { waitMs: 0 })

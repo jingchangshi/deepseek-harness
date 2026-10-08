@@ -25,6 +25,7 @@ import type { EngineeringRunInvocationId } from '../src/invocation.ts'
 import { BudgetExhaustedError } from '../src/lifecycle.ts'
 import type { RoleExecutionControl } from '../src/automatic.ts'
 import type { InvestigationUnit } from '../src/investigation.ts'
+import { runProfileEngineeringEvaluation } from './evaluation.ts'
 
 export const name = 'engineering-harness'
 export const inject = ['tools', 'subagents', 'systemPrompt']
@@ -33,14 +34,16 @@ export const inject = ['tools', 'subagents', 'systemPrompt']
 export interface Config {
   deploymentRoot: string
   roleTimeoutMs: number
+  evaluation?: { strongRouteId: string; cheapRouteId: string }
 }
 
 export const Config: z<Config> = z.object({
   deploymentRoot: z.string().required(),
   roleTimeoutMs: z.number().min(1).step(1).default(1_200_000),
+  evaluation: z.object({ strongRouteId: z.string(), cheapRouteId: z.string() }),
 })
 
-const COORDINATOR_TOOLS = ['engineering_run', 'engineering_review', 'engineering_status', 'engineering_recover', 'get_goal', 'update_goal']
+const COORDINATOR_TOOLS = ['engineering_run', 'engineering_review', 'engineering_status', 'engineering_recover', 'engineering_evaluate', 'get_goal', 'update_goal']
 const READ_TOOLS = ['read', 'read_image', 'glob', 'grep', 'lsp', 'web_fetch', 'web_search', 'spill_read']
 const GIT_REVIEW_TOOLS = ['git_snapshot', 'git_changed_files', 'git_diff', 'git_show', 'git_history']
 const activeInvocations = new Map<EngineeringRunInvocationId, Promise<EngineeringRunResult>>()
@@ -231,7 +234,7 @@ export async function collectRole(run: SubagentRun, role: EngineeringRole, provi
  * @param ctx - profile-owned plugin context.
  * @param config - shared deployment configuration and role deadline.
  */
-async function applyDeployment(ctx: Context, config: Config, deployment: HarnessConfig): Promise<void> {
+async function applyDeployment(ctx: Context, config: Config, deployment: HarnessConfig, adapterAccounting?: { cacheOmission: 'zero'; inputAccounting: 'exclusive' }): Promise<void> {
   const shutdown = new AbortController()
   const running = new Set<Promise<unknown>>()
   const availableTools = new WeakMap<Agent, string[]>()
@@ -244,6 +247,8 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
   const executions = new WeakMap<Agent, { control: RoleExecutionControl; unit?: InvestigationUnit; budget: AbortController }>()
   const executionsBySession = new Map<string, { control: RoleExecutionControl; unit?: InvestigationUnit; budget: AbortController }>()
   const executionIds = new Map<symbol, string>()
+  const sessionRequests = new Map<string, string[]>()
+  const sessionAudits = new Map<string, Promise<void>>()
 
   const executionId = (exec: ToolExecution): string => {
     let id = executionIds.get(exec.token)
@@ -257,9 +262,14 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
   ctx.on('llm/pre-dispatch', async dispatch => {
     const execution = dispatch.options.sessionId === undefined ? undefined : executionsBySession.get(dispatch.options.sessionId)
     if (execution === undefined) return
+    const route = deployment.routes[execution.control.routeId]
+    const accounting = route !== undefined && route.provider === dispatch.options.provider && route.model === dispatch.options.model ? route : undefined
     try {
       await execution.control.lifecycle.reserveProviderRequest(execution.control.attemptId, dispatch.requestId, {
         provider: dispatch.options.provider, model: dispatch.options.model, routeId: execution.control.routeId,
+        ...(accounting?.pricing === undefined ? {} : { pricing: accounting.pricing }),
+        ...(adapterAccounting === undefined ? accounting?.cacheOmission === undefined ? {} : { cacheOmission: accounting.cacheOmission } : { cacheOmission: adapterAccounting.cacheOmission }),
+        ...(adapterAccounting === undefined ? accounting?.inputAccounting === undefined ? {} : { inputAccounting: accounting.inputAccounting } : { inputAccounting: adapterAccounting.inputAccounting }),
         purpose: dispatch.options.purpose === 'compaction' ? 'compaction' : dispatch.options.purpose === undefined ? 'agent' : 'other',
         ...(dispatch.options.sessionId === undefined ? {} : { sessionId: dispatch.options.sessionId }),
       })
@@ -272,9 +282,32 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
   ctx.effect(() => () => { executionIds.clear() })
   ctx.on('llm/post-dispatch', async dispatch => {
     const execution = dispatch.options.sessionId === undefined ? undefined : executionsBySession.get(dispatch.options.sessionId)
-    if (execution === undefined || dispatch.usage === undefined) return
-    await execution.control.lifecycle.recordUsage(dispatch.requestId, dispatch.usage)
+    if (execution === undefined) return
+    await execution.control.lifecycle.settleProviderRequest(dispatch.requestId, {
+      startedAt: dispatch.startedAt, endedAt: dispatch.endedAt, outcome: dispatch.outcome,
+      ...(dispatch.usage === undefined ? {} : { usage: dispatch.usage }),
+    })
+    if (dispatch.options.sessionId !== undefined && dispatch.options.purpose === undefined) {
+      const requests = sessionRequests.get(dispatch.options.sessionId) ?? []
+      requests.push(dispatch.requestId)
+      sessionRequests.set(dispatch.options.sessionId, requests)
+    }
   })
+  ctx.on('session/event', (session, event) => {
+    if (event.type !== 'assistant/message' && event.type !== 'assistant/attempt') return
+    const execution = executionsBySession.get(session.id)
+    const requestId = sessionRequests.get(session.id)?.shift()
+    if (execution === undefined || requestId === undefined) return
+    const previous = sessionAudits.get(session.id) ?? Promise.resolve()
+    const pending = previous.then(() => execution.control.lifecycle.reconcileSessionUsage(requestId, {
+      sessionId: session.id, eventSeq: event.seq,
+      ...(event.type === 'assistant/message' && event.data.usage !== undefined ? { usage: event.data.usage } : {}),
+    }))
+    sessionAudits.set(session.id, pending)
+    void pending.catch(error => execution.budget.abort(error))
+  })
+  ctx.on('session/flush', async session => { await sessionAudits.get(session.id) })
+  ctx.on('session/disposed', session => { sessionRequests.delete(session.id); sessionAudits.delete(session.id) })
   const childrenByParent = new Set<string>()
   let closing = false
   let roleStartTail = Promise.resolve()
@@ -548,6 +581,30 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
     }
   }
 
+  if (config.evaluation !== undefined) {
+    const evaluation = config.evaluation
+    for (const routeId of [evaluation.strongRouteId, evaluation.cheapRouteId]) {
+      if (deployment.routes[routeId] === undefined) throw new Error(`Unknown evaluation route: ${routeId}`)
+    }
+    ctx.tools.register(defineTool({
+      name: 'engineering_evaluate', description: 'Run one immutable evaluation fixture through four deployment-selected strategies and independent acceptance checks.',
+      parameters: { caseId: { type: 'string', required: true, enum: ['pebble-mul', 'mlir-pass', 'review-overflow', 'recovery-latch'] } },
+      output: { schema: { type: 'string' }, render: (_args, result) => [{ type: 'text', text: result }] },
+      async execute(args, exec) {
+        const parent = exec.agent
+        if (parent === undefined || !coordinators.has(parent)) throw new Error('Evaluation requires an engineering Coordinator')
+        if (closing) throw new Error('Engineering profile is shutting down')
+        const operation = runProfileEngineeringEvaluation({
+          checkout: resolve(import.meta.dirname, '../../..'), deployment, ...evaluation, caseId: args.caseId,
+          executeRole: invocation => executeRole(parent, { ...invocation, signal: AbortSignal.any([invocation.signal, exec.signal, shutdown.signal]) }),
+        })
+        running.add(operation)
+        try { return JSON.stringify(await operation) }
+        finally { running.delete(operation) }
+      },
+    }))
+  }
+
   ctx.tools.register(defineTool({
     name: 'engineering_run',
     description: 'Implement or resume a development requirement in the current Session repository using isolated Scouts, Architect, Challenger, one Implementer, command verification and independent Reviewer. Returns authoritative acceptance or a concrete blocker.',
@@ -727,10 +784,11 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
 /**
  * Bind role authorization and dispatch to the provider bootstrap's configuration snapshot.
  * @param deployment - validated deployment used to configure the provider adapters.
+ * @param adapterAccounting - counter semantics declared by the provider bootstrap's adapter.
  * @returns a Cordis plugin that does not reread routing files during activation or tasks.
  */
-export function createEngineeringPlugin(deployment: HarnessConfig) {
-  return { name, inject, Config, apply: (ctx: Context, config: Config) => applyDeployment(ctx, config, deployment) }
+export function createEngineeringPlugin(deployment: HarnessConfig, adapterAccounting?: { cacheOmission: 'zero'; inputAccounting: 'exclusive' }) {
+  return { name, inject, Config, apply: (ctx: Context, config: Config) => applyDeployment(ctx, config, deployment, adapterAccounting) }
 }
 
 /**

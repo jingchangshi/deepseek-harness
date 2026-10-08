@@ -40,6 +40,8 @@ export interface RoleAttemptRecord {
   startedAt: string
   endedAt: string
   outcome: 'SUCCESS' | 'FAILED'
+  /** Semantic role outcome after disposal and output validation. */
+  semanticOutcome?: 'SUCCESS' | 'FAILED' | 'CAPABILITY_INSUFFICIENT' | 'UNCERTAIN'
   failureClass?: RoleFailureClass
   fallbackReason?: string
 }
@@ -237,7 +239,7 @@ export async function runRoleAttempts<T>(options: RoleAttemptsOptions<T>): Promi
         if (caught instanceof CapabilityInsufficientError) {
           const capabilityError = new CapabilityInsufficientError(caught.reason, caught.details, caught.partial, route.routeId, attemptIndex)
           records.push({ role: options.role, attemptIndex, mode: initialMode, ...(options.initialEscalationId === undefined ? {} : { escalationId: options.initialEscalationId, ...(initialMode === 'FALLBACK' ? { parentEscalationId: options.initialEscalationId } : {}) }), routeId: route.routeId, provider: route.provider, model: route.model,
-            reasoningEffort: route.reasoningEffort, startedAt, endedAt: new Date().toISOString(), outcome: 'FAILED', failureClass: 'NON_FALLBACKABLE', fallbackReason: caught.details.slice(0, 1000) })
+            reasoningEffort: route.reasoningEffort, startedAt, endedAt: new Date().toISOString(), outcome: 'FAILED', semanticOutcome: 'CAPABILITY_INSUFFICIENT', failureClass: 'NON_FALLBACKABLE', fallbackReason: caught.details.slice(0, 1000) })
           if (options.signal.aborted) options.signal.throwIfAborted()
           if (options.role === 'implementer') throw capabilityError
           if (mutation.started) throw roleFailureAfterMutation(capabilityError)
@@ -278,6 +280,7 @@ export async function runRoleAttempts<T>(options: RoleAttemptsOptions<T>): Promi
                   ...(mode === 'FALLBACK' ? { parentEscalationId: escalationId } : {}), routeId: escalationRoute.routeId,
                   provider: escalationRoute.provider, model: escalationRoute.model, reasoningEffort: escalationRoute.reasoningEffort,
                   startedAt: escalationStartedAt, endedAt: new Date().toISOString(), outcome: 'FAILED',
+                  ...(settledError instanceof RoleQuiescenceError ? { semanticOutcome: 'UNCERTAIN' as const } : settledError instanceof CapabilityInsufficientError ? { semanticOutcome: 'CAPABILITY_INSUFFICIENT' as const } : {}),
                   failureClass: settledError instanceof RoleInvocationError ? settledError.failureClass : 'NON_FALLBACKABLE',
                   fallbackReason: (settledError instanceof Error ? settledError.message : String(settledError)).slice(0, 1000) })
                 if (settledError instanceof RoleQuiescenceError) quiescenceError = settledError
@@ -313,6 +316,7 @@ export async function runRoleAttempts<T>(options: RoleAttemptsOptions<T>): Promi
         const fallback = fallbackRoleAttempt(error, options.signal)
         records.push({ role: options.role, attemptIndex, mode: initialMode, ...(options.initialEscalationId === undefined ? {} : { escalationId: options.initialEscalationId, ...(initialMode === 'FALLBACK' ? { parentEscalationId: options.initialEscalationId } : {}) }), routeId: route.routeId, provider: route.provider, model: route.model,
           reasoningEffort: route.reasoningEffort, startedAt, endedAt: new Date().toISOString(), outcome: 'FAILED',
+          ...(error instanceof RoleQuiescenceError ? { semanticOutcome: 'UNCERTAIN' as const } : {}),
           failureClass: fallback?.failureClass ?? (error instanceof RoleInvocationError ? error.failureClass : 'NON_FALLBACKABLE'),
           fallbackReason: fallback?.fallbackReason ?? (error instanceof Error ? error.message : String(error)).slice(0, 1000) })
         if (fallback !== undefined && attemptIndex < options.attempts.length) continue

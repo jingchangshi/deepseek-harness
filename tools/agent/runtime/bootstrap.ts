@@ -15,11 +15,13 @@ export const inject = ['llm']
 export interface Config {
   deploymentRoot: string
   roleTimeoutMs: number
+  evaluation?: { strongRouteId: string; cheapRouteId: string }
 }
 
 export const Config: z<Config> = z.object({
   deploymentRoot: z.string().required(),
   roleTimeoutMs: z.number().min(1).step(1).default(1_200_000),
+  evaluation: z.object({ strongRouteId: z.string(), cheapRouteId: z.string() }),
 })
 
 /**
@@ -61,5 +63,5 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   await ctx.plugin(AgentDefaultModel, {
     provider: coordinator.provider, model: coordinator.model, reasoningEffort: coordinator.reasoningEffort,
   })
-  await ctx.plugin(Engineering.createEngineeringPlugin(deployment), config)
+  await ctx.plugin(Engineering.createEngineeringPlugin(deployment, { cacheOmission: 'zero', inputAccounting: 'exclusive' }), config)
 }

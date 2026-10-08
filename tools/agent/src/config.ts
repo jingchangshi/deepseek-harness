@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import { isCredentialRefName } from '@deepseek-ai/dsh-credentials'
 import { load } from 'js-yaml'
 import type { LifecycleLimits } from './lifecycle.ts'
+import { validatePricingQuote, type PricingQuote } from './usage.ts'
 
 /** Per-logical-invocation limits, shared by its configured fallback attempts. */
 export interface RoleBounds {
@@ -37,6 +38,9 @@ export interface ProviderConfig {
 
 /** One exact provider and model route. */
 export interface ModelRouteConfig {
+  pricing?: PricingQuote
+  cacheOmission?: 'zero' | 'unsupported' | 'unknown'
+  inputAccounting?: 'aggregate' | 'exclusive'
   displayName: string
   provider: string
   model: string
@@ -117,6 +121,9 @@ export interface HarnessConfig {
 
 /** Resolved route passed to a fixed role tool. */
 export interface ResolvedRoleRoute {
+  pricing?: PricingQuote
+  cacheOmission?: 'zero' | 'unsupported' | 'unknown'
+  inputAccounting?: 'aggregate' | 'exclusive'
   role: string
   /** Exact resolved route identifier, distinct from the logical role. */
   routeId: string
@@ -294,6 +301,9 @@ export async function loadHarnessConfig(
     }
     if (Object.keys(efforts).length === 0) throw new Error(`models.routes.${id}.reasoningEfforts must not be empty`)
     routes[id] = {
+      ...(value.pricing === undefined ? {} : { pricing: validatePricingQuote(value.pricing, Date.now()) }),
+      ...(value.cacheOmission === undefined ? {} : { cacheOmission: oneOf(value.cacheOmission, `models.routes.${id}.cacheOmission`, ['zero', 'unsupported', 'unknown']) }),
+      ...(value.inputAccounting === undefined ? {} : { inputAccounting: oneOf(value.inputAccounting, `models.routes.${id}.inputAccounting`, ['aggregate', 'exclusive']) }),
       displayName: string(value.displayName, `models.routes.${id}.displayName`),
       provider,
       model: deploymentValue(value.model, `models.routes.${id}.model`, env, required),
@@ -497,6 +507,9 @@ export async function loadHarnessConfig(
  */
 function resolvedRoleRoute(role: string, roleConfig: RoleConfig, routeId: string, route: ModelRouteConfig): ResolvedRoleRoute {
   return {
+    ...(route.pricing === undefined ? {} : { pricing: route.pricing }),
+    ...(route.cacheOmission === undefined ? {} : { cacheOmission: route.cacheOmission }),
+    ...(route.inputAccounting === undefined ? {} : { inputAccounting: route.inputAccounting }),
     role,
     routeId,
     capabilityLevel: route.capabilityLevel,

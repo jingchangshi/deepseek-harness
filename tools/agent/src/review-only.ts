@@ -17,7 +17,7 @@ import { TaskRepository } from './repository.ts'
 import { RoleInvocationError, RoleQuiescenceError, runRoleAttempts } from './role-execution.ts'
 import { roleResponseSchema, unwrapRoleResponse } from './role-response.ts'
 import { TaskSchedulingRepository } from './scheduling.ts'
-import { BudgetExhaustedError } from './lifecycle.ts'
+import { BudgetExhaustedError, type EngineeringAttemptId } from './lifecycle.ts'
 import type { ReviewFinding, ReviewOutput, ReviewStateRecord, ReviewTaskDocument } from './review-types.ts'
 import type { RoleAttemptRecord } from './role-execution.ts'
 
@@ -307,6 +307,7 @@ export async function runEngineeringReview(options: EngineeringReviewOptions): P
       ...deployment.workflow.lifecycleBudget,
       maxLogicalInvocations: Math.min(deployment.workflow.lifecycleBudget.maxLogicalInvocations ?? project.maxRoleCalls, project.maxRoleCalls),
     })
+    await lifecycle.recordRunState({ state: 'RUNNING', at: new Date().toISOString() })
     if (state.state === 'REQUEST') state = await repository.advanceReview(id, state.revision, 'SNAPSHOT')
     const evidenceOptions = {
       commandTimeoutMs: deployment.workflow.reviewGitCommandTimeoutMs,
@@ -400,7 +401,7 @@ export async function runEngineeringReview(options: EngineeringReviewOptions): P
       if (restored !== undefined && restored.candidates.length === 0) throw new Error('Reserved review escalation has no qualified route')
       const routes = restored === undefined ? resolveRoleAttempts(deployment, role) : [...restored.candidates, ...restored.fallbackCandidates]
       const escalation = resolveRoleEscalations(deployment, role, routes[0]!.routeId)
-      const attempts = new Map<number, string>()
+      const attempts = new Map<number, EngineeringAttemptId>()
       let capabilityPartial: unknown = reserved?.dispatchInput?.partial
       const output = await runRoleAttempts<ReviewOutput>({
         role, attempts: routes, signal, ...(reserved === undefined ? {} : { initialEscalationId: reserved.id }),
@@ -486,7 +487,15 @@ export async function runEngineeringReview(options: EngineeringReviewOptions): P
           return result
         },
         validateOutput: value => parseOutput(unwrapRoleResponse(value, REVIEW_OUTPUT_VALIDATION_SCHEMA)),
-        persistAttempts: records => persistAttempts(root, id, role, records),
+        persistAttempts: async records => {
+          await persistAttempts(root, id, role, records)
+          for (const record of records) {
+            const attemptId = attempts.get(record.attemptIndex)
+            if (attemptId !== undefined) await lifecycle.settleAttempt(attemptId, {
+              startedAt: record.startedAt, endedAt: record.endedAt, outcome: record.semanticOutcome ?? record.outcome,
+            })
+          }
+        },
       }).catch(async error => {
         if (reserved !== undefined) {
           try { await scheduling.failEscalation(reserved.id, error instanceof RoleQuiescenceError) }
@@ -542,6 +551,7 @@ export async function runEngineeringReview(options: EngineeringReviewOptions): P
         inspectedEvidenceIds: output.inspectedEvidenceIds, unresolvedQuestions }
       await lifecycle.remainingElapsedMs()
       state = await repository.completeReviewOnly(id, state.revision, result, status)
+      await lifecycle.recordRunState({ state: status === 'REVIEW_COMPLETE' ? 'COMPLETE' : 'BLOCKED', at: state.updatedAt })
       options.onProgress?.(state)
       return { schemaVersion: 1, revision: state.revision, status, taskId: id, snapshot, state, summary: output.summary, findings, evidence: evidenceRecords, inspectedEvidenceIds: output.inspectedEvidenceIds, unresolvedQuestions }
     } catch (error) {
@@ -555,6 +565,7 @@ export async function runEngineeringReview(options: EngineeringReviewOptions): P
       const stopConfirmation = quiescent || unsafe
       const evidenceRecords = [...evidence.observedEvidence()]
       state = await repository.completeReviewOnly(id, state.revision, { snapshot, summary: 'Review did not produce a complete evidence-backed result.', findings: [], evidence: evidenceRecords, inspectedEvidenceIds: evidenceRecords.map(item => item.id), unresolvedQuestions }, status, stopConfirmation ? 'Review work may still be active or may have changed the worktree; confirm stopped before resuming.' : undefined, stopConfirmation)
+      await lifecycle.recordRunState({ state: status === 'BUDGET_EXHAUSTED' ? 'BUDGET_EXHAUSTED' : 'BLOCKED', at: state.updatedAt })
       options.onProgress?.(state)
       return { schemaVersion: 1, revision: state.revision, status, taskId: id, snapshot, state, summary: 'Review did not produce a complete evidence-backed result.', findings: [], evidence: evidenceRecords, inspectedEvidenceIds: evidenceRecords.map(item => item.id), unresolvedQuestions }
     }
