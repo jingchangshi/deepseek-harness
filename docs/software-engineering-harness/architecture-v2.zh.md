@@ -77,7 +77,7 @@ Development 验收要求相同 revision 的确定性检查、独立评审、已�
 
 ## Phase 0 dispatch API 决策
 
-defineTool 将其捕获的参数 schema 验证器公开为 validateArguments；直接 execute 调用方仍执行相同验证。Registry 会在 body-start observation 前调用该验证器。没有验证器的原始定义在 dispatch 时使用受维护的完整 JSON Schema 验证，并按不可变 schema identity 缓存编译结果。无效或无法解析的 schema 会在 observation 前 fail closed；不会远程获取 schema。不会使用受限的 output-schema 子集解释任意 MCP schema。此前会传入 execute 的原始无效参数现在会在 dispatch 前失败；应在 upgrade guide 中记录此公开行为变更。
+defineTool 将其捕获的参数 schema 验证器公开为 validateArguments；直接 execute 调用方仍执行相同验证。Registry 会在 body-start observation 前调用该验证器。没有验证器的原始定义使用 Ajv 默认的 Draft 7 JSON Schema dialect 并执行严格 schema 校验。编译结果按每个 definition 当前 schema 快照的序列化内容缓存。不支持的关键字、format、dialect 和无法解析的引用都会在 observation 前失败；不会远程获取 schema。不会使用受限的 output-schema 子集解释任意 MCP schema。此前会传入 execute 的原始无效参数现在会在 dispatch 前失败；应在 upgrade guide 中记录此公开行为变更。
 
 注册 scoped registry observer 会返回其准确的 effect disposer。回调是同步的，并接收不可变的执行 identity 和已解析的 effect metadata。缺少 effect metadata 时按可能产生 mutation 处理。回调异常会阻止 body 调用；回调不能替换已解析的工具或其参数。回调后重新检查取消。如果一个回调取消操作，而另一个回调已标记可能产生 mutation，则可以保守地保留该标记，但不得执行 body。每次 body retry 都分别观察。Scope dispose 时移除 observer。
 

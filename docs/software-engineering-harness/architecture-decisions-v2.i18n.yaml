@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for architecture-decisions-v2.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/architecture-decisions-v2.md
+/engineering-harness-v2-architecture-decisions:
+  en: 21cb8ef46eb6ed37
+  zh: 1c1b2a1af1c64cf5
+/engineering-harness-v2-architecture-decisions/summary:
+  en: bb74bac2f9e9ea5f
+  zh: d9cf42cae62d5ced
+/engineering-harness-v2-architecture-decisions/decisions:
+  en: c711cd4d12472b9c
+  zh: 694e4b431ec49b84
+/engineering-harness-v2-architecture-decisions/deferred-decisions:
+  en: 93e02162f7b029f6
+  zh: a2224414be733846

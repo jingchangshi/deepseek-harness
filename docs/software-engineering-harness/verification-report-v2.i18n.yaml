@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for verification-report-v2.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/verification-report-v2.md
+/engineering-harness-v2-verification-report:
+  en: 5daf6d29137ec9e2
+  zh: 1c62549953683c42
+/engineering-harness-v2-verification-report/summary:
+  en: 8ff1fc5977ef8ff8
+  zh: cddaf83c527c6278
+/engineering-harness-v2-verification-report/phase-0-evidence:
+  en: 3a1814a18b6dc3b2
+  zh: 21ffccda74e6c414
+/engineering-harness-v2-verification-report/pending-evidence:
+  en: bf7faae47fa8494a
+  zh: c3c7aeb2186a0298

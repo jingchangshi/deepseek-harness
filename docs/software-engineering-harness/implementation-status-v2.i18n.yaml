@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for implementation-status-v2.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/implementation-status-v2.md
+/engineering-harness-v2-implementation-status:
+  en: 6e9a2a57c2bbcf33
+  zh: 81777416882fa4cc
+/engineering-harness-v2-implementation-status/summary:
+  en: 8bcc469aecc5ce18
+  zh: 1ddcc3bdd5f56d47
+/engineering-harness-v2-implementation-status/phase-status:
+  en: 2dc1fbfa4122f1bc
+  zh: e6a5b514e6a637a3
+/engineering-harness-v2-implementation-status/delivery-status:
+  en: 2d2ef00382becc01
+  zh: 1e2c9174af1bd8ef
