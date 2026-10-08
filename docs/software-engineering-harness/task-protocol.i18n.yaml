@@ -9,32 +9,35 @@
   en: 8f0341ec0f57467d
   zh: 6006d933d48be48c
 /engineering-task-protocol/table-of-contents:
-  en: 1325aec90074f298
-  zh: 5c210e40f0c266ff
+  en: 6635bff02e6104bc
+  zh: 821110044a785f61
 /engineering-task-protocol/repository-files:
-  en: 5aba1a8114522071
-  zh: 17186a04c7ec5ad6
+  en: 16c7a400e938c333
+  zh: 17ef08e836af3352
 /engineering-task-protocol/state-transitions:
-  en: 9f086d433078c814
-  zh: 9acd5fb49d9e192d
+  en: 0376d54b14ee3e4d
+  zh: c792b857ec05ccae
+/engineering-task-protocol/review-only-workflow:
+  en: e9320b21cdb42764
+  zh: 94e77610ee1dfd1b
 /engineering-task-protocol/revisions-and-writers:
   en: ed9ab6a947c13d0d
   zh: b1e861df7953258d
 /engineering-task-protocol/verification-and-review:
-  en: 195a295696a957d1
-  zh: fdab50e4aeb27bef
+  en: 29ef465517a7f5c2
+  zh: f50038184fefe60d
 /engineering-task-protocol/acceptance:
   en: 21b96faae106ffa4
   zh: b43467233ed73a59
 /engineering-task-protocol/cli:
-  en: 035665849cc323ae
-  zh: 2671bab1c6755b3b
+  en: 84b9995ba1686aed
+  zh: bb27f9310cc0794a
 /engineering-task-protocol/recovery:
   en: 765033dc322ff50d
   zh: f304750401284ff6
 /engineering-task-protocol/further-exploration:
-  en: 4aab01501381e17f
-  zh: af076c9ae1de5fcf
+  en: 9d88b8a803294ea8
+  zh: 905204140ec1d2a5
 /engineering-task-protocol/dev-note:
   en: b75c8458928b72b9
   zh: 003ba4e17b4b5269

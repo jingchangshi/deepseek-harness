@@ -1,0 +1,34 @@
+# Bilingual-pair consistency record for review-only.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/review-only.md
+/review-only-git-review:
+  en: 70969f3a6ee2debd
+  zh: e0938ce21608a6c2
+/review-only-git-review/summary:
+  en: ef9659773b6ffaf5
+  zh: 77b41ad45d510fdb
+/review-only-git-review/table-of-contents:
+  en: 92f01983c5d5dd80
+  zh: b5168420c5a85198
+/review-only-git-review/request-a-review:
+  en: 6bede974891b83d8
+  zh: e57cdcdf5ed9ae64
+/review-only-git-review/pinned-snapshot:
+  en: 2ec66c5d0d811cc3
+  zh: 345896a82448ad8d
+/review-only-git-review/evidence-tools:
+  en: 93e8aefaa6125565
+  zh: e3cf14bf7d943d81
+/review-only-git-review/coverage-and-findings:
+  en: c972f578274bfa10
+  zh: 094184dd05012126
+/review-only-git-review/saved-state-and-recovery:
+  en: 0fd89d7200a821a1
+  zh: 5d81d698a89c8264
+/review-only-git-review/further-exploration:
+  en: 82168371bb373ca8
+  zh: a7a81cb854a0feaa
+/review-only-git-review/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

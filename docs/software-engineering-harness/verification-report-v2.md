@@ -4,7 +4,7 @@ English | [中文](verification-report-v2.zh.md)
 
 ## Summary
 
-This report records executed evidence for the [acceptance matrix](acceptance-matrix-v2.md). Results apply only to the named test paths and commands. Phase 0 acceptance is `PASS`, and Phases 1–4 are `NOT_RUN`.
+This report records executed evidence for the [acceptance matrix](acceptance-matrix-v2.md). Results apply only to the named test paths and commands. Phase 0 remains `PASS`; Phase 1 verification is complete, with delivery pending, so Phase 1 is `PARTIAL`. Phases 2–4 are `NOT_RUN`.
 
 ## Phase 0 evidence
 
@@ -43,3 +43,23 @@ This report records executed evidence for the [acceptance matrix](acceptance-mat
 | Phases 1–4 verification | NOT_RUN |
 
 Original private Session ZIP files were unreadable because access returned `PermissionError`. Fixtures use the documented behavior; they do not claim to reproduce original Session bytes. The configured worker route was unavailable, so the actual test-design and implementation routes used supported `gpt-6-luna` and `gpt-6.1-sol` models. No live provider, benchmark, token-cost, or pricing evidence is claimed.
+
+## Phase 1 evidence
+
+| Evidence | Result | Primary reference |
+|---|---|---|
+| Independent implementation review | APPROVE. | Phase 1 review result. |
+| Git evidence, review-only, and runtime review | 52 tests passed in the final combined run. | `tools/agent/tests/git-evidence.spec.ts`, `tools/agent/tests/review-only.spec.ts`, `tools/agent/tests/runtime-review.spec.ts` |
+| RED history | The initial missing-capability run executed 0 tests and is not a behavioral RED. A later meaningful run had 5 failures and 49 passes. Newly added reviewer negative cases landed with their fixes and have no RED baseline. | `/tmp/dsh-goal-1008/phase1-review-red.txt`, `/tmp/dsh-goal-1008/phase1-review-followup.txt` |
+| Schema regression | 40 tests passed. | Phase 1 schema regression command. |
+| Existing automatic regression | Final serial run: 64 tests passed. An earlier broad run had 23 timeouts and 41 passes; focused normal and diagnostic runs passed 6 and 30 tests respectively, with no timeout change. | `tools/agent/tests/automatic.spec.ts`; Phase 1 automatic regression logs. |
+| Typecheck and scoped lint | Passed. | Phase 1 final typecheck and scoped lint commands. |
+| Engineering Harness snapshot | Authored refresh and replay passed for seven child roles. The root-hash tuple was fixed in the fixture; shared normalizers were unchanged. | `snapshots/session/engineering-harness/`; Phase 1 snapshot refresh and replay logs. |
+| Documentation | Latest `doc-sync`: 42 gates passed. | Phase 1 `doc-sync` run. |
+| Package hygiene | PARTIAL: 15 of 16 gates passed; the vendor rescope failure reproduces on the starting baseline. | Package hygiene baseline logs. |
+| Live provider run | NOT_RUN; no live provider execution is claimed. | Phase 1 execution record. |
+| Freeze update check | PASS. | Phase 1 freeze update and check logs. |
+| Phase 1 implementation commits | PASS; implementation and snapshot commits are present locally. | Local Phase 1 Git history. |
+| Phase 1 report commit and push | PENDING; these report updates remain to be committed and pushed. | Phase 1 delivery record. |
+
+The first reviewer-only RED attempt failed during module import and ran no tests. It is not behavioral evidence. The meaningful RED run and later GREEN results are reported separately above. Phases 2–4 verification remains `NOT_RUN`.

@@ -12,6 +12,7 @@ Each task has immutable metadata, one revisioned state record, and schema-valida
 
 - [Repository files](#repository-files)
 - [State transitions](#state-transitions)
+- [Review-only workflow](#review-only-workflow)
 - [Revisions and writers](#revisions-and-writers)
 - [Verification and review](#verification-and-review)
 - [Acceptance](#acceptance)
@@ -26,6 +27,8 @@ Each task has immutable metadata, one revisioned state record, and schema-valida
 Task directories live at `.agent/tasks/<task-id>/`. `TASK.yaml` contains immutable task identity, profile, data class, and creation time. A profile ID is a nonempty string of lowercase ASCII letters, digits, and hyphens that starts with a letter or digit; whitespace and path separators are invalid. Task creation requires `.agent/profiles/<id>.yaml` with a matching `id`, supported schema version, and valid gate definitions before writing task metadata or state. Automatic project loading validates the same declaration, and resumed tasks retain their original profile. `STATE.json` contains the current state, repository revision, frozen work revision, bounded-fix count, optional writer lease, and update time.
 
 Stage commands write `BASELINE.json`, `INVESTIGATION.json`, `PLAN.json`, `VERIFY.json`, `REVIEW.json`, and `DECISION.json`. Schemas in `.agent/schemas/` reject unknown fields and malformed values. `EVIDENCE.jsonl` entries use `evidence.schema.json`; evidence append and command execution arrive with the verification-profile stage.
+
+Review-only work uses a separate `.agent/reviews/<task-id>/` directory. `TASK.json` pins the requested Git target, resolved snapshot, changed-path scope, and data class; `STATE.json` records its revisioned state; `RESULT.json` stores the outcome. Review-only state has no development writer lease. [Review-only Git review](review-only.md) defines its input and evidence rules.
 
 <a id="state-transitions"></a>
 ## State transitions
@@ -45,6 +48,13 @@ An interrupted writer or uncertain child cleanup requires `RECOVER` with `requir
 
 Replay identity uses the durable Session ID, tool call ID, logged call sequence, and canonical repository path, not request text. The sequence distinguishes later model calls that reuse an ID; direct API callers without a logged sequence must supply a stable distinct call ID themselves. Runtime-owned receipts under `.dsh/engineering/.runtime/invocations/` record the invocation claim before effects, then its selected task and completed result. Concurrent replay joins the in-process operation; completed replay returns the recorded result. An unfinished durable claim after process loss requires explicit recovery rather than starting another workflow. A new tool call with identical text is a distinct invocation.
 
+<a id="review-only-workflow"></a>
+## Review-only workflow
+
+The Coordinator's `engineering_review` tool follows a separate review-only state graph: `REQUEST -> SNAPSHOT -> SCOPE_CLASSIFIED -> REVIEW_INVESTIGATION -> INDEPENDENT_REVIEW -> EVIDENCE_VALIDATION`, then `REVIEW_COMPLETE`, `PARTIAL`, or `BLOCKED`. This workflow has no Implementer stage and never changes the development task state graph.
+
+Review-only progress resumes from the persisted snapshot and changed-path scope. Reusing a review task ID with a different target is an error. A `BLOCKED` review that requires stopped-work confirmation resumes only after `engineering_recover` confirms the child stopped. [Review-only Git review](review-only.md) defines the target forms, read tools, result evidence, and recovery path.
+
 <a id="revisions-and-writers"></a>
 ## Revisions and writers
 
@@ -62,6 +72,8 @@ Freezing a plan increments `workRevision` and resets `fixAttempts`. Plan, verifi
 Verification status is exactly `PASS`, `FAIL`, `NOT_RUN`, or `INCOMPLETE`. Only `PASS` enters `VERIFIED`; every other status consumes one bounded fix. The first failed round returns to `IMPLEMENTING`, while the second enters `REPLAN`.
 
 Review decisions are exactly `ACCEPT`, `FIX_BOUNDED`, `REPLAN`, or `BLOCKED`. `ACCEPT` enters `REVIEWED`. `FIX_BOUNDED` consumes the same bounded-fix counter as verification failure. `BLOCKED` requires a non-empty blocker.
+
+These decisions belong to Development tasks. The separate Review-only workflow returns `REVIEW_COMPLETE`, `PARTIAL`, or `BLOCKED`; it cannot accept or change a Development task. See [Review-only Git review](review-only.md).
 
 <a id="acceptance"></a>
 ## Acceptance
@@ -84,6 +96,8 @@ node --import tsx/esm tools/agent/agentctl.mjs status task-id --root /absolute/p
 
 Artifact commands are `baseline`, `investigate`, `plan`, `verify`, and `review`; each takes `--input <json-file>` and `--revision`. `implement` takes `--revision` and returns the writer token in state. `verify` additionally takes `--writer-token`. `accept` and `replan` take `--revision`.
 
+The Runtime Coordinator also exposes `engineering_review` for a pinned Git-only review. Its parameters and review tools are defined in [Review-only Git review](review-only.md).
+
 The CLI uses executable argument arrays internally and does not invoke a platform shell. `verify-profile` runs configured project commands and records their evidence in the target repository.
 
 <a id="recovery"></a>
@@ -98,6 +112,7 @@ If role-child disposal cannot confirm quiescence, the role call fails as `RoleQu
 - [Architecture](architecture.md)
 - [Acceptance plan](acceptance-plan.md)
 - [Current status](status.md)
+- [Review-only Git review](review-only.md)
 
 ## Dev Note
 

@@ -4,7 +4,7 @@
 
 ## 概述
 
-本报告按[验收矩阵](acceptance-matrix-v2.zh.md)记录已执行的证据。结果仅适用于所列测试路径和命令。Phase 0 验收为 `PASS`，Phase 1–4 为 `NOT_RUN`。
+本报告按[验收矩阵](acceptance-matrix-v2.zh.md)记录已执行的证据。结果仅适用于所列测试路径和命令。Phase 0 仍为 `PASS`；Phase 1 验证已完成，但交付仍待完成，因此状态为 `PARTIAL`。Phase 2–4 为 `NOT_RUN`。
 
 ## Phase 0 证据
 
@@ -43,3 +43,23 @@
 | Phase 1–4 验证 | NOT_RUN |
 
 原始私有 Session ZIP 文件因读取返回 `PermissionError` 而不可用。fixture 根据已记录行为编写，不声称复现原始 Session 字节。配置的 worker route 不可用，因此测试设计和实现使用了实际可用的 `gpt-6-luna` 与 `gpt-6.1-sol` 模型。本文不声称有在线 provider、benchmark、token 成本或定价证据。
+
+## Phase 1 证据
+
+| 证据 | 结果 | 一手依据 |
+|---|---|---|
+| 独立实现评审 | APPROVE。 | Phase 1 评审结果。 |
+| Git evidence、review-only 和 runtime review | 最终合并运行共 52 个测试通过。 | `tools/agent/tests/git-evidence.spec.ts`、`tools/agent/tests/review-only.spec.ts`、`tools/agent/tests/runtime-review.spec.ts` |
+| RED 历史 | 初次因缺少能力而失败的运行执行了 0 个测试，不属于行为 RED。之后一次有效运行有 5 项失败、49 项通过。新增的 reviewer 负例与修复同时加入，没有 RED 基线。 | `/tmp/dsh-goal-1008/phase1-review-red.txt`、`/tmp/dsh-goal-1008/phase1-review-followup.txt` |
+| Schema 回归 | 40 个测试通过。 | Phase 1 schema 回归命令。 |
+| 现有 automatic 回归 | 最终串行运行 64 个测试通过。较早的一次宽范围运行有 23 项超时、41 项通过；定向普通和诊断运行分别通过 6 项和 30 项，且超时情况没有变化。 | `tools/agent/tests/automatic.spec.ts`；Phase 1 automatic 回归记录。 |
+| Typecheck 和定向 lint | 通过。 | Phase 1 最终 typecheck 和定向 lint 命令。 |
+| Engineering Harness 快照 | 七个子角色的刷新和回放均通过。root-hash 元组仅在 fixture 中修正，未修改共享 normalizer。 | `snapshots/session/engineering-harness/`；Phase 1 快照刷新和回放记录。 |
+| 文档 | 最新一次 `doc-sync` 的 42 项 gate 通过。 | Phase 1 `doc-sync` 运行。 |
+| Package hygiene | PARTIAL：16 项 gate 中 15 项通过；vendor rescope 失败可在起始基线上复现。 | Package hygiene 基线记录。 |
+| 在线 provider 运行 | NOT_RUN；不声称执行过在线 provider。 | Phase 1 执行记录。 |
+| Freeze 更新检查 | PASS。 | Phase 1 freeze 更新和检查记录。 |
+| Phase 1 实施提交 | PASS；实施和快照提交已在本地存在。 | 本地 Phase 1 Git 历史。 |
+| Phase 1 报告提交和推送 | PENDING；这些报告更新仍待提交并推送。 | Phase 1 交付记录。 |
+
+首次 reviewer RED 尝试在模块导入时失败，没有执行测试，因此不构成行为证据。上表分别记录了有效 RED 运行和后续 GREEN 结果。Phase 2–4 验证仍为 `NOT_RUN`。

@@ -12,6 +12,7 @@
 
 - [Repository file](#repository-files)
 - [状态转换](#state-transitions)
+- [只读评审工作流](#review-only-workflow)
 - [Revision 与 writer](#revisions-and-writers)
 - [Verification 与 review](#verification-and-review)
 - [Acceptance](#acceptance)
@@ -26,6 +27,8 @@
 Task directory 位于 `.agent/tasks/<task-id>/`。`TASK.yaml` 包含 immutable task identity、profile、data class 和 creation time。Profile ID 是由小写 ASCII 字母、数字和连字符组成的非空字符串，以字母或数字开头；空白和路径分隔符均无效。创建任务时，`.agent/profiles/<id>.yaml` 必须具有匹配的 `id`、受支持的 schema 版本和有效 gate 定义，验证通过后才能写入任务元数据或状态。自动项目加载验证同一份声明，恢复的任务保留原有 profile。`STATE.json` 包含当前 state、repository revision、frozen work revision、bounded-fix count、optional writer lease 和 update time。
 
 Stage command 写入 `BASELINE.json`、`INVESTIGATION.json`、`PLAN.json`、`VERIFY.json`、`REVIEW.json` 和 `DECISION.json`。`.agent/schemas/` 中的 schema 拒绝 unknown field 和 malformed value。`EVIDENCE.jsonl` entry 使用 `evidence.schema.json`；evidence append 与 command execution 将在 verification-profile stage 实现。
+
+只读评审使用独立的 `.agent/reviews/<task-id>/` 目录。`TASK.json` 固定请求的 Git target、解析后的 snapshot、变更路径范围和 data class；`STATE.json` 保存带 revision 的 state；`RESULT.json` 保存结果。只读评审 state 不含开发 writer lease。[只读 Git 评审](review-only.zh.md)定义其输入和证据规则。
 
 <a id="state-transitions"></a>
 ## 状态转换
@@ -45,6 +48,13 @@ Writer 中断或 child cleanup 状态不确定时，`RECOVER` 会返回 `require
 
 重放身份由持久化 Session ID、tool call ID、已记录的调用序号和仓库规范路径组成，不使用请求文本。序号区分后续复用 ID 的模型调用；不带已记录序号的直接 API 调用方必须自行提供稳定且不同的 call ID。`.dsh/engineering/.runtime/invocations/` 下 runtime 拥有的回执在副作用前记录调用声明，随后记录所选任务和完成结果。并发重放共享进程内操作；完成后重放返回已记录结果。进程丢失后未完成的持久化声明要求显式恢复，不会启动另一条工作流。文本相同但 tool call 不同的请求属于独立调用。
 
+<a id="review-only-workflow"></a>
+## 只读评审工作流
+
+Coordinator 的 `engineering_review` tool 使用独立的只读评审状态图：`REQUEST -> SNAPSHOT -> SCOPE_CLASSIFIED -> REVIEW_INVESTIGATION -> INDEPENDENT_REVIEW -> EVIDENCE_VALIDATION`，随后进入 `REVIEW_COMPLETE`、`PARTIAL` 或 `BLOCKED`。该工作流没有 Implementer 阶段，也不会改变开发任务状态图。
+
+只读评审从持久化的 snapshot 和变更路径范围恢复。对已有 review task ID 使用不同 target 会报错。要求停机确认的 `BLOCKED` 评审只有在 `engineering_recover` 确认 child 已停止后才能恢复。[只读 Git 评审](review-only.zh.md)定义 target 格式、读取工具、结果证据和恢复路径。
+
 <a id="revisions-and-writers"></a>
 ## Revision 与 writer
 
@@ -62,6 +72,8 @@ Repository-wide writer admission 会串行化 writer 获取，并在分派角色
 Verification status 只能是 `PASS`、`FAIL`、`NOT_RUN` 或 `INCOMPLETE`。只有 `PASS` 进入 `VERIFIED`；其他 status 都消耗一次 bounded fix。第一轮失败返回 `IMPLEMENTING`，第二轮进入 `REPLAN`。
 
 Review decision 只能是 `ACCEPT`、`FIX_BOUNDED`、`REPLAN` 或 `BLOCKED`。`ACCEPT` 进入 `REVIEWED`。`FIX_BOUNDED` 与 verification failure 消耗同一个 bounded-fix counter。`BLOCKED` 要求 non-empty blocker。
+
+这些 decision 属于 Development task。独立的只读评审工作流返回 `REVIEW_COMPLETE`、`PARTIAL` 或 `BLOCKED`；它不能接受或修改 Development task。详见[只读 Git 评审](review-only.zh.md)。
 
 <a id="acceptance"></a>
 ## Acceptance
@@ -84,6 +96,8 @@ node --import tsx/esm tools/agent/agentctl.mjs status task-id --root /absolute/p
 
 Artifact command 包括 `baseline`、`investigate`、`plan`、`verify` 和 `review`；每个 command 都接受 `--input <json-file>` 和 `--revision`。`implement` 接受 `--revision`，并在 state 中返回 writer token。`verify` 还接受 `--writer-token`。`accept` 与 `replan` 接受 `--revision`。
 
+Runtime Coordinator 还提供 `engineering_review`，用于执行固定 snapshot 的 Git 只读评审。其参数和评审工具见[只读 Git 评审](review-only.zh.md)。
+
 CLI 在内部使用 executable argument array，不调用 platform shell。`verify-profile` 运行 configured project command，并在目标 repository 中记录其 evidence。
 
 <a id="recovery"></a>
@@ -98,6 +112,7 @@ CLI 在内部使用 executable argument array，不调用 platform shell。`veri
 - [架构](architecture.zh.md)
 - [验收计划](acceptance-plan.zh.md)
 - [当前状态](status.zh.md)
+- [只读 Git 评审](review-only.zh.md)
 
 ## 开发备注
 
