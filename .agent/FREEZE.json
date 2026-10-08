@@ -66,7 +66,7 @@
     "tools/agent/src/policy.ts": "94f751ac9aee928101a507bb0d8b16b2acd00a0a05bdbdeda1059196528f8ea9",
     "tools/agent/src/preset-rows.ts": "d2d955a1803cc97b295fa2fe3d3b1374c5f0768b70771162451c8ddbc69683c1",
     "tools/agent/src/repository.ts": "17270ab7651600c457b8054760d63ac3dfda7229f2fecdcdfbfbe610d52b5244",
-    "tools/agent/src/review-only.ts": "c08e4b59ce8419ec8e0f8a58fc1140f13e7981a564d0964474e25054f4dd3eb4",
+    "tools/agent/src/review-only.ts": "1fb6fef7a8c8d4928e10c2df268c2715e6177c1b088f03e37b7f1cb483715737",
     "tools/agent/src/review-types.ts": "3f772b7dd1e1d7252fa0da629d8e966a79fbc304ab69419d538d6a365c67d9e6",
     "tools/agent/src/role-execution.ts": "3e6fa4d8222838c6cb567155005547c8e66f16e7ca8d953129d01a5d4e3d7781",
     "tools/agent/src/role-response.ts": "87103939d70f64c7bea268c7d2de232176d1245b7cd38651d906b856a2246ef9",
