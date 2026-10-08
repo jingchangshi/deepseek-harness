@@ -52,6 +52,49 @@ afterEach(async () => {
 })
 
 describe('incremental investigation recovery', () => {
+  it('starts Scouts in declared order when secondary preparation finishes before primary preparation', async () => {
+    const options = await fixture()
+    const read = TaskRepository.prototype.readInvestigationCheckpoint
+    const controller = new AbortController()
+    let primaryPreparing = false
+    let secondaryPrepared = false
+    let releasePrimary!: () => void
+    let releaseScouts!: () => void
+    const primaryReady = new Promise<void>(resolve => { releasePrimary = resolve })
+    const bothStarted = new Promise<void>(resolve => { releaseScouts = resolve })
+    const starts: string[] = []
+    const bounds = options.deployment.workflow.roleBounds['scout-secondary']
+    const roleBounds = { ...options.deployment.workflow.roleBounds }
+    Object.defineProperty(roleBounds, 'scout-secondary', { enumerable: true, get() {
+      if (primaryPreparing) { secondaryPrepared = true; releasePrimary() }
+      return bounds
+    } })
+    const deployment = { ...options.deployment, workflow: { ...options.deployment.workflow, roleBounds } }
+    const preparation = vi.spyOn(TaskRepository.prototype, 'readInvestigationCheckpoint').mockImplementation(async function (this: TaskRepository, taskId, workflow, unitId) {
+      if (unitId === 'scout-a') { primaryPreparing = true; await primaryReady }
+      return read.call(this, taskId, workflow, unitId)
+    })
+    const pending = runEngineeringTask({ ...options, deployment, signal: controller.signal, request: 'Inspect the scoped exports concurrently', executeRole: async input => {
+      if (input.role.startsWith('scout-')) {
+        starts.push(input.role)
+        if (starts.length === 2) releaseScouts()
+        await bothStarted
+        return inspect(input)
+      }
+      throw new RoleInvocationError('Stop after ordered concurrent investigation', 'NON_FALLBACKABLE', false)
+    } })
+    try {
+      const result = await pending
+      expect(result.status).toBe('BLOCKED')
+      expect(secondaryPrepared).toBe(true)
+      expect(starts).toEqual(['scout-primary', 'scout-secondary'])
+    } finally {
+      controller.abort(); releasePrimary(); releaseScouts()
+      await Promise.allSettled([pending])
+      preparation.mockRestore()
+    }
+  })
+
   it.each(['ordinary', 'budget'] as const)('prioritizes uncertain parallel Scout shutdown over an %s failure', async failure => {
     const options = await fixture()
     const roles: string[] = []

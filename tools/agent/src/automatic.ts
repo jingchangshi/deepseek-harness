@@ -576,7 +576,15 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
     })
     const roleRequest = await boundedRequest(directory, journal.requests.join('\n\n'), config.workflow.maxRoleContextBytes)
     let reservation = Promise.resolve()
-    const call = async (role: EngineeringRole, extra: Record<string, unknown> = {}, unit?: InvestigationUnit): Promise<Record<string, unknown>> => {
+    const call = (role: EngineeringRole, extra: Record<string, unknown> = {}, unit?: InvestigationUnit): Promise<Record<string, unknown>> => {
+      const predecessor = reservation
+      let release!: () => void
+      const admitted = new Promise<void>(resolve => { release = resolve })
+      reservation = predecessor.then(() => admitted)
+      return callReserved(role, extra, unit, predecessor, release).finally(release)
+    }
+    const callReserved = async (role: EngineeringRole, extra: Record<string, unknown>, unit: InvestigationUnit | undefined,
+      predecessor: Promise<void>, release: () => void): Promise<Record<string, unknown>> => {
       signal.throwIfAborted()
       const dependencies = unit === undefined ? undefined : await captureInvestigationDependencies(root, unit.allowedPaths, config.workflow.maxInvestigationPaths)
       const scopeDigest = unit === undefined ? undefined : investigationScopeDigest(journal.requests.join('\n\n'), unit)
@@ -659,7 +667,7 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
       let primaryStart: { startedAt: string; execution: Promise<unknown> } | undefined
       const primaryMutation = { started: false }
       let preparedContext: Record<string, unknown> | undefined
-      const start = reservation.then(async () => {
+      const start = predecessor.then(async () => {
         signal.throwIfAborted()
         invocationId = await lifecycle.reserveInvocation(role)
         journal.roleCalls += 1
@@ -691,8 +699,8 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
           }),
         }
       })
-      reservation = start
       await start
+      release()
       if (schemas === undefined || primaryStart === undefined) throw new Error(`role ${role} did not start`)
       const validator = new Ajv({ strict: true, allErrors: true }).compile(schemas.validation)
       try {

@@ -45,7 +45,7 @@
     "tools/agent/profiles/frozen-engineering.patch.yml": "951bf4fbc01e880efe973cde59098760426b408dcf75f1a77b01c00ebfc70063",
     "tools/agent/runtime/bootstrap.ts": "8c6eb2dcb341873902cfe08aa5ed36f9b6934c82129094db1be4c0212b2b32b1",
     "tools/agent/runtime/index.ts": "6755b16b9be11eea65b62cec50a6971b645a3e05f497076a30b886a94fcb1ed5",
-    "tools/agent/src/automatic.ts": "1b7d7ef09b48767b1e922a5a1bbfa806c700343536894d218ac5d3e53c046b16",
+    "tools/agent/src/automatic.ts": "e2e5a532ed697ecc7bd3dfe6f85c14eb0f4e8765d720493f5c16682acff7f3fb",
     "tools/agent/src/cli.ts": "9231a7564c7188bc9f79bf175b75535ffc6cb5c08211c7e91dd5b1431cba97cf",
     "tools/agent/src/config.ts": "0c2dc2820cc258f6e3fbbfc14b8242ba6a65c57be55beace85e30bedda4622ea",
     "tools/agent/src/freeze.ts": "18fd510542df803c3c20e0dd1af1b05470450859b02da15039d2cf66c9173bc8",
