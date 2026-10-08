@@ -581,7 +581,7 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
     }
   }
 
-  if (config.evaluation !== undefined) {
+  if (config.evaluation !== undefined && config.evaluation.strongRouteId !== undefined && config.evaluation.cheapRouteId !== undefined) {
     const evaluation = config.evaluation
     for (const routeId of [evaluation.strongRouteId, evaluation.cheapRouteId]) {
       if (deployment.routes[routeId] === undefined) throw new Error(`Unknown evaluation route: ${routeId}`)

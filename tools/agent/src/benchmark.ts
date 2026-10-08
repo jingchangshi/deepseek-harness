@@ -368,7 +368,10 @@ export function createProductionEngineeringBindings(options: {
       if (strategy === 'C_FIXED') {
         const stages = review ? ['SCOUT', 'ARCHITECT', 'CHALLENGER', 'VERIFICATION', 'REVIEWER'] as const : ['SCOUT', 'ARCHITECT', 'CHALLENGER', 'IMPLEMENTER', 'VERIFICATION', 'REVIEWER'] as const
         const receipts: EngineeringStageReceipt[] = []
-        for (const stage of stages) receipts.push(await options.direct.invokeFixedStage({ stage, request: testCase.request, root: cwd, readOnly: review || stage !== 'IMPLEMENTER', testCase }))
+        for (const stage of stages) {
+          receipts.push(await options.direct.invokeFixedStage({ stage, request: testCase.request, root: cwd, readOnly: review || stage !== 'IMPLEMENTER', testCase }))
+          if (!review && stage === 'IMPLEMENTER') directFirstPass.set(cwd, await options.firstImplementationOracle(testCase, cwd).catch(() => 'UNKNOWN'))
+        }
         return receipts
       }
       const roleReceipts: EngineeringStageReceipt[] = []
