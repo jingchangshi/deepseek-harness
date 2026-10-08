@@ -17,8 +17,10 @@ import { loadRepositoryVerificationContext } from './identity.ts'
 import type { RepositoryKnowledge } from './knowledge.ts'
 import { loadVerificationProfile, runCommand, runVerificationProfile, validateVerificationProfileId, verificationEvidence } from './verification.ts'
 import type { TaskDocument, TaskStateRecord } from './types.ts'
+import type { ReviewStateRecord, ReviewTaskDocument } from './review-types.ts'
+import type { GitEvidenceRepository } from './git-evidence.ts'
 import { taskRequiresStopConfirmation } from './state-machine.ts'
-import { RoleInvocationError, RoleQuiescenceError, fallbackRoleAttempt, isAbortError, roleFailureAfterMutation } from './role-execution.ts'
+import { RoleInvocationError, RoleQuiescenceError, isAbortError, runRoleAttempts } from './role-execution.ts'
 import type { RoleAttemptRecord } from './role-execution.ts'
 import { isLiveWriterLockTimeout } from './run-lock.ts'
 
@@ -48,12 +50,14 @@ export interface RoleInvocation {
   root: string
   taskId: string
   request: string
-  state: Pick<TaskStateRecord, 'state' | 'revision' | 'workRevision' | 'fixAttempts'>
+  state: Pick<TaskStateRecord | ReviewStateRecord, 'state' | 'revision' | 'workRevision' | 'fixAttempts'>
   context: Record<string, unknown>
   outputSchema: ObjectJsonSchema
   signal: AbortSignal
   /** Executors call this before dispatching any tool that may mutate project or external state. */
   markMutationStarted?: () => void
+  /** Trusted Git query owner for a Review-only child; excluded from model prompt serialization. */
+  reviewEvidence?: GitEvidenceRepository
 }
 
 /** Executors must settle only after their agent and its owned writes have stopped, including cancellation. */
@@ -102,6 +106,8 @@ export type EngineeringNextAction =
 export interface EngineeringStatus {
   tasks: Array<{ task: TaskDocument; state: TaskStateRecord }>
   pendingTasks: TaskDocument[]
+  /** Review-only tasks, present when at least one selected review exists. */
+  reviews?: Array<{ task: ReviewTaskDocument; state: ReviewStateRecord }>
 }
 
 interface Journal {
@@ -331,11 +337,22 @@ export async function getEngineeringStatus(root: string, taskId?: string): Promi
   const repository = new TaskRepository(root)
   const tasks: EngineeringStatus['tasks'] = []
   const pendingTasks: TaskDocument[] = []
+  const reviews: NonNullable<EngineeringStatus['reviews']> = []
+  let reviewEntries: string[] = []
+  try {
+    reviewEntries = await readdir(join(root, '.agent/reviews'))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  for (const id of taskId === undefined ? reviewEntries : reviewEntries.filter(id => id === taskId)) {
+    reviews.push({ task: await repository.readReview(id), state: await repository.readReviewState(id) })
+  }
+  const result = (): EngineeringStatus => ({ tasks, pendingTasks, ...reviews.length === 0 ? {} : { reviews } })
   let entries: string[]
   try {
     entries = await readdir(join(root, '.agent/tasks'))
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { tasks, pendingTasks }
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return result()
     throw error
   }
   for (const id of taskId === undefined ? entries : [taskId]) {
@@ -348,7 +365,7 @@ export async function getEngineeringStatus(root: string, taskId?: string): Promi
     }
     tasks.push({ task: await repository.readTask(id), state: await repository.readState(id) })
   }
-  return { tasks, pendingTasks }
+  return result()
 }
 
 /**
@@ -358,9 +375,12 @@ export async function getEngineeringStatus(root: string, taskId?: string): Promi
  * @param confirmedStopped - explicit confirmation when the current durable state may still own agent or command work.
  * @returns the task state after releasing any writer, entering REPLAN, and clearing execution and verification checkpoints.
  */
-export async function recoverEngineeringTask(root: string, taskId: string, confirmedStopped: boolean): Promise<TaskStateRecord> {
+export async function recoverEngineeringTask(root: string, taskId: string, confirmedStopped: boolean): Promise<TaskStateRecord | ReviewStateRecord> {
   if (!/^[a-z0-9][a-z0-9._-]*$/.test(taskId)) throw new Error('invalid task ID')
   const canonical = await realpath(root)
+  if (await optionalJson(join(canonical, '.agent/reviews', taskId, 'TASK.json')) !== undefined) {
+    return withFileLock(join(canonical, '.agent/AUTO_RUN'), () => new TaskRepository(canonical).recoverReview(taskId, confirmedStopped))
+  }
   return withFileLock(join(canonical, '.agent/AUTO_RUN'), async () => {
     const repository = new TaskRepository(canonical)
     await repository.init()
@@ -496,60 +516,27 @@ export async function runEngineeringTask(options: EngineeringRunOptions): Promis
       await start
       if (schemas === undefined || primaryStart === undefined) throw new Error(`role ${role} did not start`)
       const validator = new Ajv({ strict: true, allErrors: true }).compile(schemas.validation)
-      const records: RoleAttemptRecord[] = []
-      let quiescenceError: RoleQuiescenceError | undefined
       try {
-        for (const [index, route] of attempts.entries()) {
-          assertRouteDispatchAllowed(config, route.routeId, project.dataClass)
-          const attemptIndex = index + 1
-          if (attemptIndex > 1) signal.throwIfAborted()
-          const startedAt = attemptIndex === 1 ? primaryStart.startedAt : new Date().toISOString()
-          const mutation = attemptIndex === 1 ? primaryMutation : { started: false }
-          const execution = attemptIndex === 1 ? primaryStart.execution : options.executeRole({
-            role, route, attemptIndex, root, taskId,
-            request: journal.requests.join('\n\n'),
-            state: { state: state.state, revision: state.revision, workRevision: state.workRevision, fixAttempts: state.fixAttempts },
-            context: { ...preparedContext, ...extra }, outputSchema: schemas.structured, signal,
-            markMutationStarted: () => { mutation.started = true },
-          })
-          try {
-            const result = await execution
-            signal.throwIfAborted()
-            if (!validator(result)) {
-              throw new RoleInvocationError(`${role} returned invalid output: ${JSON.stringify(validator.errors)}`, 'SCHEMA_INVALID', true)
-            }
-            records.push({ role, attemptIndex, routeId: route.routeId, provider: route.provider, model: route.model, reasoningEffort: route.reasoningEffort,
-              startedAt, endedAt: new Date().toISOString(), outcome: 'SUCCESS' })
+        return await runRoleAttempts({
+          role, attempts, signal, primary: { ...primaryStart, mutation: primaryMutation },
+          executeAttempt: (route, attemptIndex, markMutationStarted) => {
+            assertRouteDispatchAllowed(config, route.routeId, project.dataClass)
+            return options.executeRole({
+              role, route, attemptIndex, root, taskId,
+              request: journal.requests.join('\n\n'),
+              state: { state: state.state, revision: state.revision, workRevision: state.workRevision, fixAttempts: state.fixAttempts },
+              context: { ...preparedContext, ...extra }, outputSchema: schemas!.structured, signal, markMutationStarted,
+            })
+          },
+          validateOutput: result => {
+            if (!validator(result)) throw new RoleInvocationError(`${role} returned invalid output: ${JSON.stringify(validator.errors)}`, 'SCHEMA_INVALID', true)
             return object(result, `${role} output`)
-          } catch (caught) {
-            const error = mutation.started ? roleFailureAfterMutation(caught) : caught
-            const fallback = fallbackRoleAttempt(error, signal)
-            records.push({ role, attemptIndex, routeId: route.routeId, provider: route.provider, model: route.model, reasoningEffort: route.reasoningEffort,
-              startedAt, endedAt: new Date().toISOString(), outcome: 'FAILED',
-              ...fallback === undefined && error instanceof RoleInvocationError ? { failureClass: error.failureClass, fallbackReason: error.message.slice(0, 1000) }
-                : fallback === undefined ? { failureClass: 'NON_FALLBACKABLE' as const, fallbackReason: error instanceof Error ? error.message.slice(0, 1000) : String(error).slice(0, 1000) }
-                : { failureClass: fallback.failureClass, fallbackReason: fallback.fallbackReason } })
-            if (fallback !== undefined && attemptIndex < attempts.length) continue
-            if (error instanceof RoleQuiescenceError) {
-              quiescenceError = error
-              throw error
-            }
-            if (error instanceof EngineeringRoleFailure) throw error
-            if (!(error instanceof RoleInvocationError)) throw error
-            if (signal.aborted || isAbortError(error)) throw error
-            throw new EngineeringRoleFailure(error.message)
-          }
-        }
-        throw new Error(`role ${role} exhausted its configured dispatch routes`)
-      } finally {
-        try {
-          await appendRoleAttempts(root, taskId, role, records)
-        } catch (error) {
-          if (quiescenceError === undefined) throw error
-          throw new RoleQuiescenceError(quiescenceError.message, {
-            cause: new AggregateError([quiescenceError, error], 'Role quiescence and attempt audit persistence failed'),
-          })
-        }
+          },
+          persistAttempts: records => appendRoleAttempts(root, taskId, role, records),
+        })
+      } catch (error) {
+        if (error instanceof RoleQuiescenceError || !(error instanceof RoleInvocationError) || signal.aborted || isAbortError(error)) throw error
+        throw new EngineeringRoleFailure(error.message)
       }
     }
     while (state.state !== 'ACCEPTED' && state.state !== 'BLOCKED') {

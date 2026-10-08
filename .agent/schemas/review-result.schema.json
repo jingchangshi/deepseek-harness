@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://deepseek-harness.local/agent/review-result.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taskId", "revision", "status", "snapshot", "state", "summary", "findings", "evidence", "inspectedEvidenceIds", "unresolvedQuestions"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "taskId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "status": { "enum": ["REVIEW_COMPLETE", "PARTIAL", "BLOCKED"] },
+    "snapshot": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "id", "repositoryRoot", "targetCommit", "baseCommit", "objectFormat"],
+      "properties": {
+        "schemaVersion": { "const": 1 }, "id": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "repositoryRoot": { "type": "string", "minLength": 1 },
+        "targetCommit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+        "baseCommit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+        "objectFormat": { "enum": ["sha1", "sha256"] }
+      }
+    },
+    "state": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "taskId", "state", "revision", "workRevision", "fixAttempts", "writer", "updatedAt"],
+      "properties": {
+        "schemaVersion": { "const": 1 }, "taskId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+        "state": { "enum": ["REQUEST", "SNAPSHOT", "SCOPE_CLASSIFIED", "REVIEW_INVESTIGATION", "INDEPENDENT_REVIEW", "EVIDENCE_VALIDATION", "REVIEW_COMPLETE", "PARTIAL", "BLOCKED"] },
+        "revision": { "type": "integer", "minimum": 1 }, "workRevision": { "const": 0 }, "fixAttempts": { "const": 0 }, "writer": { "type": "null" },
+        "updatedAt": { "type": "string", "format": "date-time" }, "blocker": { "type": "string", "minLength": 1 }, "requiresStopConfirmation": { "type": "boolean" }
+      }
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "description", "path", "commit", "startLine", "endLine", "failureCondition", "changeRelation", "evidenceIds"],
+        "properties": {
+          "severity": { "enum": ["critical", "high", "medium", "low"] },
+          "description": { "type": "string", "minLength": 1 },
+          "path": { "type": "string", "minLength": 1 },
+          "commit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+          "startLine": { "type": "integer", "minimum": 1 },
+          "endLine": { "type": "integer", "minimum": 1 },
+          "failureCondition": { "type": "string", "minLength": 1 },
+          "changeRelation": { "type": "string", "minLength": 1 },
+          "evidenceIds": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "snapshotId", "operation", "contentHash", "complete", "binary"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 }, "snapshotId": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "operation": { "enum": ["show", "diff", "changed-files", "history"] }, "path": { "type": "string", "minLength": 1 },
+          "commit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+          "startLine": { "type": "integer", "minimum": 0 }, "endLine": { "type": "integer", "minimum": 0 },
+          "totalLines": { "type": "integer", "minimum": 0 }, "offset": { "type": "integer", "minimum": 0 },
+          "endOffset": { "type": "integer", "minimum": 0 }, "totalLength": { "type": "integer", "minimum": 0 },
+          "contentHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "complete": { "type": "boolean" }, "binary": { "type": "boolean" }
+        }
+      }
+    },
+    "inspectedEvidenceIds": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "unresolvedQuestions": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  }
+}

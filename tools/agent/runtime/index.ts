@@ -14,6 +14,9 @@ import { loadHarnessConfig, resolveRoleRoute } from '../src/config.ts'
 import type { HarnessConfig } from '../src/config.ts'
 import { getEngineeringStatus, loadEngineeringProject, recoverEngineeringTask, runEngineeringTask } from '../src/automatic.ts'
 import type { EngineeringRole, EngineeringRunResult, RoleInvocation } from '../src/automatic.ts'
+import { runEngineeringReview } from '../src/review-only.ts'
+import type { ReviewRunResult } from '../src/review-only.ts'
+import type { GitEvidenceRepository, GitReviewTarget } from '../src/git-evidence.ts'
 import { RoleInvocationError, RoleQuiescenceError, roleInvocationErrorForLlmCode, roleFailureAfterMutation } from '../src/role-execution.ts'
 import { claimEngineeringInvocation, engineeringInvocationId, readEngineeringInvocationReceipt, withEngineeringInvocationLock, writeEngineeringInvocationReceipt } from '../src/invocation.ts'
 import type { EngineeringRunInvocationId } from '../src/invocation.ts'
@@ -32,9 +35,11 @@ export const Config: z<Config> = z.object({
   roleTimeoutMs: z.number().min(1).step(1).default(1_200_000),
 })
 
-const COORDINATOR_TOOLS = ['engineering_run', 'engineering_status', 'engineering_recover', 'get_goal', 'update_goal']
+const COORDINATOR_TOOLS = ['engineering_run', 'engineering_review', 'engineering_status', 'engineering_recover', 'get_goal', 'update_goal']
 const READ_TOOLS = ['read', 'read_image', 'glob', 'grep', 'lsp', 'web_fetch', 'web_search', 'spill_read']
+const GIT_REVIEW_TOOLS = ['git_snapshot', 'git_changed_files', 'git_diff', 'git_show', 'git_history']
 const activeInvocations = new Map<EngineeringRunInvocationId, Promise<EngineeringRunResult>>()
+const activeReviews = new Map<EngineeringRunInvocationId, Promise<ReviewRunResult>>()
 const childEndReasons = new WeakMap<Session, TurnEndReason>()
 const WRITE_TOOLS = ['write', 'edit', 'str_replace_editor']
 /**
@@ -180,9 +185,48 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
   const coordinators = new WeakSet<Agent>()
   const children = new WeakSet<Agent>()
   const startingMutationObservers = new Map<string, () => void>()
+  const startingReviewEvidence = new Map<string, GitEvidenceRepository>()
+  const reviewEvidenceByAgent = new WeakMap<Agent, GitEvidenceRepository>()
   const childrenByParent = new Set<string>()
   let closing = false
   let roleStartTail = Promise.resolve()
+
+  function gitEvidence(agent: Agent | undefined): GitEvidenceRepository {
+    const evidence = agent === undefined ? undefined : reviewEvidenceByAgent.get(agent)
+    if (evidence === undefined) throw new Error('Git evidence tools require a Review-only child with a pinned snapshot')
+    return evidence
+  }
+
+  const gitOutput = { schema: { type: 'string' as const }, render: (_args: unknown, result: string) => [{ type: 'text' as const, text: result }] }
+  const offset = { type: 'integer' as const, description: 'Zero-based page offset returned by the preceding result.' }
+  const limit = { type: 'integer' as const, description: 'Maximum page size; output completeness reports continuation.' }
+  ctx.tools.register(defineTool({
+    name: 'git_snapshot', sideEffects: 'read-only', description: 'Read the immutable repository, base and target commit identities bound to this Review-only child.',
+    parameters: {}, output: gitOutput,
+    execute: async (_args, exec) => JSON.stringify(gitEvidence(exec.agent).snapshot),
+  }))
+  ctx.tools.register(defineTool({
+    name: 'git_changed_files', sideEffects: 'read-only', description: 'List a page of changed paths and statuses in the pinned Git snapshot.',
+    parameters: { offset, limit }, output: gitOutput,
+    execute: async (args, exec) => JSON.stringify(await gitEvidence(exec.agent).changedFiles(args, exec.signal)),
+  }))
+  ctx.tools.register(defineTool({
+    name: 'git_diff', sideEffects: 'read-only', description: 'Read a page of a pinned file diff. Cite evidenceId and follow completeness.nextOffset until the scope is inspected.',
+    parameters: { path: { type: 'string', required: true, description: 'Repository-relative changed path.' }, offset, limit }, output: gitOutput,
+    execute: async (args, exec) => JSON.stringify(await gitEvidence(exec.agent).diff(args, exec.signal)),
+  }))
+  ctx.tools.register(defineTool({
+    name: 'git_show', sideEffects: 'read-only', description: 'Read pinned new-version source lines. Cite evidenceId, commit and line numbers; binary content is explicitly marked.',
+    parameters: { path: { type: 'string', required: true, description: 'Repository-relative source path.' },
+      startLine: { type: 'integer', description: 'First source line, starting at one.' },
+      lineCount: { type: 'integer', description: 'Maximum source lines returned.' } }, output: gitOutput,
+    execute: async (args, exec) => JSON.stringify(await gitEvidence(exec.agent).show(args, exec.signal)),
+  }))
+  ctx.tools.register(defineTool({
+    name: 'git_history', sideEffects: 'read-only', description: 'Read a page of commit ancestry fixed at the review target.',
+    parameters: { offset, limit }, output: gitOutput,
+    execute: async (args, exec) => JSON.stringify(await gitEvidence(exec.agent).history(args, exec.signal)),
+  }))
 
   ctx.on('session/event', (session, event) => {
     if (event.type === 'turn/end') childEndReasons.set(session, event.data.reason)
@@ -198,9 +242,14 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
       if (childrenByParent.has(agent.session.header.parentSession)) {
         children.add(agent)
         agent.ctx.tools.presentAs('native')
+        const evidence = startingReviewEvidence.get(agent.session.header.parentSession)
+        if (evidence !== undefined) reviewEvidenceByAgent.set(agent, evidence)
         const observer = startingMutationObservers.get(agent.session.header.parentSession)
         if (observer !== undefined) {
           agent.ctx.tools.observeBodyStart((_exec, sideEffects) => {
+            if (evidence !== undefined && sideEffects !== 'read-only') {
+              throw new Error('Review-only children may only execute tools with explicit read-only effects')
+            }
             if (sideEffects === 'potentially-mutating') observer()
           })
         }
@@ -211,11 +260,11 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
     const loaded = await project(root)
     const persona = await readFile(resolve(config.deploymentRoot, loaded.roles.coordinator!.personaFile), 'utf8')
     shutdown.signal.throwIfAborted()
-    availableTools.set(agent, [...READ_TOOLS, ...WRITE_TOOLS, ...SHELL_TOOLS].filter(name => agent.ctx.tools.get(name, agent) !== undefined))
+    availableTools.set(agent, [...READ_TOOLS, ...GIT_REVIEW_TOOLS, ...WRITE_TOOLS, ...SHELL_TOOLS].filter(name => agent.ctx.tools.get(name, agent) !== undefined))
     coordinators.add(agent)
     ctx.effect(() => agent.ctx.systemPrompt.section({
       name: 'engineering:coordinator', order: 1, interpolate: false,
-      text: `${persona}\nFor a new development request, call engineering_run with the complete user requirement and no taskId. This tool owns investigation, planning, implementation, verification, review and acceptance. For progress or resumption, first use engineering_status, then call engineering_run with only the returned taskId and omit request. Supply both taskId and request only to change scope after the task explicitly enters REPLAN. Respect engineering_run.nextAction: WAIT_FOR_CURRENT_RUN means do not start another run; REPLAN_WITH_SCOPE means ask only for missing product/scope information; RECOVER means do not repeat engineering_run unchanged and call engineering_recover. Obtain operator confirmation that previous agent and command work stopped only when requiresStopConfirmation is true. Ask only for missing product decisions. Do not ask users to run agentctl or manage revisions, artifacts, or writer tokens. Report ACCEPTED only when the tool returns that state.`,
+      text: `${persona}\nFor Review-only, PR review, commit review or branch review, call engineering_review with the requested local Git target; never start an Implementer or engineering_run for that intent. For a new development request, call engineering_run with the complete user requirement and no taskId. This tool owns investigation, planning, implementation, verification, review and acceptance. For progress or resumption, first use engineering_status, then call engineering_run with only the returned taskId and omit request. Supply both taskId and request only to change scope after the task explicitly enters REPLAN. Respect engineering_run.nextAction: WAIT_FOR_CURRENT_RUN means do not start another run; REPLAN_WITH_SCOPE means ask only for missing product/scope information; RECOVER means do not repeat engineering_run unchanged and call engineering_recover. Obtain operator confirmation that previous agent and command work stopped only when requiresStopConfirmation is true. Ask only for missing product decisions. Do not ask users to run agentctl or manage revisions, artifacts, or writer tokens. Report ACCEPTED only when the tool returns that state.`,
     }))
     // `restrict` refuses a name the composition does not expose and cannot mask
     // a tool the Session registered into its OWN scope, which is exactly where
@@ -281,21 +330,23 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
       const loaded = await project(invocation.root)
       const route = invocation.route
       const persona = await readFile(resolve(config.deploymentRoot, loaded.roles[invocation.role]!.personaFile), 'utf8')
+      if (invocation.reviewEvidence !== undefined && route.writable) throw new Error('Review-only roles must remain read-only')
       const allowed = availableTools.get(parent)!
-        .filter(name => route.writable || READ_TOOLS.includes(name))
+        .filter(name => invocation.reviewEvidence !== undefined ? GIT_REVIEW_TOOLS.includes(name) || READ_TOOLS.includes(name) : route.writable || READ_TOOLS.includes(name))
       const timeout = new AbortController()
       timer = setTimeout(() => timeout.abort(new Error(`Engineering role ${invocation.role} timed out`)), config.roleTimeoutMs)
       const externalSignal = AbortSignal.any([invocation.signal, shutdown.signal])
       const signal = AbortSignal.any([externalSignal, timeout.signal])
       childrenByParent.add(parent.id)
       signal.throwIfAborted()
-      const { signal: _signal, markMutationStarted: _markMutationStarted, ...payload } = invocation
+      const { signal: _signal, markMutationStarted: _markMutationStarted, reviewEvidence, ...payload } = invocation
       await previousStart
       signal.throwIfAborted()
       startingMutationObservers.set(parent.id, markMutationStarted)
+      if (reviewEvidence !== undefined) startingReviewEvidence.set(parent.id, reviewEvidence)
       const run = await ctx.subagents.start('spawn', {
         parent, signal, label: `Engineering ${invocation.role}`, maxDepth: 1,
-        persona: `${persona}\nOnly Implementer may write project source; .agent and .git are owned by the workflow driver.`,
+        persona: `${persona}\nOnly Implementer may write project source; .agent and .git are owned by the workflow driver.${reviewEvidence === undefined ? '' : '\nThis is Review-only. Inspect the pinned Git snapshot with git_show and git_diff. Cite returned evidenceId values in the required review output. Report unresolved scope explicitly. Do not use development decision or plan fields.'}`,
         agentOptions: { provider: route.provider, model: route.model,
           ...route.reasoningEffort === 'off' ? {} : { reasoningEffort: ReasoningEffortId(route.reasoningEffort) }, maxTokens: route.maxTokens },
         toolFilter: { allow: allowed },
@@ -303,6 +354,7 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
         prompt: [{ type: 'text', text: JSON.stringify(payload) }],
       })
       startingMutationObservers.delete(parent.id)
+      startingReviewEvidence.delete(parent.id)
       started = true
       releaseStart()
       const result = await collectRole(run, invocation.role, route.provider, route.model, externalSignal, timeout.signal, () => mutationStarted)
@@ -311,6 +363,7 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
     } finally {
       if (!started) {
         if (startingMutationObservers.get(parent.id) === markMutationStarted) startingMutationObservers.delete(parent.id)
+        if (startingReviewEvidence.get(parent.id) === invocation.reviewEvidence) startingReviewEvidence.delete(parent.id)
         releaseStart()
       }
       if (timer !== undefined) clearTimeout(timer)
@@ -345,9 +398,11 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
         operation = Promise.resolve().then(async (): Promise<EngineeringRunResult> => withEngineeringInvocationLock(root, invocationId, async () => {
           try {
             let receipt = await readEngineeringInvocationReceipt(root, invocationId)
+            if (receipt?.schemaVersion === 3) throw new Error('Review-only receipt cannot resume Development')
             if (receipt === undefined && exec.loggedCallSeq !== undefined) {
               const legacyId = engineeringInvocationId(sessionId, exec.callId, repositoryIdentity)
               const legacy = await readEngineeringInvocationReceipt(root, legacyId)
+              if (legacy?.schemaVersion === 3) throw new Error('Review-only receipt cannot resume Development')
               if (legacy !== undefined) {
                 taskId = legacy.schemaVersion === 1 || legacy.phase === 'COMPLETED' ? legacy.result.taskId : legacy.taskId ?? ''
                 return blocked(`Legacy invocation ${legacyId}${taskId === '' ? '' : ` for task ${taskId}`} has no logged occurrence sequence and cannot safely map to invocation ${invocationId}. Do not start another task or reuse the legacy result automatically. Inspect engineering_status and the legacy receipt; confirm all owned work has stopped and ask an operator to reconcile the occurrence before explicit recovery.`)
@@ -356,6 +411,7 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
             if (receipt === undefined) {
               if (!await claimEngineeringInvocation(root, { ...identity, schemaVersion: 2, phase: 'CLAIMED' })) {
                 receipt = await readEngineeringInvocationReceipt(root, invocationId)
+                if (receipt?.schemaVersion === 3) throw new Error('Review-only receipt cannot resume Development')
                 if (receipt === undefined) throw new Error('Invocation claim disappeared; inspect the runtime receipt directory')
               }
             }
@@ -384,6 +440,7 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
         }).then(locked => {
           if (locked.acquired) return locked.value
           const activeReceipt = locked.receipt
+          if (activeReceipt?.schemaVersion === 3) throw new Error('Review-only receipt cannot resume Development')
           taskId = activeReceipt === undefined
             ? ''
             : activeReceipt.schemaVersion === 1 || activeReceipt.phase === 'COMPLETED'
@@ -400,6 +457,61 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
           running.delete(operation!)
         }))
         activeInvocations.set(invocationId, operation)
+        running.add(operation)
+      }
+      return JSON.stringify(await operation)
+    },
+  }))
+  ctx.tools.register(defineTool({
+    name: 'engineering_review', description: 'Review a pinned local Git commit, branch tip, commit range or resolvable local PR without an Implementer. Completion requires observed evidence for the complete changed scope.',
+    parameters: {
+      targetKind: { type: 'string', enum: ['commit', 'branch', 'range', 'pr'], required: true, description: 'Selector type; PR uses an existing local refs/pull/<number>/head.' },
+      target: { type: 'string', required: true, description: 'Full commit SHA or HEAD; local branch; baseSHA..targetSHA range; or local PR number.' },
+      base: { type: 'string', description: 'Optional full base commit SHA; required for local PR. Omit for the selected commit parent.' },
+      taskId: { type: 'string', description: 'Resume a review with its persisted snapshot; supplied target must match its original selector.' },
+    },
+    output: { schema: { type: 'string' }, render: (_args, result) => [{ type: 'text', text: result }] },
+    async execute(args, exec) {
+      const parent = exec.agent
+      if (parent === undefined || !coordinators.has(parent)) throw new Error('Only a top-level engineering Coordinator can review changes')
+      if (closing) throw new Error('Engineering profile is shutting down')
+      const root = await realpath(workspace(parent))
+      const invocationId = engineeringInvocationId(parent.session.header.id, exec.callId, root, exec.loggedCallSeq, 'review-only')
+      let operation = activeReviews.get(invocationId)
+      if (operation === undefined) {
+        const identity = { invocationId, sessionId: parent.session.header.id, callId: exec.callId, repositoryIdentity: root,
+          ...exec.loggedCallSeq === undefined ? {} : { loggedCallSeq: exec.loggedCallSeq }, schemaVersion: 3 as const, workflow: 'review-only' as const }
+        let target: GitReviewTarget
+        if (args.targetKind === 'range') target = { kind: 'range', target: args.target }
+        else if (args.targetKind === 'commit' || args.targetKind === 'branch' || args.targetKind === 'pr') {
+          target = { kind: args.targetKind, target: args.target, ...args.base === undefined ? {} : { base: args.base } }
+        } else throw new Error('Unsupported Review-only target kind')
+        const taskId = normalizeTaskId(args.taskId)
+        operation = Promise.resolve().then(async () => {
+          const locked = await withEngineeringInvocationLock(root, invocationId, async () => {
+            const receipt = await readEngineeringInvocationReceipt(root, invocationId)
+            if (receipt !== undefined) {
+              if (receipt.schemaVersion !== 3) throw new Error('Development receipt cannot resume Review-only')
+              if (receipt.phase === 'COMPLETED') return receipt.result
+              throw new Error(`Review invocation ${invocationId} was already claimed. Inspect its persisted review and confirm all child work stopped before explicit recovery.`)
+            }
+            if (!await claimEngineeringInvocation(root, { ...identity, phase: 'CLAIMED' })) throw new Error('Review invocation is already claimed')
+            const result = await runEngineeringReview({ root, deployment, target,
+              ...taskId === undefined ? {} : { taskId },
+              signal: AbortSignal.any([exec.signal, shutdown.signal]),
+              executeRole: invocation => executeRole(parent, invocation),
+              onTaskSelected: taskId => writeEngineeringInvocationReceipt(root, { ...identity, phase: 'TASK_BOUND', taskId }),
+            })
+            await writeEngineeringInvocationReceipt(root, { ...identity, phase: 'COMPLETED', taskId: result.taskId, result })
+            return result
+          })
+          if (!locked.acquired) throw new Error(`Review invocation ${invocationId} is owned by another process; wait for its result`)
+          return locked.value
+        }).finally(() => {
+          activeReviews.delete(invocationId)
+          running.delete(operation!)
+        })
+        activeReviews.set(invocationId, operation)
         running.add(operation)
       }
       return JSON.stringify(await operation)

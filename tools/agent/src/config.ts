@@ -63,6 +63,16 @@ export interface WorkflowConfig {
   boundedFixRounds: number
   ralphEnabled: boolean
   arbiterEnabled: boolean
+  /** Maximum changed files reviewed directly without Scout partitioning. */
+  reviewMaxDirectFiles: number
+  /** Maximum disjoint Review-only Scout work units. */
+  reviewMaxScouts: number
+  /** Timeout for each pinned Git evidence query. */
+  reviewGitCommandTimeoutMs: number
+  /** Maximum bytes accepted from one Git subprocess. */
+  reviewGitMaxOutputBytes: number
+  /** Default text-page size for Git evidence queries. */
+  reviewGitPageSize: number
 }
 
 /** Complete validated harness configuration. */
@@ -326,7 +336,13 @@ export async function loadHarnessConfig(
     boundedFixRounds: positiveInteger(workflowDocument.boundedFixRounds, 'workflow.boundedFixRounds'),
     ralphEnabled: boolean(workflowDocument.ralphEnabled, 'workflow.ralphEnabled'),
     arbiterEnabled: boolean(workflowDocument.arbiterEnabled, 'workflow.arbiterEnabled'),
+    reviewMaxDirectFiles: positiveInteger(workflowDocument.reviewMaxDirectFiles ?? 4, 'workflow.reviewMaxDirectFiles'),
+    reviewMaxScouts: positiveInteger(workflowDocument.reviewMaxScouts ?? 2, 'workflow.reviewMaxScouts'),
+    reviewGitCommandTimeoutMs: positiveInteger(workflowDocument.reviewGitCommandTimeoutMs ?? 30_000, 'workflow.reviewGitCommandTimeoutMs'),
+    reviewGitMaxOutputBytes: positiveInteger(workflowDocument.reviewGitMaxOutputBytes ?? 8_388_608, 'workflow.reviewGitMaxOutputBytes'),
+    reviewGitPageSize: positiveInteger(workflowDocument.reviewGitPageSize ?? 16_384, 'workflow.reviewGitPageSize'),
   }
+  if (workflow.reviewMaxScouts > workflow.maxConcurrentAgents) throw new Error('workflow.reviewMaxScouts exceeds maxConcurrentAgents')
   if (workflow.maxDepth !== 1) throw new Error('workflow.maxDepth must remain 1')
   if (workflow.maxConcurrentAgents !== 3) throw new Error('workflow.maxConcurrentAgents must remain 3')
   if (workflow.boundedFixRounds !== 2) throw new Error('workflow.boundedFixRounds must remain 2')

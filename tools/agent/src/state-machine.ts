@@ -1,6 +1,7 @@
 /** Pure transition rules for the repository-owned engineering task protocol. */
 
 import type { CheckStatus, ReviewDecision, TaskStateRecord } from './types.ts'
+import type { ReviewStateRecord } from './review-types.ts'
 
 const MAX_FIX_ATTEMPTS = 2
 
@@ -25,6 +26,49 @@ export class TransitionError extends Error {
   constructor(action: TaskAction['type'], state: TaskStateRecord['state'], detail?: string) {
     super(`cannot ${action} from ${state}${detail === undefined ? '' : `: ${detail}`}`)
     this.name = 'TransitionError'
+  }
+}
+
+/** Actions that advance an independent review-only state. */
+export type ReviewAction =
+  | { type: 'advance'; state: 'SNAPSHOT' | 'SCOPE_CLASSIFIED' | 'REVIEW_INVESTIGATION' | 'INDEPENDENT_REVIEW' | 'EVIDENCE_VALIDATION' }
+  | { type: 'recover'; confirmedStopped: boolean }
+  | { type: 'complete'; status: 'REVIEW_COMPLETE' | 'PARTIAL' | 'BLOCKED'; blocker?: string; requiresStopConfirmation?: boolean }
+
+/**
+ * Advance review-only state without entering the development transition graph.
+ * @param current - latest review state.
+ * @param action - terminal review outcome.
+ * @param now - timestamp for the successor.
+ * @returns review state with exactly one revision increment.
+ */
+export function transitionReview(current: ReviewStateRecord, action: ReviewAction, now: string): ReviewStateRecord {
+  if (action.type === 'recover') {
+    if (current.state !== 'BLOCKED' || current.requiresStopConfirmation !== true || action.confirmedStopped !== true) {
+      throw new Error('review recovery requires a stop-confirmation blocker and explicit stopped confirmation')
+    }
+    const { blocker: _blocker, requiresStopConfirmation: _confirmation, ...recovered } = current
+    return { ...recovered, state: 'INDEPENDENT_REVIEW', revision: current.revision + 1, updatedAt: now }
+  }
+  const sequence: ReviewStateRecord['state'][] = ['REQUEST', 'SNAPSHOT', 'SCOPE_CLASSIFIED', 'REVIEW_INVESTIGATION', 'INDEPENDENT_REVIEW', 'EVIDENCE_VALIDATION']
+  if (action.type === 'advance') {
+    const currentIndex = sequence.indexOf(current.state)
+    if (currentIndex < 0 || sequence[currentIndex + 1] !== action.state) throw new Error(`cannot advance review from ${current.state} to ${action.state}`)
+    return { ...current, state: action.state, revision: current.revision + 1, updatedAt: now }
+  }
+  if (current.state !== 'EVIDENCE_VALIDATION') throw new Error(`cannot complete review from ${current.state}`)
+  if (action.status === 'BLOCKED' && (action.blocker === undefined || action.blocker.trim().length === 0)) throw new Error('blocked review requires a blocker')
+  return {
+    schemaVersion: 1,
+    taskId: current.taskId,
+    state: action.status,
+    revision: current.revision + 1,
+    workRevision: 0,
+    fixAttempts: 0,
+    writer: null,
+    updatedAt: now,
+    ...(action.blocker === undefined ? {} : { blocker: action.blocker }),
+    ...(action.requiresStopConfirmation === true ? { requiresStopConfirmation: true } : {}),
   }
 }
 

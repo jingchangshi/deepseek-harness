@@ -7,3 +7,8 @@ minimumFanout: 2
 boundedFixRounds: 2
 ralphEnabled: false
 arbiterEnabled: false
+reviewMaxDirectFiles: 4
+reviewMaxScouts: 2
+reviewGitCommandTimeoutMs: 30000
+reviewGitMaxOutputBytes: 8388608
+reviewGitPageSize: 16384

@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://deepseek-harness.local/agent/review-task.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "target", "snapshot", "scope", "dataClass", "createdAt"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+    "target": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["kind", "target"], "properties": { "kind": { "const": "commit" }, "target": { "type": "string", "minLength": 1 }, "base": { "type": "string", "minLength": 1 } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "target"], "properties": { "kind": { "const": "branch" }, "target": { "type": "string", "minLength": 1 }, "base": { "type": "string", "minLength": 1 } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "target"], "properties": { "kind": { "const": "range" }, "target": { "type": "string", "minLength": 1 } } },
+        { "type": "object", "additionalProperties": false, "required": ["kind", "target", "base"], "properties": { "kind": { "const": "pr" }, "target": { "type": "string", "minLength": 1 }, "base": { "type": "string", "minLength": 1 } } }
+      ]
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "id", "repositoryRoot", "targetCommit", "baseCommit", "objectFormat"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "id": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "repositoryRoot": { "type": "string", "minLength": 1 },
+        "targetCommit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+        "baseCommit": { "type": "string", "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$" },
+        "objectFormat": { "enum": ["sha1", "sha256"] }
+      }
+    },
+    "scope": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["path", "status"], "properties": { "path": { "type": "string", "minLength": 1 }, "status": { "type": "string", "minLength": 1 } } } },
+    "dataClass": { "enum": ["public", "internal", "sensitive"] },
+    "createdAt": { "type": "string", "format": "date-time" }
+  }
+}

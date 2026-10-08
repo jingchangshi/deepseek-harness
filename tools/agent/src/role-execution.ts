@@ -163,3 +163,61 @@ export function roleFailureAfterMutation(error: unknown): unknown {
   if (!(error instanceof RoleInvocationError) || !error.fallbackable) return error
   return new RoleInvocationError(`${error.message} Fallback is disabled because this attempt dispatched a potentially mutating tool.`, 'NON_FALLBACKABLE', false, { cause: error })
 }
+
+/** Inputs shared by Development and Review-only route attempts. */
+export interface RoleAttemptsOptions<T> {
+  role: EngineeringRole
+  attempts: readonly ResolvedRoleRoute[]
+  signal: AbortSignal
+  executeAttempt: (route: ResolvedRoleRoute, attemptIndex: number, markMutationStarted: () => void) => Promise<unknown>
+  validateOutput: (value: unknown) => T
+  persistAttempts: (records: RoleAttemptRecord[]) => Promise<void>
+  primary?: { startedAt: string; execution: Promise<unknown>; mutation: { started: boolean } }
+}
+
+/**
+ * Execute configured routes only after the preceding child has settled and stopped.
+ * @param options - route dispatch, validation, mutation observation and durable audit owners.
+ * @returns the first valid output; rejects after unsafe failure or exhausted routes.
+ */
+export async function runRoleAttempts<T>(options: RoleAttemptsOptions<T>): Promise<T> {
+  const records: RoleAttemptRecord[] = []
+  let quiescenceError: RoleQuiescenceError | undefined
+  try {
+    for (const [index, route] of options.attempts.entries()) {
+      const attemptIndex = index + 1
+      const primary = index === 0 ? options.primary : undefined
+      if (primary === undefined) options.signal.throwIfAborted()
+      const startedAt = primary?.startedAt ?? new Date().toISOString()
+      const mutation = primary?.mutation ?? { started: false }
+      try {
+        const value = await (primary?.execution ?? options.executeAttempt(route, attemptIndex, () => { mutation.started = true }))
+        options.signal.throwIfAborted()
+        const output = options.validateOutput(value)
+        records.push({ role: options.role, attemptIndex, routeId: route.routeId, provider: route.provider, model: route.model,
+          reasoningEffort: route.reasoningEffort, startedAt, endedAt: new Date().toISOString(), outcome: 'SUCCESS' })
+        return output
+      } catch (caught) {
+        const error = mutation.started ? roleFailureAfterMutation(caught) : caught
+        const fallback = fallbackRoleAttempt(error, options.signal)
+        records.push({ role: options.role, attemptIndex, routeId: route.routeId, provider: route.provider, model: route.model,
+          reasoningEffort: route.reasoningEffort, startedAt, endedAt: new Date().toISOString(), outcome: 'FAILED',
+          failureClass: fallback?.failureClass ?? (error instanceof RoleInvocationError ? error.failureClass : 'NON_FALLBACKABLE'),
+          fallbackReason: fallback?.fallbackReason ?? (error instanceof Error ? error.message : String(error)).slice(0, 1000) })
+        if (fallback !== undefined && attemptIndex < options.attempts.length) continue
+        if (error instanceof RoleQuiescenceError) quiescenceError = error
+        throw error
+      }
+    }
+    throw new Error(`role ${options.role} exhausted its configured dispatch routes`)
+  } finally {
+    try {
+      await options.persistAttempts(records)
+    } catch (error) {
+      if (quiescenceError === undefined) throw error
+      throw new RoleQuiescenceError(quiescenceError.message, {
+        cause: new AggregateError([quiescenceError, error], 'Role quiescence and attempt audit persistence failed'),
+      })
+    }
+  }
+}

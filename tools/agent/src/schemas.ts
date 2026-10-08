@@ -20,10 +20,16 @@ export type ArtifactSchemaName =
   | 'review'
   | 'decision'
 
+/** Independent Review-only artifact schemas in `.agent/reviews`. */
+export type ReviewArtifactSchemaName =
+  | 'review-task'
+  | 'review-state'
+  | 'review-result'
+
 /** Error containing Ajv's stable instance paths for an invalid artifact. */
 export class ArtifactValidationError extends Error {
   /** Create a validation diagnostic for one schema. */
-  constructor(public readonly schema: ArtifactSchemaName, details: string) {
+  constructor(public readonly schema: ArtifactSchemaName | ReviewArtifactSchemaName, details: string) {
     super(`${schema} artifact is invalid: ${details}`)
     this.name = 'ArtifactValidationError'
   }
@@ -46,7 +52,7 @@ export class ArtifactSchemas {
    * @param value - parsed JSON or YAML value.
    * @returns the same value after schema validation.
    */
-  async validate<T>(name: ArtifactSchemaName, value: T): Promise<T> {
+  async validate<T>(name: ArtifactSchemaName | ReviewArtifactSchemaName, value: T): Promise<T> {
     if (name === 'verification' && !isJsonValue(value)) throw new ArtifactValidationError(name, 'verification must be lossless JSON data')
     const version = typeof value === 'object' && value !== null ? Reflect.get(value, 'schemaVersion') : undefined
     const schemaName = name === 'verification' && version === 3 ? 'verification-v3'

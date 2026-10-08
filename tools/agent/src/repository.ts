@@ -8,7 +8,7 @@ import { deepEqualJson, isJsonValue } from '@deepseek-ai/dsh-util-values'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { ArtifactSchemas } from './schemas.ts'
-import type { ArtifactSchemaName } from './schemas.ts'
+import type { ArtifactSchemaName, ReviewArtifactSchemaName } from './schemas.ts'
 import { taskRequiresStopConfirmation, transition } from './state-machine.ts'
 import type { TaskAction } from './state-machine.ts'
 import { initializeMissingRepositoryFiles, repositoryTemplateFiles } from './templates.ts'
@@ -29,6 +29,9 @@ import type {
   TaskStateRecord,
   VerificationRecord,
 } from './types.ts'
+import type { ReviewStateRecord, ReviewTaskDocument } from './review-types.ts'
+import type { ReviewRunResult } from './review-only.ts'
+import { transitionReview } from './state-machine.ts'
 
 const ARTIFACT_FILES = {
   baseline: 'BASELINE.json',
@@ -50,6 +53,12 @@ export interface VerificationExecutionContext {
   gates: VerificationGate[]
   arguments: RunnerContext
   identity: VerificationIdentity
+}
+
+/** One review-only task and its current state. */
+export interface StoredReviewTask {
+  task: ReviewTaskDocument
+  state: ReviewStateRecord
 }
 
 /** Options for deterministic timestamps and failure injection. */
@@ -122,6 +131,109 @@ export class TaskRepository {
       await initializeMissingRepositoryFiles(this.root, await repositoryTemplateFiles(templateRoot, this.presetRoot, this.presetId))
     }
     await mkdir(join(this.root, '.agent', 'tasks'), { recursive: true })
+    await mkdir(join(this.root, '.agent', 'reviews'), { recursive: true })
+  }
+
+  /** Create an immutable review task and its independent initial state. */
+  async createReview(task: ReviewTaskDocument): Promise<ReviewStateRecord> {
+    await this.schemas.validate('review-task', task)
+    const directory = this.reviewDirectory(task.id)
+    await mkdir(directory, { recursive: true, mode: 0o700 })
+    const statePath = join(directory, 'STATE.json')
+    return withFileLock(statePath, async () => {
+      if (await this.readOptional(statePath) !== undefined) throw new Error(`review "${task.id}" already exists`)
+      const state: ReviewStateRecord = {
+        schemaVersion: 1, taskId: task.id, state: 'REQUEST', revision: 0,
+        workRevision: 0, fixAttempts: 0, writer: null, updatedAt: this.now(),
+      }
+      await this.schemas.validate('review-state', state)
+      await this.writeAtomic(join(directory, 'TASK.json'), json(task), { mode: 0o600 })
+      await this.writeAtomic(statePath, json(state), { mode: 0o600 })
+      return state
+    })
+  }
+
+  /** Read the immutable review target and pinned Git snapshot. */
+  async readReview(taskId: string): Promise<ReviewTaskDocument> {
+    return this.readJson('review-task', join(this.reviewDirectory(taskId), 'TASK.json')) as Promise<ReviewTaskDocument>
+  }
+
+  /** Read the current state of a review-only workflow. */
+  async readReviewState(taskId: string): Promise<ReviewStateRecord> {
+    return this.readJson('review-state', join(this.reviewDirectory(taskId), 'STATE.json')) as Promise<ReviewStateRecord>
+  }
+
+  /** Read the committed result of a completed review. */
+  async readReviewResult(taskId: string): Promise<ReviewRunResult> {
+    return this.readJson<ReviewRunResult>('review-result', join(this.reviewDirectory(taskId), 'RESULT.json'))
+  }
+
+  /** List review-only tasks without consulting or advancing development task states. */
+  async listReviews(taskId?: string): Promise<StoredReviewTask[]> {
+    if (taskId !== undefined) return [{ task: await this.readReview(taskId), state: await this.readReviewState(taskId) }]
+    let ids: string[]
+    try { ids = await readdir(join(this.root, '.agent', 'reviews')) }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error }
+    const reviews: StoredReviewTask[] = []
+    for (const id of ids) {
+      try { reviews.push({ task: await this.readReview(id), state: await this.readReviewState(id) }) }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+    }
+    return reviews
+  }
+
+  /** Resume a quiescence-blocked review only after explicit stopped confirmation. */
+  async recoverReview(taskId: string, confirmedStopped: boolean): Promise<ReviewStateRecord> {
+    const statePath = join(this.reviewDirectory(taskId), 'STATE.json')
+    return withFileLock(statePath, async () => {
+      const current = await this.readReviewState(taskId)
+      const next = transitionReview(current, { type: 'recover', confirmedStopped }, this.now())
+      await this.schemas.validate('review-state', next)
+      await this.writeAtomic(statePath, json(next), { mode: 0o600 })
+      return next
+    })
+  }
+
+  /** Advance one review-only stage with revision compare-and-swap. */
+  async advanceReview(taskId: string, expectedRevision: number, nextStage: 'SNAPSHOT' | 'SCOPE_CLASSIFIED' | 'REVIEW_INVESTIGATION' | 'INDEPENDENT_REVIEW' | 'EVIDENCE_VALIDATION'): Promise<ReviewStateRecord> {
+    return this.mutateReview(taskId, expectedRevision, current => transitionReview(current, { type: 'advance', state: nextStage }, this.now()))
+  }
+
+  /** Persist classified changed paths once while advancing SNAPSHOT to SCOPE_CLASSIFIED. */
+  async classifyReviewScope(taskId: string, expectedRevision: number, scope: Array<{ path: string; status: string }>): Promise<ReviewStateRecord> {
+    const directory = this.reviewDirectory(taskId)
+    const statePath = join(directory, 'STATE.json')
+    return withFileLock(statePath, async () => {
+      const current = await this.readReviewState(taskId)
+      if (current.revision !== expectedRevision) throw new StaleRevisionError(expectedRevision, current.revision)
+      if (current.state !== 'SNAPSHOT') throw new Error(`cannot classify review scope from ${current.state}`)
+      const task = await this.readReview(taskId)
+      if (task.scope.length !== 0) throw new Error('review scope was already classified')
+      const updatedTask = { ...task, scope }
+      const next = transitionReview(current, { type: 'advance', state: 'SCOPE_CLASSIFIED' }, this.now())
+      await this.schemas.validate('review-task', updatedTask)
+      await this.schemas.validate('review-state', next)
+      await this.writeAtomic(join(directory, 'TASK.json'), json(updatedTask), { mode: 0o600 })
+      await this.writeAtomic(statePath, json(next), { mode: 0o600 })
+      return next
+    })
+  }
+
+  /** Persist one review result and terminal state with a revision compare-and-swap. */
+  async completeReviewOnly(taskId: string, expectedRevision: number, result: object, status: 'REVIEW_COMPLETE' | 'PARTIAL' | 'BLOCKED', blocker?: string, requiresStopConfirmation = false): Promise<ReviewStateRecord> {
+    const directory = this.reviewDirectory(taskId)
+    const statePath = join(directory, 'STATE.json')
+    return withFileLock(statePath, async () => {
+      const current = await this.readReviewState(taskId)
+      if (current.revision !== expectedRevision) throw new StaleRevisionError(expectedRevision, current.revision)
+      const next = transitionReview(current, { type: 'complete', status, ...(blocker === undefined ? {} : { blocker }), ...(requiresStopConfirmation ? { requiresStopConfirmation: true } : {}) }, this.now())
+      const document = { ...result, schemaVersion: 1, taskId, revision: next.revision, status, state: next }
+      await this.schemas.validate('review-result', document)
+      await this.schemas.validate('review-state', next)
+      await this.writeAtomic(join(directory, 'RESULT.json'), json(document), { mode: 0o600 })
+      await this.writeAtomic(statePath, json(next), { mode: 0o600 })
+      return next
+    })
   }
 
   /**
@@ -217,6 +329,20 @@ export class TaskRepository {
       if (allowedOwnWriter) continue
       if (state.writer !== null) throw new Error(`task ${state.taskId} has an interrupted writer; stop its agent and explicitly release its lease before dispatch`)
       if (taskRequiresStopConfirmation(state)) throw new Error(`task ${state.taskId} requires confirmation that all agent and command work has stopped before dispatch`)
+    }
+    const reviewsRoot = join(this.root, '.agent', 'reviews')
+    let reviewIds: string[]
+    try { reviewIds = await readdir(reviewsRoot) }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw error
+    }
+    for (const reviewId of reviewIds) {
+      const statePath = join(reviewsRoot, reviewId, 'STATE.json')
+      if (await this.readOptional(statePath) === undefined) continue
+      const review = await this.readJson('review-state', statePath) as ReviewStateRecord
+      if (confirmedRecovery && reviewId === taskId) continue
+      if (review.requiresStopConfirmation === true) throw new Error(`review ${review.taskId} requires confirmation that all review work has stopped before dispatch`)
     }
   }
 
@@ -707,7 +833,7 @@ export class TaskRepository {
     return typeof value === 'string' ? value : undefined
   }
 
-  private async readJson<T>(schema: ArtifactSchemaName, filename: string): Promise<T> {
+  private async readJson<T>(schema: ArtifactSchemaName | ReviewArtifactSchemaName, filename: string): Promise<T> {
     const value = JSON.parse(await readFile(filename, 'utf8'))
     return this.schemas.validate(schema, value) as Promise<T>
   }
@@ -719,5 +845,22 @@ export class TaskRepository {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
       throw error
     }
+  }
+
+  private reviewDirectory(taskId: string): string {
+    if (!/^[a-z0-9][a-z0-9._-]*$/u.test(taskId)) throw new Error('invalid review task ID')
+    return join(this.root, '.agent', 'reviews', taskId)
+  }
+
+  private async mutateReview(taskId: string, expectedRevision: number, change: (current: ReviewStateRecord) => ReviewStateRecord): Promise<ReviewStateRecord> {
+    const statePath = join(this.reviewDirectory(taskId), 'STATE.json')
+    return withFileLock(statePath, async () => {
+      const current = await this.readReviewState(taskId)
+      if (current.revision !== expectedRevision) throw new StaleRevisionError(expectedRevision, current.revision)
+      const next = change(current)
+      await this.schemas.validate('review-state', next)
+      await this.writeAtomic(statePath, json(next), { mode: 0o600 })
+      return next
+    })
   }
 }
