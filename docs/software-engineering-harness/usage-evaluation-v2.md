@@ -4,7 +4,7 @@ English | [中文](usage-evaluation-v2.zh.md)
 
 ## Summary
 
-This reference defines the `DESIGN_FROZEN` Phase 4 design for actual provider usage accounting and reproducible engineering evaluation. Design review is approved; implementation and verification have not started. Synthetic fixtures cannot establish model savings, and provider charges remain unknown unless a trusted deployment estimate is available.
+This reference defines the `DESIGN_FROZEN` Phase 4 design for actual provider usage accounting and reproducible engineering evaluation. Design review is approved. Implementation is complete; focused verification is PASS. Full four-strategy live comparison remains PARTIAL. Synthetic fixtures cannot establish model savings, and provider charges remain unknown unless a trusted deployment estimate is available.
 
 ## Table of Contents
 
@@ -47,4 +47,4 @@ Four immutable Git fixtures cover a compiler feature/design task (`pebble-mul`, 
 
 Offline tests run production workflows with scripted roles and real Git/command oracles. Their token values are synthetic and cannot support model-savings claims. Live evaluation uses the supported `dsh` headless profile, an engineering repository overlay, and the real provider adapter, launched through `dsh --profile headless --patch <engineering-overlay> <request>` or the shipped `engineering-run` profile. Custom app launchers are not allowed. At least one available provider must persist nonzero raw usage and an outcome in the task ledger. When a provider is available, attempt all four strategies on at least one bounded fixture and report connection failures separately from accepted tasks or strategy comparisons. Live compiler, MLIR, and review cases may remain partial or `NOT_RUN` only with a recorded external, time, or resource limitation.
 
-Keep raw provider logs and Sessions outside Git; publish only sanitized metadata and aggregate usage with unknown rates clearly identified. Phase 4 acceptance requires durable accounting, replay and recovery controls, independent oracles across all fixtures, accurate unknowns, and honest live-provider evidence. The design is frozen; Phase 4 remains unimplemented and unverified until those checks pass.
+Keep raw provider logs and Sessions outside Git; publish only sanitized metadata and aggregate usage with unknown rates clearly identified. Phase 4 acceptance requires durable accounting, replay and recovery controls, independent oracles across all fixtures, accurate unknowns, and honest live-provider evidence. The design is frozen. Durable accounting, independent fixtures, and focused verification are complete. One live D run reached BUDGET_EXHAUSTED with 32 requests and 474,943 known tokens; cost is UNKNOWN, A/B/C comparison is NOT_RUN, and MLIR binary verification is NOT_CONFIGURED.

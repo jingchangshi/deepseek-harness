@@ -4,7 +4,7 @@ English | [中文](verification-report-v2.zh.md)
 
 ## Summary
 
-This report records executed evidence for the [acceptance matrix](acceptance-matrix-v2.md). Results apply only to the named test paths and commands. Phases 0–3 are accepted and pushed. The Phase 4 design is frozen; implementation and verification are `NOT_RUN`.
+This report records executed evidence for the [acceptance matrix](acceptance-matrix-v2.md). Results apply only to the named test paths and commands. Phases 0–3 are accepted and pushed. Phase 4 implementation is complete with focused verification PASS; full live comparison is PARTIAL.
 
 ## Phase 0 evidence
 
@@ -41,7 +41,7 @@ This report records executed evidence for the [acceptance matrix](acceptance-mat
 | Independent implementation review | APPROVE. |
 | Phase 2 acceptance and push | PASS: accepted phase commit is confirmed on the target remote branch. |
 | Phase 3 acceptance and push | PASS: normal push and remote branch confirmation are recorded. |
-| Phase 4 status | DESIGN_FROZEN; implementation and verification are NOT_RUN. |
+| Phase 4 status | PARTIAL: implementation and focused verification PASS; live D budget-limited run recorded; A/B/C comparison NOT_RUN. |
 
 Original private Session ZIP files were unreadable because access returned `PermissionError`. Fixtures use the documented behavior; they do not claim to reproduce original Session bytes. The configured worker route was unavailable, so the actual test-design and implementation routes used supported `gpt-6-luna` and `gpt-6.1-sol` models. No live provider, benchmark, token-cost, or pricing evidence is claimed.
 
@@ -58,7 +58,7 @@ Original private Session ZIP files were unreadable because access returned `Perm
 | Engineering Harness snapshot | Authored refresh and replay passed for seven child roles. The root-hash tuple was fixed in the fixture; shared normalizers were unchanged. | `snapshots/session/engineering-harness/`; Phase 1 snapshot refresh and replay logs. |
 | Documentation | Latest `doc-sync`: 42 gates passed. | Phase 1 `doc-sync` run. |
 | Package hygiene | PARTIAL: 15 of 16 gates passed; the vendor rescope failure reproduces on the starting baseline. | Package hygiene baseline logs. |
-| Live provider run | NOT_RUN; no live provider execution is claimed. | Phase 1 execution record. |
+| Live provider run | PARTIAL: supported engineering-run reached BUDGET_EXHAUSTED; 32 requests, 474,943 known tokens, answer check failed, original file preserved. | `/tmp/dsh-live-evaluation-1418323-1791472342988.json` |
 | Freeze update check | PASS. | Phase 1 freeze update and check logs. |
 | Pre-push typecheck | PASS. | Phase 1 pre-push check. |
 | Phase 1 commit and push | PASS; the exact pushed commit was confirmed on the configured target remote branch. | Phase 1 delivery record. |
@@ -98,4 +98,4 @@ Phase 2 acceptance and push are PASS.
 | Independent source review | Final verdict: APPROVE. The reviewer checked code, crash regressions and final documentation evidence. | `/tmp/dsh-goal-1008/phase3-review-verdict.txt` |
 | Phase 3 acceptance and delivery | PASS. The reviewed phase was normally pushed, and the remote branch matches. | `/tmp/dsh-goal-1008/phase3-push.txt`; `/tmp/dsh-goal-1008/phase3-remote-confirmed.txt` |
 | Phase 4 design review | APPROVED; design frozen. | `/tmp/dsh-goal-1008/phase4-interfaces.md`; Phase 4 design-review verdict. |
-| Phase 4 implementation and verification | NOT_RUN. No production work or verification is claimed. | Not started. |
+| Phase 4 implementation and verification | PASS focused: 47 Phase 4 tests, typecheck, lint, doc-sync; live strategy comparison PARTIAL. | `/tmp/dsh-goal-1008/phase4-acceptance-tests.txt` |

@@ -4,7 +4,7 @@
 
 ## 概述
 
-本参考文档定义 Phase 4 的 `DESIGN_FROZEN` 设计，内容涵盖实际 provider 用量核算和可复现工程评估。设计评审已批准；尚未开始实现或验证。合成 fixture 不能证明模型节省；除非有可信的部署估算，否则 provider 费用仍为未知。
+本参考文档定义 Phase 4 的 `DESIGN_FROZEN` 设计，内容涵盖实际 provider 用量核算和可复现工程评估。设计评审已批准；实现已完成，聚焦验证通过。四策略在线对比仍为 PARTIAL。合成 fixture 不能证明模型节省；除非有可信的部署估算，否则 provider 费用仍为未知。
 
 ## 目录
 
@@ -45,6 +45,6 @@ Adapter 用量标准化会单独记录 `cacheOmission: 'zero' | 'unsupported' | 
 <a id="execution-and-acceptance"></a>
 ## 执行与验收
 
-离线测试使用 scripted role 执行生产 workflow，并运行真实 Git/命令 oracle。其 token 数值为合成数据，不能证明模型节省。在线评估使用受支持的 `dsh` headless profile、engineering 仓库 overlay 和真实 provider adapter，可通过 `dsh --profile headless --patch <engineering-overlay> <request>` 或已发布的 `engineering-run` profile 启动。不得使用自定义 app launcher。至少一个可用 provider 必须在 task ledger 中持久化非零原始 usage 和结果。Provider 可用时，至少在一个有界 fixture 上尝试四种策略，并分别报告连接失败、任务验收和策略比较。若编译器、MLIR 或 Review 在线用例因外部、时间或资源限制无法运行，可记录为 partial 或 `NOT_RUN`。
+离线测试使用 scripted role 执行生产 workflow，并运行真实 Git/命令 oracle。其 token 数值为合成数据，不能证明模型节省。在线评估使用受支持的 `dsh` headless profile、engineering 仓库 overlay 和真实 provider adapter，可通过 `dsh --profile headless --patch <engineering-overlay> <request>` 或已发布的 `engineering-run` profile 启动。不得使用自定义 app launcher。至少一个可用 provider 必须在 task ledger 中持久化非零原始 usage 和结果。Provider 可用时，至少在一个有界 fixture 上尝试四种策略，并分别报告连接失败、任务验收和策略比较。若编译器、MLIR 或 Review 在线用例因外部、时间或资源限制无法运行，可记录为 partial 或 `NOT_RUN`。本次在线 D 运行因 Challenger 工具预算耗尽而为 `BUDGET_EXHAUSTED`，账本记录 32 个 request 和 474943 个已知 token，费用为 UNKNOWN；A/B/C 对比为 NOT_RUN，MLIR 二进制验证未配置。
 
 原始 provider 日志和 Session 保留在 Git 之外；仅发布已脱敏的元数据和汇总用量，并明确标示未知费率。Phase 4 验收要求持久化核算、回放和恢复控制、所有 fixture 的独立 oracle、准确报告未知值，以及诚实的在线 provider 证据。设计已冻结；在这些检查通过前，Phase 4 仍未实现、未验证。
