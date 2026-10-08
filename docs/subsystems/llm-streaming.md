@@ -1103,6 +1103,41 @@ The provider topology changed: an adapter registered or unregistered routes, or 
 
 Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
 
+<a id="llmpost-dispatch--serial"></a>
+
+#### `llm/post-dispatch` — serial
+
+Observe one adapter stream after its iterator has closed.
+
+```ts cordis-catalog
+/**
+ * Observe one adapter stream after its iterator has closed.
+ * @param record - readonly dispatch facts, latest usage, and outcome.
+ * @mode serial
+ */
+'llm/post-dispatch'(record: LlmPostDispatch): void | Promise<void>
+```
+
+Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
+
+<a id="llmpre-dispatch--serial"></a>
+
+#### `llm/pre-dispatch` — serial
+
+Admit one final adapter stream dispatch. A rejection prevents the adapter call and propagates as a plugin failure.
+
+```ts cordis-catalog
+/**
+ * Admit one final adapter stream dispatch. A rejection prevents the adapter
+ * call and propagates as a plugin failure.
+ * @param record - readonly final projected request record and dispatch identity.
+ * @mode serial
+ */
+'llm/pre-dispatch'(record: LlmPreDispatch): void | Promise<void>
+```
+
+Source: [`packages/llm/llm/src/types.ts`](../../packages/llm/llm/src/types.ts)
+
 <a id="llmstream--waterfall"></a>
 
 #### `llm/stream` — waterfall

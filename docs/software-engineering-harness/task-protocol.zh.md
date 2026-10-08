@@ -18,6 +18,7 @@
 - [Acceptance](#acceptance)
 - [CLI](#cli)
 - [恢复](#recovery)
+- [有界调查](bounded-investigation.zh.md)
 
 -----
 
@@ -44,6 +45,10 @@ IMPLEMENTING -> VERIFYING -> VERIFIED -> REVIEWING -> REVIEWED -> ACCEPTED
 
 `engineering_run` 在状态中返回 `nextAction`。`WAIT_FOR_CURRENT_RUN` 表示另一个运行拥有该仓库；不会启动额外任务、角色、writer 或命令。`RECOVER` 禁止未修改的重复调用；仅当 `requiresStopConfirmation` 为 `true` 时，才要求在 `engineering_recover` 前取得人工停机确认。`false` 表示拥有的工作已达到 quiescence，因此恢复不需要该确认。`REPLAN_WITH_SCOPE` 要求补充产品信息，而不是机械重试。已验证的计划若仍有阻止验收的假设，则进入 `BLOCKED` 并返回此操作，无需停机确认；为同一任务补充变更后的范围会显式重新规划。指定 `BLOCKED` 任务的重复调用返回其 blocker，不派发角色。`NONE` 对应终态验收。
 
+Development task 处于 `BUDGET_EXHAUSTED` 时，`engineering_run` 返回 `nextAction: INCREASE_BUDGET`。恢复前先提高适用的 deployment 或项目限制。持久化的 lifecycle ledger 会在恢复和重新规划期间保留计数，因此提高限制不会清除先前用量。[有界调查与生命周期预算](bounded-investigation.zh.md)定义限制和检查点复用规则。
+
+Review-only 返回 `status: BUDGET_EXHAUSTED`，不带 `nextAction` 字段。恢复前先提高限制，使用相同 review task ID 调用 `engineering_recover` 并传入 `confirmedStopped: false`，然后用原始 target selector 调用 `engineering_review`。该 task ID 不接受已更改的 selector。
+
 Writer 中断或 child cleanup 状态不确定时，`RECOVER` 会返回 `requiresStopConfirmation: true`。即使 model call 已返回，持久化状态仍可能保留 `IMPLEMENTING` writer。在任一 task 持有 writer 或记录了不确定的停机状态时，不要分派其他任务。
 
 重放身份由持久化 Session ID、tool call ID、已记录的调用序号和仓库规范路径组成，不使用请求文本。序号区分后续复用 ID 的模型调用；不带已记录序号的直接 API 调用方必须自行提供稳定且不同的 call ID。`.dsh/engineering/.runtime/invocations/` 下 runtime 拥有的回执在副作用前记录调用声明，随后记录所选任务和完成结果。并发重放共享进程内操作；完成后重放返回已记录结果。进程丢失后未完成的持久化声明要求显式恢复，不会启动另一条工作流。文本相同但 tool call 不同的请求属于独立调用。
@@ -51,7 +56,7 @@ Writer 中断或 child cleanup 状态不确定时，`RECOVER` 会返回 `require
 <a id="review-only-workflow"></a>
 ## 只读评审工作流
 
-Coordinator 的 `engineering_review` tool 使用独立的只读评审状态图：`REQUEST -> SNAPSHOT -> SCOPE_CLASSIFIED -> REVIEW_INVESTIGATION -> INDEPENDENT_REVIEW -> EVIDENCE_VALIDATION`，随后进入 `REVIEW_COMPLETE`、`PARTIAL` 或 `BLOCKED`。该工作流没有 Implementer 阶段，也不会改变开发任务状态图。
+Coordinator 的 `engineering_review` tool 使用独立的只读评审状态图：`REQUEST -> SNAPSHOT -> SCOPE_CLASSIFIED -> REVIEW_INVESTIGATION -> INDEPENDENT_REVIEW -> EVIDENCE_VALIDATION`，随后进入 `REVIEW_COMPLETE`、`PARTIAL`、`BLOCKED` 或 `BUDGET_EXHAUSTED`。该工作流没有 Implementer 阶段，也不会改变开发任务状态图。
 
 只读评审从持久化的 snapshot 和变更路径范围恢复。对已有 review task ID 使用不同 target 会报错。要求停机确认的 `BLOCKED` 评审只有在 `engineering_recover` 确认 child 已停止后才能恢复。[只读 Git 评审](review-only.zh.md)定义 target 格式、读取工具、结果证据和恢复路径。
 
@@ -73,7 +78,7 @@ Verification status 只能是 `PASS`、`FAIL`、`NOT_RUN` 或 `INCOMPLETE`。只
 
 Review decision 只能是 `ACCEPT`、`FIX_BOUNDED`、`REPLAN` 或 `BLOCKED`。`ACCEPT` 进入 `REVIEWED`。`FIX_BOUNDED` 与 verification failure 消耗同一个 bounded-fix counter。`BLOCKED` 要求 non-empty blocker。
 
-这些 decision 属于 Development task。独立的只读评审工作流返回 `REVIEW_COMPLETE`、`PARTIAL` 或 `BLOCKED`；它不能接受或修改 Development task。详见[只读 Git 评审](review-only.zh.md)。
+这些 decision 属于 Development task。独立的只读评审工作流返回 `REVIEW_COMPLETE`、`PARTIAL`、`BLOCKED` 或 `BUDGET_EXHAUSTED`；它不能接受或修改 Development task。详见[只读 Git 评审](review-only.zh.md)。
 
 <a id="acceptance"></a>
 ## Acceptance
@@ -106,6 +111,10 @@ CLI 在内部使用 executable argument array，不调用 platform shell。`veri
 中断的 artifact write 不会留下 partial final file，因为 replacement 使用 random sibling 和 atomic rename。在 artifact replacement 之后、state replacement 之前中断时，artifact 的 `taskRevision` 会领先 authoritative state；reader 会忽略它，直到成功 command 发布该 revision。corrupt 或 missing artifact 会 validation failure，且绝不成为 implicit default。
 
 如果 role child 的 dispose 无法确认 quiescence，role call 会以 `RoleQuiescenceError` 失败，并保留其 writer lease。`engineering_recover` 要求 `taskId` 和 `confirmedStopped`。只有在旧 agent 及其所有 command 确实停止后，才能设置 `confirmedStopped: true`；恢复随后释放 lease、进入 `REPLAN`，并清除运行计数器与 verification checkpoint。恢复成功前，新的 `engineering_run` 或直接 implementation 都无法开始。task 没有 active writer 且没有不确定工作时，如果不要求停机确认，则传入 `false`。
+
+Development 的 `BUDGET_EXHAUSTED` 本身不表示存在 active writer 或不确定 child。提高 deployment 或项目限制后，调用 `engineering_recover` 并传入 `confirmedStopped: false`，使任务进入 `REPLAN`。恢复会重置 run journal 计数，但保留 `.agent/tasks/<task-id>/LIFECYCLE.json` 和仍有效的 Development Scout 检查点。下一次 `engineering_run` 会使用提高后的限制和原有累计 ledger。
+
+Review-only 中，`engineering_review` 返回 `status: BUDGET_EXHAUSTED`，不带 `nextAction`。提高限制后，使用相同 review task ID 调用 `engineering_recover` 并传入 `confirmedStopped: false`，然后使用原始 target selector 调用 `engineering_review`。恢复会保留固定的 Git snapshot、有效的已完成 Scout 检查点和 `.agent/reviews/<task-id>/LIFECYCLE.json` ledger。Review 状态会回到 `REVIEW_INVESTIGATION`；更改 target selector 仍会报错。
 
 ## 延伸阅读
 

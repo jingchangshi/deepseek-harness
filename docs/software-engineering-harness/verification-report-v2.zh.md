@@ -4,7 +4,7 @@
 
 ## 概述
 
-本报告按[验收矩阵](acceptance-matrix-v2.zh.md)记录已执行的证据。结果仅适用于所列测试路径和命令。Phase 0 和 Phase 1 均为 `PASS`；Phase 2–4 为 `NOT_RUN`。
+本报告按[验收矩阵](acceptance-matrix-v2.zh.md)记录已执行的证据。结果仅适用于所列测试路径和命令。Phase 0–2 均为 `PASS`；Phase 2 推送仍待完成；Phase 3–4 为 `NOT_RUN`。
 
 ## Phase 0 证据
 
@@ -40,7 +40,8 @@
 | Package hygiene | PARTIAL：16 项 gate 中 15 项通过；一项失败已在基线复现。 |
 | 独立实现评审 | APPROVE。 |
 | 提交与推送确认 | PASS：目标 remote 分支与阶段提交一致。 |
-| Phase 2–4 验证 | NOT_RUN |
+| Phase 2 验收 | PASS：实现证据与最终 `doc-sync` 均已完成。推送仍待完成。 |
+| Phase 3–4 验证 | NOT_RUN |
 
 原始私有 Session ZIP 文件因读取返回 `PermissionError` 而不可用。fixture 根据已记录行为编写，不声称复现原始 Session 字节。配置的 worker route 不可用，因此测试设计和实现使用了实际可用的 `gpt-6-luna` 与 `gpt-6.1-sol` 模型。本文不声称有在线 provider、benchmark、token 成本或定价证据。
 
@@ -62,4 +63,22 @@
 | 推送前 typecheck | PASS。 | Phase 1 推送前检查。 |
 | Phase 1 提交和推送 | PASS；已在配置的目标 remote 分支确认推送的准确提交。 | Phase 1 交付记录。 |
 
-首次 reviewer RED 尝试在模块导入时失败，没有执行测试，因此不构成行为证据。上表分别记录了有效 RED 运行和后续 GREEN 结果。Phase 2–4 验证仍为 `NOT_RUN`。
+首次 reviewer RED 尝试在模块导入时失败，没有执行测试，因此不构成行为证据。上表分别记录了有效 RED 运行和后续 GREEN 结果。下方记录 Phase 2 证据；Phase 3–4 仍为 `NOT_RUN`。
+
+## Phase 2 证据
+
+| 证据 | 结果 | 一手依据 |
+|---|---|---|
+| 独立源码评审 | 最终结论为 APPROVE。评审者核验了六个文件中的 52 个测试，并在独立重跑排序回归、检查并发证据后批准同步准入排序修正。 | `/tmp/dsh-goal-1008/phase2-review-verdict.txt` |
+| 定向实现覆盖 | 六个文件中的 52 个唯一测试均通过并经独立核验，覆盖 provider dispatch 观察、累计生命周期限制、检查点恢复、Review-only 复用、调查检查及运行时预算。 | `packages/llm/llm/tests/dispatch-observation.spec.ts`；`tools/agent/tests/lifecycle-budget.spec.ts`；`tools/agent/tests/investigation-checkpoints.spec.ts`；`tools/agent/tests/review-checkpoints.spec.ts`；`tools/agent/tests/runtime-inspection.spec.ts`；`tools/agent/tests/runtime-budgets.spec.ts`；`/tmp/dsh-goal-1008/phase2-acceptance-final.txt`；`/tmp/dsh-goal-1008/phase2-final-review-regressions-green.txt` |
+| 既有回归 | 集成后 64 个 automatic 测试及 99 个 repository/schema 测试通过。 | `/tmp/dsh-goal-1008/phase2-automatic-regression-final.txt`；`/tmp/dsh-goal-1008/phase2-repository-schema-regression.txt` |
+| Runtime 和 fixture 回归 | 13 个 runtime mutation 与 migration 测试通过。最终修改后的真实 adapter 销毁检查通过。 | `/tmp/dsh-goal-1008/phase2-mutation-migration-green.txt`；`/tmp/dsh-goal-1008/phase2-runtime-lifetime-final-green.txt` |
+| 快照回放 | Engineering Harness 按顺序启动 Scout 的回放通过。 | `/tmp/dsh-goal-1008/phase2-snapshot-ordered-replay.txt` |
+| RED 证据 | 初始恢复 RED：1 项失败；生命周期 ledger 评审 RED：7 项失败、12 项通过；检查点回执验证 RED：1 项失败。之后，四个安全用例在隔离的修复前控制副本中失败。这些运行验证了用例，不代表最终源码失败。导入失败或无关超时不计作行为证据。 | `/tmp/dsh-goal-1008/phase2-recovery-red.txt`；`/tmp/dsh-goal-1008/phase2-ledger-review-red.txt`；`/tmp/dsh-goal-1008/phase2-checkpoints-red.txt`；`/tmp/dsh-goal-1008/phase2-final-review-negative-red.txt` |
+| 初次文档总检查 | 42 项 gate 中 37 项通过。五项失败包括两个过期的生成目录/图、过期的持久化清单，以及并行编辑文档时的双语代码块配对失败。 | `/tmp/dsh-goal-1008/phase2-doc-sync.txt` |
+| 最终文档总检查 | PASS：42 项 gate 全部通过，0 项失败、0 项跳过。 | `/tmp/dsh-goal-1008/phase2-doc-sync-final.txt` |
+| 同步准入排序 | 修正后的确定性回归测试通过。隔离的反序控制按预期失败；评审者也检查了现有并发通过结果，并批准最终修改。 | `/tmp/dsh-goal-1008/phase2-scout-start-order-latched-green.txt`；`/tmp/dsh-goal-1008/phase2-scout-start-order-latched-negative-red.txt`；`/tmp/dsh-goal-1008/phase2-review-verdict.txt` |
+| Provider 成本证据 | NOT_RUN。Provider 定价尚未核验；成本仍未知，未定价请求会使 `maxKnownCostUsd` 关闭后续请求，因此它不是支出上限。 | `/tmp/dsh-goal-1008/provider-availability.json` |
+| Phase 2 验收与交付 | 验收 PASS。推送仍为 PENDING。 | 本报告；`/tmp/dsh-goal-1008/phase2-doc-sync-final.txt`；`/tmp/dsh-goal-1008/phase2-review-verdict.txt` |
+
+Phase 2 验收为 PASS，最终文档总检查和评审均已通过。推送仍待完成。

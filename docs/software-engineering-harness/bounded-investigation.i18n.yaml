@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for bounded-investigation.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/bounded-investigation.md
+/bounded-investigation-and-lifecycle-budgets:
+  en: 559ffd905272d85c
+  zh: bfbed3be509f164c
+/bounded-investigation-and-lifecycle-budgets/summary:
+  en: 2d3989eecae1ebbb
+  zh: e077c9892bcb42e9
+/bounded-investigation-and-lifecycle-budgets/table-of-contents:
+  en: d3527a439cf4be7a
+  zh: 70fc966f3e2ec421
+/bounded-investigation-and-lifecycle-budgets/deployment-limits:
+  en: 5875953606399b86
+  zh: 5127ac699f54d33f
+/bounded-investigation-and-lifecycle-budgets/investigation-units:
+  en: ef91b5fe9f6ac859
+  zh: c27ea64fc9b9a93b
+/bounded-investigation-and-lifecycle-budgets/checkpoints-and-reuse:
+  en: 5ec518b0f9fd798b
+  zh: 98f8ab863d9fab24
+/bounded-investigation-and-lifecycle-budgets/budget-exhaustion-and-recovery:
+  en: e042ab94fe78e818
+  zh: 1bb9deafa48d3c22
+/bounded-investigation-and-lifecycle-budgets/further-exploration:
+  en: 2f62062199ffc8c8
+  zh: 2c8b41406dcab027

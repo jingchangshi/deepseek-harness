@@ -18,6 +18,7 @@ Each task has immutable metadata, one revisioned state record, and schema-valida
 - [Acceptance](#acceptance)
 - [CLI](#cli)
 - [Recovery](#recovery)
+- [Bounded investigation](bounded-investigation.md)
 
 -----
 
@@ -44,6 +45,10 @@ IMPLEMENTING -> VERIFYING -> VERIFIED -> REVIEWING -> REVIEWED -> ACCEPTED
 
 `engineering_run` returns `nextAction` with its status. `WAIT_FOR_CURRENT_RUN` means another run owns this repository; no additional task, role, writer, or command starts. `RECOVER` forbids an unchanged repeat and requires operator stop confirmation before `engineering_recover` only when `requiresStopConfirmation` is `true`. A `false` value means owned work already reached quiescence, so recovery proceeds without that confirmation. `REPLAN_WITH_SCOPE` requires missing product information rather than a mechanical retry. A verified plan with an acceptance-blocking assumption enters `BLOCKED` with this action and no stop confirmation; supplying changed scope to the same task explicitly replans it. Repeated calls naming a `BLOCKED` task return its blocker without dispatch. `NONE` accompanies terminal acceptance.
 
+For Development, a task in `BUDGET_EXHAUSTED` returns `nextAction: INCREASE_BUDGET` from `engineering_run`. Increase the applicable deployment or project limit before recovery. The durable lifecycle ledger keeps its counters across recovery and replanning, so raising a limit does not erase prior usage. [Bounded investigation and lifecycle budgets](bounded-investigation.md) defines the limits and checkpoint reuse rules.
+
+Review-only returns `status: BUDGET_EXHAUSTED` without a `nextAction` field. Increase the limit before recovery, call `engineering_recover` with the same review task ID and `confirmedStopped: false`, then call `engineering_review` with the original target selector. A changed selector is rejected for that task ID.
+
 An interrupted writer or uncertain child cleanup requires `RECOVER` with `requiresStopConfirmation: true`. Durable state can retain an `IMPLEMENTING` writer even after the model call returns. Do not dispatch another task while any task holds a writer or records uncertain termination.
 
 Replay identity uses the durable Session ID, tool call ID, logged call sequence, and canonical repository path, not request text. The sequence distinguishes later model calls that reuse an ID; direct API callers without a logged sequence must supply a stable distinct call ID themselves. Runtime-owned receipts under `.dsh/engineering/.runtime/invocations/` record the invocation claim before effects, then its selected task and completed result. Concurrent replay joins the in-process operation; completed replay returns the recorded result. An unfinished durable claim after process loss requires explicit recovery rather than starting another workflow. A new tool call with identical text is a distinct invocation.
@@ -51,7 +56,7 @@ Replay identity uses the durable Session ID, tool call ID, logged call sequence,
 <a id="review-only-workflow"></a>
 ## Review-only workflow
 
-The Coordinator's `engineering_review` tool follows a separate review-only state graph: `REQUEST -> SNAPSHOT -> SCOPE_CLASSIFIED -> REVIEW_INVESTIGATION -> INDEPENDENT_REVIEW -> EVIDENCE_VALIDATION`, then `REVIEW_COMPLETE`, `PARTIAL`, or `BLOCKED`. This workflow has no Implementer stage and never changes the development task state graph.
+The Coordinator's `engineering_review` tool follows a separate review-only state graph: `REQUEST -> SNAPSHOT -> SCOPE_CLASSIFIED -> REVIEW_INVESTIGATION -> INDEPENDENT_REVIEW -> EVIDENCE_VALIDATION`, then `REVIEW_COMPLETE`, `PARTIAL`, `BLOCKED`, or `BUDGET_EXHAUSTED`. This workflow has no Implementer stage and never changes the development task state graph.
 
 Review-only progress resumes from the persisted snapshot and changed-path scope. Reusing a review task ID with a different target is an error. A `BLOCKED` review that requires stopped-work confirmation resumes only after `engineering_recover` confirms the child stopped. [Review-only Git review](review-only.md) defines the target forms, read tools, result evidence, and recovery path.
 
@@ -73,7 +78,7 @@ Verification status is exactly `PASS`, `FAIL`, `NOT_RUN`, or `INCOMPLETE`. Only 
 
 Review decisions are exactly `ACCEPT`, `FIX_BOUNDED`, `REPLAN`, or `BLOCKED`. `ACCEPT` enters `REVIEWED`. `FIX_BOUNDED` consumes the same bounded-fix counter as verification failure. `BLOCKED` requires a non-empty blocker.
 
-These decisions belong to Development tasks. The separate Review-only workflow returns `REVIEW_COMPLETE`, `PARTIAL`, or `BLOCKED`; it cannot accept or change a Development task. See [Review-only Git review](review-only.md).
+These decisions belong to Development tasks. The separate Review-only workflow returns `REVIEW_COMPLETE`, `PARTIAL`, `BLOCKED`, or `BUDGET_EXHAUSTED`; it cannot accept or change a Development task. See [Review-only Git review](review-only.md).
 
 <a id="acceptance"></a>
 ## Acceptance
@@ -106,6 +111,10 @@ The CLI uses executable argument arrays internally and does not invoke a platfor
 An interrupted artifact write leaves no partial final file because replacement uses a random sibling and atomic rename. An interruption after artifact replacement but before state replacement leaves the artifact's `taskRevision` ahead of authoritative state; readers ignore it until a successful command publishes that revision. Corrupt or missing artifacts fail validation and never become implicit defaults.
 
 If role-child disposal cannot confirm quiescence, the role call fails as `RoleQuiescenceError` and its writer lease remains active. `engineering_recover` requires `taskId` and `confirmedStopped`. Set `confirmedStopped: true` only after the previous agent and all its command work have actually stopped; recovery then releases the lease, enters `REPLAN`, and clears run counters and verification checkpoints. A fresh `engineering_run` or direct implementation remains blocked until recovery succeeds. For a task with no active writer and no uncertain work, pass `false` when stop confirmation is not required.
+
+For Development, `BUDGET_EXHAUSTED` has no active writer or uncertain child by itself. Raise the deployment or project limit, then call `engineering_recover` with `confirmedStopped: false` to enter `REPLAN`. Recovery resets the run journal counters, but it preserves `.agent/tasks/<task-id>/LIFECYCLE.json` and valid Development Scout checkpoints. The next `engineering_run` uses the increased limit and the same cumulative ledger.
+
+For Review-only, `engineering_review` returns `status: BUDGET_EXHAUSTED` without `nextAction`. Raise the limit, call `engineering_recover` with the same review task ID and `confirmedStopped: false`, then call `engineering_review` with the original target selector. Recovery preserves the pinned Git snapshot, valid completed Scout checkpoints, and `.agent/reviews/<task-id>/LIFECYCLE.json` ledger. The review state returns to `REVIEW_INVESTIGATION`; a changed target selector remains an error.
 
 ## Further Exploration
 

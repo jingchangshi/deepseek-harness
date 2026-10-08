@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/engineering-lifecycle-budgets/guide.md
+/:
+  en: 99b099e427bb1364
+  zh: e010d3a4ffd43009
+/engineering-lifecycle-budgets:
+  en: 83ba50132c489937
+  zh: 42ac15358fde733b
+/engineering-lifecycle-budgets/change:
+  en: 1a316c5bf3c8455d
+  zh: 14bcd571a568abd4
+/engineering-lifecycle-budgets/migration:
+  en: 5106b07302a65a5b
+  zh: b97c61bc373d288b

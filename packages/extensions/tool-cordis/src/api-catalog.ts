@@ -4157,6 +4157,22 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [],
   },
   {
+    name: 'llm/post-dispatch',
+    mode: 'serial',
+    signature: '\'llm/post-dispatch\'(record: LlmPostDispatch): void | Promise<void>',
+    summary: 'Observe one adapter stream after its iterator has closed.',
+    description: 'Observe one adapter stream after its iterator has closed.',
+    parameters: [{ name: 'record', description: 'readonly dispatch facts, latest usage, and outcome.' }],
+  },
+  {
+    name: 'llm/pre-dispatch',
+    mode: 'serial',
+    signature: '\'llm/pre-dispatch\'(record: LlmPreDispatch): void | Promise<void>',
+    summary: 'Admit one final adapter stream dispatch.',
+    description: 'Admit one final adapter stream dispatch. A rejection prevents the adapter call and propagates as a plugin failure.',
+    parameters: [{ name: 'record', description: 'readonly final projected request record and dispatch identity.' }],
+  },
+  {
     name: 'llm/stream',
     mode: 'waterfall',
     signature: '\'llm/stream\'(this: LlmRuntime, options: GenerateOptions, next: () => AsyncIterable<StreamChunk>): AsyncIterable<StreamChunk>',
@@ -5681,6 +5697,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface LlmDiscoveredModel {\n    id: string;\n    name?: string;\n    contextWindow?: number;\n    maxTokens?: number;\n    inputModalities?: readonly ModelModality[];\n}',
   },
   {
+    name: 'LlmDispatchOutcome',
+    declaration: 'export type LlmDispatchOutcome = \'SUCCESS\' | \'FAILED\' | \'ABORTED\' | \'INTERRUPTED\';',
+  },
+  {
     name: 'LlmFailure',
     declaration: 'export interface LlmFailure {\n    readonly message: string;\n    readonly code: string;\n    readonly status?: number;\n    readonly providerRetryAfterMs?: number;\n    readonly requestId?: ProviderRequestId;\n    readonly offloadImages?: number;\n}',
   },
@@ -5709,12 +5729,24 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface LlmModelReasoningInfo {\n    efforts: readonly LlmReasoningEffortInfo[];\n    defaultEffort?: ReasoningEffortId;\n}',
   },
   {
+    name: 'LlmPostDispatch',
+    declaration: 'export interface LlmPostDispatch extends LlmPreDispatch {\n    readonly endedAt: string;\n    readonly usage?: Readonly<TokenUsage>;\n    readonly outcome: LlmDispatchOutcome;\n}',
+  },
+  {
+    name: 'LlmPreDispatch',
+    declaration: 'export interface LlmPreDispatch {\n    readonly requestId: LlmRequestId;\n    readonly options: Readonly<GenerateOptions>;\n    readonly startedAt: string;\n}',
+  },
+  {
     name: 'LlmProviderInfo',
     declaration: 'export interface LlmProviderInfo {\n    id: string;\n    name: string;\n}',
   },
   {
     name: 'LlmReasoningEffortInfo',
     declaration: 'export interface LlmReasoningEffortInfo {\n    id: ReasoningEffortId;\n    name: string;\n    description?: string;\n}',
+  },
+  {
+    name: 'LlmRequestId',
+    declaration: 'export type LlmRequestId = Branded<\'LlmRequestId\'>;',
   },
   {
     name: 'LlmResolvedModelInfo',

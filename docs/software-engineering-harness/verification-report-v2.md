@@ -4,7 +4,7 @@ English | [中文](verification-report-v2.zh.md)
 
 ## Summary
 
-This report records executed evidence for the [acceptance matrix](acceptance-matrix-v2.md). Results apply only to the named test paths and commands. Phases 0 and 1 are `PASS`; Phases 2–4 are `NOT_RUN`.
+This report records executed evidence for the [acceptance matrix](acceptance-matrix-v2.md). Results apply only to the named test paths and commands. Phases 0–2 are `PASS`; Phase 2 push remains pending; Phases 3–4 are `NOT_RUN`.
 
 ## Phase 0 evidence
 
@@ -40,7 +40,8 @@ This report records executed evidence for the [acceptance matrix](acceptance-mat
 | Package hygiene | PARTIAL: 15/16 gates; one reproduced baseline failure. |
 | Independent implementation review | APPROVE. |
 | Commit and push confirmation | PASS: target remote branch matches the phase commit. |
-| Phases 2–4 verification | NOT_RUN |
+| Phase 2 acceptance | PASS: implementation evidence and final `doc-sync` are complete. Push remains pending. |
+| Phases 3–4 verification | NOT_RUN |
 
 Original private Session ZIP files were unreadable because access returned `PermissionError`. Fixtures use the documented behavior; they do not claim to reproduce original Session bytes. The configured worker route was unavailable, so the actual test-design and implementation routes used supported `gpt-6-luna` and `gpt-6.1-sol` models. No live provider, benchmark, token-cost, or pricing evidence is claimed.
 
@@ -62,4 +63,22 @@ Original private Session ZIP files were unreadable because access returned `Perm
 | Pre-push typecheck | PASS. | Phase 1 pre-push check. |
 | Phase 1 commit and push | PASS; the exact pushed commit was confirmed on the configured target remote branch. | Phase 1 delivery record. |
 
-The first reviewer-only RED attempt failed during module import and ran no tests. It is not behavioral evidence. The meaningful RED run and later GREEN results are reported separately above. Phases 2–4 verification remains `NOT_RUN`.
+The first reviewer-only RED attempt failed during module import and ran no tests. It is not behavioral evidence. The meaningful RED run and later GREEN results are reported separately above. Phase 2 evidence follows; Phases 3–4 remain `NOT_RUN`.
+
+## Phase 2 evidence
+
+| Evidence | Result | Primary reference |
+|---|---|---|
+| Independent source review | Final verdict: APPROVE. The reviewer verified 52 tests across six files and approved the synchronous admission-ordering follow-up after independently rerunning its regression and reviewing concurrency evidence. | `/tmp/dsh-goal-1008/phase2-review-verdict.txt` |
+| Focused implementation coverage | 52 unique independently verified tests passed across six files, including provider dispatch observation, cumulative lifecycle limits, checkpoint recovery, Review-only reuse, investigation inspection, and runtime budgets. | `packages/llm/llm/tests/dispatch-observation.spec.ts`; `tools/agent/tests/lifecycle-budget.spec.ts`; `tools/agent/tests/investigation-checkpoints.spec.ts`; `tools/agent/tests/review-checkpoints.spec.ts`; `tools/agent/tests/runtime-inspection.spec.ts`; `tools/agent/tests/runtime-budgets.spec.ts`; `/tmp/dsh-goal-1008/phase2-acceptance-final.txt`; `/tmp/dsh-goal-1008/phase2-final-review-regressions-green.txt` |
+| Existing regressions | 64 automatic tests and 99 repository/schema tests passed after integration. | `/tmp/dsh-goal-1008/phase2-automatic-regression-final.txt`; `/tmp/dsh-goal-1008/phase2-repository-schema-regression.txt` |
+| Runtime and fixture regressions | 13 runtime mutation and migration tests passed. The actual adapter disposal check passed after final changes. | `/tmp/dsh-goal-1008/phase2-mutation-migration-green.txt`; `/tmp/dsh-goal-1008/phase2-runtime-lifetime-final-green.txt` |
+| Snapshot replay | The Engineering Harness replay passed with ordered Scout starts. | `/tmp/dsh-goal-1008/phase2-snapshot-ordered-replay.txt` |
+| RED evidence | Initial recovery RED: 1 failure; lifecycle-ledger review RED: 7 failures and 12 passes; checkpoint receipt-validation RED: 1 failure. A later isolated pre-fix control copy had four safety-case failures. These validate the cases and are not failures of the final source. No failed import or unrelated timeout is counted as behavioral evidence. | `/tmp/dsh-goal-1008/phase2-recovery-red.txt`; `/tmp/dsh-goal-1008/phase2-ledger-review-red.txt`; `/tmp/dsh-goal-1008/phase2-checkpoints-red.txt`; `/tmp/dsh-goal-1008/phase2-final-review-negative-red.txt` |
+| Initial documentation aggregate | 37 of 42 gates passed. The five failures were two stale generated catalog/graph outputs, stale persistence inventories, and bilingual code-block pairing during concurrent documentation edits. | `/tmp/dsh-goal-1008/phase2-doc-sync.txt` |
+| Final documentation aggregate | PASS: all 42 gates passed, with 0 failures and 0 skipped. | `/tmp/dsh-goal-1008/phase2-doc-sync-final.txt` |
+| Synchronous admission ordering | The corrected deterministic regression passed. An isolated reversed-order control failed as expected; the reviewer also checked the existing concurrency pass and approved the final change. | `/tmp/dsh-goal-1008/phase2-scout-start-order-latched-green.txt`; `/tmp/dsh-goal-1008/phase2-scout-start-order-latched-negative-red.txt`; `/tmp/dsh-goal-1008/phase2-review-verdict.txt` |
+| Provider cost evidence | NOT_RUN. Provider pricing is unverified; cost remains unknown, and `maxKnownCostUsd` fails closed after an unpriced request rather than acting as a spend cap. | `/tmp/dsh-goal-1008/provider-availability.json` |
+| Phase 2 acceptance and delivery | Acceptance PASS. Push remains PENDING. | This report; `/tmp/dsh-goal-1008/phase2-doc-sync-final.txt`; `/tmp/dsh-goal-1008/phase2-review-verdict.txt` |
+
+Phase 2 acceptance is PASS with the final documentation aggregate and reviewer approval. Push remains pending.
