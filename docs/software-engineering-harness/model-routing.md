@@ -12,6 +12,8 @@ The installed profiles also install a generated copy of the Web bundle's standar
 
 ## Validation
 
+Each role can declare `routeReasoningEfforts` keyed by exact route ID when another route supports different effort levels. The selected mapping overrides that role's `reasoningEffort`; every declared route and effort is validated at load. For example, the Implementer template selects `high` on `architecture` while retaining `max` on its worker route. Writer capability diagnosis uses the Architect execution role and preserves the writer's explicit route effort. An unsupported effort prevents dispatch.
+
 `loadHarnessConfig` rejects unknown providers, unknown routes, unsupported reasoning levels, duplicate tool names, unauthorized premium routes, a second writable role, changed depth or concurrency limits, and a default-enabled arbiter. It also rejects more than two fallbacks, a fallback equal to the primary route, and candidates that repeat a provider/model pair. Each candidate must support the role's effort and premium authorization. Routes sharing one provider and model must declare identical reasoning mappings; conflicting mappings fail configuration validation. `resolveRoleRoute` returns the exact route recorded by smoke diagnostics.
 
 ## Adaptive scheduling and capability routes

@@ -12,6 +12,8 @@
 
 ## 验证
 
+当另一条路由支持不同的推理等级时，角色可用准确路由 ID 作为键声明 `routeReasoningEfforts`。选中的映射覆盖该角色的 `reasoningEffort`；加载时会验证每个声明的路由与等级。例如，Implementer 模板在 `architecture` 上选择 `high`，在 worker 路由上保留 `max`。Writer 能力诊断使用 Architect 执行角色，并保留 writer 显式配置的路由推理等级。不支持的等级会阻止派发。
+
 `loadHarnessConfig` 拒绝未知 provider、未知路由、不支持的 reasoning 等级、重复工具名、未授权的高成本路由、第二个可写角色、被改变的深度或并发限制，以及默认启用的 arbiter。它还拒绝多于两个 fallback、与主路由相同的 fallback，以及重复 provider/model 组合的候选。每个候选都必须支持角色的 effort 并具备高成本路由授权。共用同一个 provider 和模型的路由必须声明相同的 reasoning 映射；有冲突的映射会在配置验证时失败。`resolveRoleRoute` 返回 smoke 诊断记录的精确路由。
 
 ## 自适应调度和能力路由

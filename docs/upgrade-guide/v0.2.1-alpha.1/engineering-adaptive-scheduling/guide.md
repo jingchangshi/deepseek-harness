@@ -13,6 +13,8 @@ Engineering profiles now classify Development tasks and select role stages from 
 
 Role models now return an object-rooted `response` envelope with either a complete `success` output or an `escalate` request. Capability escalation uses separate deployment routes and durable `SCHEDULING.json` state. A writer diagnosis always requires a new frozen plan, including when the model recommends `REPAIR_WITHIN_PLAN`.
 
+When a selected route cannot support the role's default reasoning effort, declare `roles.<role>.routeReasoningEfforts.<routeId>` explicitly in deployment `roles.yaml`. For the supplied Implementer and architecture routes, use `implementer.routeReasoningEfforts.architecture: high`. The loader rejects unknown routes and unsupported efforts before dispatch. Installation preserves existing files, so add this mapping to existing deployments that use the stronger route.
+
 ## Migration
 
 1. In `<DSH_HOME>/engineering/.agent/config/workflow.yaml`, add the top-level `simpleMaxFiles`, `standardMaxFiles`, `maxCapabilityEscalations`, and `repairEscalationThreshold` settings. Defaults are 3, 12, 2, and 2.

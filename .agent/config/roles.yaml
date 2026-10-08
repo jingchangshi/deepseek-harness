@@ -48,6 +48,8 @@ roles:
     fallbackRoutes:
       - worker-fallback
     reasoningEffort: max
+    routeReasoningEfforts:
+      architecture: high
     maxTokens: 32000
     allowPremium: true
     toolName: run_implementer

@@ -1,7 +1,7 @@
 /** Production-backed direct role adapter for benchmark strategies A, B and C. */
 
 import { createHash } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import Ajv from 'ajv'
 import { assertObjectJsonSchema, type JsonSchemaNode, type ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
@@ -11,6 +11,8 @@ import { FileTaskLifecycle } from './lifecycle.ts'
 import type { TaskLifecycle } from './lifecycle.ts'
 import { roleResponseSchema, unwrapRoleResponse } from './role-response.ts'
 import { CapabilityInsufficientError, RoleQuiescenceError, RoleInvocationError } from './role-execution.ts'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+import { REVIEW_OUTPUT_SCHEMA, validateEngineeringReviewEvidence } from './review-only.ts'
 import type { EngineeringRole, RoleExecutor, RoleInvocation } from './automatic.ts'
 import type { EngineeringBenchmarkCase, EngineeringStageReceipt, EngineeringRunEvidence, EngineeringStrategyId, EngineeringBenchmarkRunContext, ProductionBenchmarkRoleInvoker } from './benchmark.ts'
 import { createGitSnapshot, GitEvidenceRepository } from './git-evidence.ts'
@@ -46,6 +48,7 @@ export function createDirectEngineeringInvoker(options: {
     if (prior !== undefined) return prior
     const workflow = testCase.kind === 'review' ? 'review-only' : 'development'
     const taskId = `benchmark-${createHash('sha256').update(`${testCase.id}\0${root}`).digest('hex').slice(0, 24)}`
+    await mkdir(join(root, '.agent', workflow === 'development' ? 'tasks' : 'reviews', taskId), { recursive: true, mode: 0o700 })
     const lifecycle = new FileTaskLifecycle(root, taskId, workflow, options.limits ?? options.deployment.workflow.lifecycleBudget, () => new Date().toISOString(), 0, false)
     await lifecycle.initialize()
     const run: DirectRun = { lifecycle, taskId, workflow, started: false, confirmedStopped: true }
@@ -122,9 +125,9 @@ export function createDirectEngineeringInvoker(options: {
         bodyCalls += 1
       },
     }
-    const schema = await outputSchema(input.root, input.role)
+    const schema = await outputSchema(input.root, input.role, input.testCase.kind === 'review')
     const context = contexts.get(input.root) ?? {}
-    const reviewEvidence = input.role === 'reviewer'
+    const reviewEvidence = input.testCase.kind === 'review'
       ? new GitEvidenceRepository(await createGitSnapshot(input.root, options.reviewTarget(input.testCase)))
       : undefined
     const startedAt = new Date().toISOString()
@@ -142,11 +145,20 @@ export function createDirectEngineeringInvoker(options: {
       if (!schema.validate(result)) throw new RoleInvocationError(`benchmark ${input.role} returned invalid output: ${JSON.stringify(schema.validate.errors)}`, 'SCHEMA_INVALID', false)
       context[input.role] = result
       contexts.set(input.root, context)
-      await run.lifecycle.settleAttempt(attemptId, { startedAt, endedAt: new Date().toISOString(), outcome: 'SUCCESS' })
-      return { stage: input.stage, startedAt, endedAt: new Date().toISOString(), outcome: 'SUCCESS', requestIds }
+      if (input.testCase.kind === 'review' && reviewEvidence !== undefined && input.role === 'reviewer') {
+        const problems = await validateEngineeringReviewEvidence(result, reviewEvidence, controller.signal)
+        if (problems.length > 0) throw new RoleInvocationError(`benchmark review lacks complete evidence: ${problems.join('; ')}`, 'NON_FALLBACKABLE', false)
+        await persistReviewResult(input.root, run, result, reviewEvidence)
+      }
+      const outcome = input.testCase.kind !== 'review' && (input.role === 'challenger' || input.role === 'reviewer') && asRecord(result).decision !== 'ACCEPT' ? 'FAILED' : 'SUCCESS'
+      const endedAt = new Date().toISOString()
+      await run.lifecycle.settleAttempt(attemptId, { startedAt, endedAt, outcome })
+      return { stage: input.stage, startedAt, endedAt, outcome, requestIds }
     } catch (error) {
-      if (error instanceof RoleQuiescenceError) run.confirmedStopped = false
-      else await run.lifecycle.settleAttempt(attemptId, { startedAt, endedAt: new Date().toISOString(), outcome: error instanceof CapabilityInsufficientError ? 'CAPABILITY_INSUFFICIENT' : error instanceof RoleInvocationError && error.failureClass === 'NON_FALLBACKABLE' ? 'UNCERTAIN' : 'FAILED' })
+      if (error instanceof RoleQuiescenceError) {
+        run.confirmedStopped = false
+        await run.lifecycle.settleAttempt(attemptId, { startedAt, endedAt: new Date().toISOString(), outcome: 'UNCERTAIN' })
+      } else await run.lifecycle.settleAttempt(attemptId, { startedAt, endedAt: new Date().toISOString(), outcome: error instanceof CapabilityInsufficientError ? 'CAPABILITY_INSUFFICIENT' : 'FAILED' })
       throw error
     }
   }
@@ -163,9 +175,10 @@ export function createDirectEngineeringInvoker(options: {
   }
 }
 
-async function outputSchema(root: string, role: DirectRole): Promise<{ structured: ObjectJsonSchema; validation: Record<string, unknown>; validate: ReturnType<Ajv['compile']> }> {
+async function outputSchema(root: string, role: DirectRole, review: boolean): Promise<{ structured: ObjectJsonSchema; validation: Record<string, unknown>; validate: ReturnType<Ajv['compile']> }> {
   let validation: Record<string, unknown>
-  if (role === 'implementer') validation = { type: 'object', additionalProperties: false, properties: { summary: { type: 'string', minLength: 1 } }, required: ['summary'] }
+  if (review) validation = JSON.parse(JSON.stringify(REVIEW_OUTPUT_SCHEMA))
+  else if (role === 'implementer') validation = { type: 'object', additionalProperties: false, properties: { summary: { type: 'string', minLength: 1 } }, required: ['summary'] }
   else if (role === 'challenger') validation = { type: 'object', additionalProperties: false, properties: { summary: { type: 'string', minLength: 1 }, decision: { enum: ['ACCEPT', 'REVISE'] }, findings: { type: 'array', items: { type: 'string', minLength: 1 } } }, required: ['summary', 'decision', 'findings'] }
   else {
     const name = role === 'architect' ? 'plan' : role === 'reviewer' ? 'review' : 'investigation'
@@ -188,6 +201,26 @@ async function outputSchema(root: string, role: DirectRole): Promise<{ structure
 function asRecord(value: unknown): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('benchmark role schema must be an object')
   return Object.fromEntries(Object.entries(value))
+}
+
+async function persistReviewResult(root: string, run: DirectRun, output: unknown, evidence: GitEvidenceRepository): Promise<void> {
+  const result = asRecord(output)
+  const directory = join(root, '.agent', 'reviews', run.taskId)
+  await mkdir(directory, { recursive: true, mode: 0o700 })
+  const state = {
+    schemaVersion: 1, taskId: run.taskId, state: 'REVIEW_COMPLETE', revision: 1, workRevision: 0, fixAttempts: 0,
+    writer: null, updatedAt: new Date().toISOString(),
+  }
+  const document = {
+    schemaVersion: 1, revision: 1, status: 'REVIEW_COMPLETE', taskId: run.taskId,
+    snapshot: evidence.snapshot, state,
+    summary: typeof result.summary === 'string' ? result.summary : 'Review completed.',
+    findings: Array.isArray(result.findings) ? result.findings : [],
+    inspectedEvidenceIds: Array.isArray(result.inspectedEvidenceIds) ? result.inspectedEvidenceIds : [],
+    evidence: evidence.observedEvidence(),
+    unresolvedQuestions: Array.isArray(result.unresolvedQuestions) ? result.unresolvedQuestions : [],
+  }
+  await writeFileAtomic(join(directory, 'RESULT.json'), `${JSON.stringify(document, null, 2)}\n`, { mode: 0o600 })
 }
 
 function structuredSchema(value: unknown, definitions: Record<string, unknown>, path = 'schema'): JsonSchemaNode {

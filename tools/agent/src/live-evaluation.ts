@@ -22,6 +22,94 @@ export interface LiveEngineeringEvaluationReport {
   reportPath: string
 }
 
+/** Result of one live four strategy comparison dispatched by the Coordinator. */
+export interface LiveEngineeringComparisonReport {
+  mode: 'LIVE_PROVIDER'
+  caseId: 'pebble-mul' | 'mlir-pass' | 'review-overflow' | 'recovery-latch'
+  status: 'COMPLETED' | 'BLOCKED' | 'TIMEOUT'
+  diagnostic: string
+  reportPath: string | 'UNKNOWN'
+  stdoutLogPath: string
+  stderrLogPath: string
+}
+
+/** Run the supported-profile evaluation tool exactly once for the pinned Pebble case.
+ * @param options - source checkout, route overlay and process bound.
+ * @returns sanitized comparison report paths and process outcome.
+ */
+export async function runLiveEngineeringComparison(options: {
+  checkout: string
+  caseId?: LiveEngineeringComparisonReport['caseId']
+  deploymentRoot?: string
+  strongRouteId?: string
+  cheapRouteId?: string
+  env?: NodeJS.ProcessEnv
+  timeoutMs?: number
+  roleTimeoutMs?: number
+}): Promise<LiveEngineeringComparisonReport> {
+  if (process.platform === 'win32') throw new Error('live engineering evaluation requires a POSIX host')
+  const checkout = resolve(options.checkout)
+  const caseId = options.caseId ?? 'pebble-mul'
+  const roleTimeoutMs = options.roleTimeoutMs ?? 180_000
+  if (!Number.isSafeInteger(roleTimeoutMs) || roleTimeoutMs <= 0) throw new Error('roleTimeoutMs must be a positive integer')
+  const timeoutMs = options.timeoutMs ?? 600_000
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error('timeoutMs must be a positive integer')
+  const deploymentRoot = resolve(options.deploymentRoot ?? checkout)
+  const root = await mkdtemp(join(tmpdir(), 'dsh-live-comparison-'))
+  const repositoryRoot = join(root, 'repository')
+  const dshHome = join(root, 'home')
+  const binDirectory = join(root, 'bin')
+  const logRoot = join(tmpdir(), 'dsh-goal-1008')
+  await mkdir(repositoryRoot, { recursive: true })
+  await mkdir(logRoot, { recursive: true, mode: 0o700 })
+  let keepRoot = false
+  try {
+    await execa('git', ['init', '-q'], { cwd: repositoryRoot })
+    await writeFile(join(repositoryRoot, '.gitignore'), '.agent/\n.dsh/\n.agents/\n')
+    await execa('git', ['add', '.gitignore'], { cwd: repositoryRoot })
+    await execa('git', ['-c', 'user.name=EvaluationFixture', '-c', 'user.email=evaluation@example.invalid', 'commit', '-qm', 'Evaluation workspace seed'], { cwd: repositoryRoot })
+    await mkdir(join(repositoryRoot, '.agent/config'), { recursive: true })
+    await writeFile(join(repositoryRoot, '.agent/config/project.yaml'), `${JSON.stringify({ schemaVersion: 1, profile: 'compiler', adapter: '.agent/adapters/evaluation.yaml', dataClass: 'public', maxSteps: 12, maxRoleCalls: 12, commandTimeoutMs: 30_000 })}\n`)
+    await mkdir(join(repositoryRoot, '.agent/profiles'), { recursive: true })
+    await writeFile(join(repositoryRoot, '.agent/profiles/compiler.yaml'), `${JSON.stringify({ schemaVersion: 1, id: 'compiler', checks: [] })}\n`)
+    await mkdir(join(repositoryRoot, '.agent/adapters'), { recursive: true })
+    await writeFile(join(repositoryRoot, '.agent/adapters/evaluation.yaml'), 'runners: {}\ncommands: {}\n')
+    await mkdir(join(dshHome, 'engineering'), { recursive: true })
+    await cp(join(deploymentRoot, '.agent'), join(dshHome, 'engineering/.agent'), { recursive: true })
+    await installEngineeringProfiles({ checkout, home: dshHome, binDirectory, node: process.execPath })
+    const evaluationPatch = join(root, 'evaluation.patch.yml')
+    await writeFile(evaluationPatch, `${JSON.stringify([{ id: 'engineering-bootstrap', config: { deploymentRoot: resolve(dshHome, 'engineering'), roleTimeoutMs, evaluation: {
+      strongRouteId: options.strongRouteId ?? 'architecture',
+      cheapRouteId: options.cheapRouteId ?? 'worker',
+    } } }], null, 2)}\n`, { mode: 0o600 })
+    const env = { ...process.env, ...options.env, DSH_HOME: dshHome, DSH_AGENTS_HOME: join(repositoryRoot, '.agents'), DSH_TELEMETRY_DISABLED: '1' }
+    const redact = (text: string): string => Object.entries(env)
+      .filter(([name, value]) => /key|token|secret|credential|password/i.test(name) && value !== undefined && value.length >= 6)
+      .reduce((result, [, value]) => result.replaceAll(value!, '[REDACTED]'), text)
+    const run = await execa(join(binDirectory, 'dsh'), ['--profile', 'engineering-run', '--patch', evaluationPatch, `Evaluate immutable case ${caseId} exactly once using engineering_evaluate.`], {
+      cwd: repositoryRoot, env, timeout: timeoutMs, reject: false,
+    })
+    const prefix = `dsh-live-comparison-${process.pid}-${Date.now()}`
+    const stdoutLogPath = join(logRoot, `${prefix}.stdout.log`)
+    const stderrLogPath = join(logRoot, `${prefix}.stderr.log`)
+    await writeFile(stdoutLogPath, redact(run.stdout), { mode: 0o600 })
+    await writeFile(stderrLogPath, redact(run.stderr), { mode: 0o600 })
+    const combined = `${run.stdout}\n${run.stderr}`
+    const match = combined.match(/\/tmp\/dsh-engineering-comparison-[A-Za-z0-9-]+\.json/)
+    if (run.timedOut) keepRoot = true
+    const result: LiveEngineeringComparisonReport = {
+      mode: 'LIVE_PROVIDER', caseId, status: run.timedOut ? 'TIMEOUT' : run.exitCode === 0 ? 'COMPLETED' : 'BLOCKED',
+      diagnostic: run.timedOut ? 'CLI_TIMEOUT' : run.exitCode === 0 ? 'CLI_EXITED' : `CLI_EXIT_${String(run.exitCode ?? 'UNKNOWN')}`,
+      reportPath: match?.[0] ?? 'UNKNOWN', stdoutLogPath, stderrLogPath,
+    }
+    const reportPath = join(logRoot, `${prefix}.json`)
+    await writeFile(reportPath, `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 })
+    return { ...result, reportPath: match?.[0] ?? reportPath }
+  } finally {
+    if (!keepRoot) await rm(root, { recursive: true, force: true })
+  }
+}
+
 /** Run a single capped task with the installed engineering-run profile and report durable usage.
  * @param options - source checkout, user deployment, optional environment and timeout.
  * @returns sanitized task result and the path to its JSON report.

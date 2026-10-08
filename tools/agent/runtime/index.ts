@@ -235,6 +235,7 @@ export async function collectRole(run: SubagentRun, role: EngineeringRole, provi
  * @param config - shared deployment configuration and role deadline.
  */
 async function applyDeployment(ctx: Context, config: Config, deployment: HarnessConfig, adapterAccounting?: { cacheOmission: 'zero'; inputAccounting: 'exclusive' }): Promise<void> {
+  if (config.evaluation !== undefined && (config.evaluation.strongRouteId === undefined) !== (config.evaluation.cheapRouteId === undefined)) throw new Error('Evaluation requires both strong and cheap route IDs')
   const shutdown = new AbortController()
   const running = new Set<Promise<unknown>>()
   const availableTools = new WeakMap<Agent, string[]>()

@@ -13,6 +13,8 @@ description: 工程 profile 新增自适应 task 策略、能力升级路由和�
 
 角色模型现在返回以 `response` 为根对象的 envelope，其中包含完整的 `success` 输出或 `escalate` 请求。能力升级使用独立部署路由和持久化 `SCHEDULING.json` 状态。Writer 诊断始终要求新的冻结 plan，即使模型建议 `REPAIR_WITHIN_PLAN` 也一样。
 
+当选中的路由不支持角色的默认推理等级时，在部署 `roles.yaml` 中显式声明 `roles.<role>.routeReasoningEfforts.<routeId>`。对模板中的 Implementer 和 architecture 路由，设置 `implementer.routeReasoningEfforts.architecture: high`。加载器会在派发前拒绝未知路由和不支持的等级。安装会保留现有文件，因此使用更强路由的已有部署需要添加此映射。
+
 ## 迁移
 
 1. 在 `<DSH_HOME>/engineering/.agent/config/workflow.yaml` 中添加顶层设置 `simpleMaxFiles`、`standardMaxFiles`、`maxCapabilityEscalations` 和 `repairEscalationThreshold`。默认值分别为 3、12、2 和 2。

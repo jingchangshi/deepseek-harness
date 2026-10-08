@@ -56,6 +56,8 @@ export interface ModelRouteConfig {
 export interface RoleConfig {
   route: string
   reasoningEffort: string
+  /** Optional per-route reasoning efforts for fallback and escalation routes. */
+  routeReasoningEfforts?: Readonly<Record<string, string>>
   maxTokens: number
   personaFile: string
   writable: boolean
@@ -335,7 +337,20 @@ export async function loadHarnessConfig(
     const routeConfig = routes[route]
     if (routeConfig === undefined) throw new Error(`roles.roles.${id}.route references unknown route ${route}`)
     const effort = deploymentValue(value.reasoningEffort, `roles.roles.${id}.reasoningEffort`, env, required)
-    if (routeConfig.reasoningEfforts[effort] === undefined) throw new Error(`role ${id} requests unsupported reasoning effort ${effort}`)
+    const routeReasoningEfforts: Record<string, string> = {}
+    if (value.routeReasoningEfforts !== undefined) {
+      for (const [routeId, rawEffort] of Object.entries(record(value.routeReasoningEfforts, `roles.roles.${id}.routeReasoningEfforts`))) {
+        if (routes[routeId] === undefined) throw new Error(`role ${id} routeReasoningEfforts references unknown route ${routeId}`)
+        routeReasoningEfforts[routeId] = deploymentValue(rawEffort, `roles.roles.${id}.routeReasoningEfforts.${routeId}`, env, required)
+        if (routes[routeId].reasoningEfforts[routeReasoningEfforts[routeId]] === undefined) throw new Error(`role ${id} route ${routeId} requests unsupported reasoning effort ${routeReasoningEfforts[routeId]}`)
+      }
+    }
+    const effortFor = (routeId: string, candidate: ModelRouteConfig): string => {
+      const selected = routeReasoningEfforts[routeId] ?? effort
+      if (candidate.reasoningEfforts[selected] === undefined) throw new Error(`role ${id} route ${routeId} requests unsupported reasoning effort ${selected}`)
+      return selected
+    }
+    effortFor(route, routeConfig)
     const toolName = value.toolName === undefined ? undefined : string(value.toolName, `roles.roles.${id}.toolName`)
     if (id !== 'coordinator' && toolName === undefined) throw new Error(`role ${id} requires a fixed toolName`)
     if (toolName !== undefined && toolNames.has(toolName)) throw new Error(`duplicate role toolName ${toolName}`)
@@ -362,7 +377,7 @@ export async function loadHarnessConfig(
       if (models.has(fallbackConfig.model)) throw new Error(`role ${id} fallback routes must use distinct providers or models`)
       models.add(fallbackConfig.model)
       fallbackModels.set(fallbackConfig.provider, models)
-      if (fallbackConfig.reasoningEfforts[effort] === undefined) throw new Error(`role ${id} fallback route ${fallback} does not support reasoning effort ${effort}`)
+      effortFor(fallback, fallbackConfig)
       if (fallbackConfig.costClass === 'premium' && !allowPremium) throw new Error(`role ${id} must explicitly allow its premium fallback route ${fallback}`)
     }
     const baseCapability = Math.max(routeConfig.capabilityLevel, ...fallbackRoutes.map(id => routes[id]?.capabilityLevel ?? 0))
@@ -386,7 +401,7 @@ export async function loadHarnessConfig(
       const candidate = routes[routeId]
       if (candidate === undefined) throw new Error(`roles.roles.${id}.escalationRoutes references unknown route ${routeId}`)
       if (candidate.capabilityLevel <= baseCapability) throw new Error(`role ${id} escalation route ${routeId} must increase capability above its primary and fallback routes`)
-      const escalationEffort = writable ? architectReasoningEffort : effort
+      const escalationEffort = routeReasoningEfforts[routeId] ?? (writable ? architectReasoningEffort : effort)
       if (candidate.reasoningEfforts[escalationEffort] === undefined) throw new Error(`role ${id} escalation route ${routeId} does not support reasoning effort ${escalationEffort}`)
       if (candidate.costClass === 'premium' && !allowPremium) throw new Error(`role ${id} must explicitly allow its premium escalation route ${routeId}`)
     })
@@ -395,13 +410,14 @@ export async function loadHarnessConfig(
       const candidate = routes[routeId]
       if (candidate === undefined) throw new Error(`roles.roles.${id}.escalationFallbackRoutes references unknown route ${routeId}`)
       if (candidate.capabilityLevel <= escalationFloor) throw new Error(`role ${id} escalation fallback route ${routeId} must remain above its escalation routes`)
-      const escalationEffort = writable ? architectReasoningEffort : effort
+      const escalationEffort = routeReasoningEfforts[routeId] ?? (writable ? architectReasoningEffort : effort)
       if (candidate.reasoningEfforts[escalationEffort] === undefined) throw new Error(`role ${id} escalation fallback route ${routeId} does not support reasoning effort ${escalationEffort}`)
       if (candidate.costClass === 'premium' && !allowPremium) throw new Error(`role ${id} must explicitly allow its premium escalation fallback route ${routeId}`)
     }
     roles[id] = {
       route,
       reasoningEffort: effort,
+      ...(Object.keys(routeReasoningEfforts).length === 0 ? {} : { routeReasoningEfforts }),
       maxTokens: positiveInteger(value.maxTokens, `roles.roles.${id}.maxTokens`),
       personaFile: string(value.personaFile, `roles.roles.${id}.personaFile`),
       writable,
@@ -506,6 +522,8 @@ export async function loadHarnessConfig(
  * @returns immutable dispatch fields for the fixed role tool over the requested route.
  */
 function resolvedRoleRoute(role: string, roleConfig: RoleConfig, routeId: string, route: ModelRouteConfig): ResolvedRoleRoute {
+  const selectedEffort = roleConfig.routeReasoningEfforts?.[routeId] ?? roleConfig.reasoningEffort
+  if (route.reasoningEfforts[selectedEffort] === undefined) throw new Error(`role ${role} route ${routeId} does not support reasoning effort ${selectedEffort}`)
   return {
     ...(route.pricing === undefined ? {} : { pricing: route.pricing }),
     ...(route.cacheOmission === undefined ? {} : { cacheOmission: route.cacheOmission }),
@@ -516,7 +534,7 @@ function resolvedRoleRoute(role: string, roleConfig: RoleConfig, routeId: string
     ...roleConfig.toolName === undefined ? {} : { toolName: roleConfig.toolName },
     provider: route.provider,
     model: route.model,
-    reasoningEffort: route.reasoningEfforts[roleConfig.reasoningEffort] === null ? 'off' : roleConfig.reasoningEffort,
+    reasoningEffort: route.reasoningEfforts[selectedEffort] === null ? 'off' : selectedEffort,
     maxTokens: roleConfig.maxTokens,
     writable: roleConfig.writable,
     externalRelay: route.externalRelay,
@@ -578,13 +596,20 @@ export function resolveRoleEscalations(
   const failedRoute = config.routes[failedRouteId]
   if (failedRoute === undefined) throw new Error(`unknown failed route ${failedRouteId}`)
   const executionRole = roleConfig.writable ? 'architect' : role
+  const resolveEscalation = (routeId: string): ResolvedRoleRoute => {
+    const resolved = resolveRoleByRoute(config, executionRole, routeId)
+    const selected = roleConfig.routeReasoningEfforts?.[routeId]
+    if (selected === undefined) return resolved
+    const route = config.routes[routeId]!
+    return { ...resolved, reasoningEffort: route.reasoningEfforts[selected] === null ? 'off' : selected }
+  }
   const candidates = roleConfig.escalationRoutes
     .filter(routeId => (config.routes[routeId]?.capabilityLevel ?? -1) > failedRoute.capabilityLevel)
-    .map(routeId => resolveRoleByRoute(config, executionRole, routeId))
+    .map(resolveEscalation)
   const floor = failedRoute.capabilityLevel
   const fallbackCandidates = roleConfig.escalationFallbackRoutes
     .filter(routeId => (config.routes[routeId]?.capabilityLevel ?? -1) > floor)
-    .map(routeId => resolveRoleByRoute(config, executionRole, routeId))
+    .map(resolveEscalation)
   return { candidates, fallbackCandidates }
 }
 

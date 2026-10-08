@@ -109,6 +109,7 @@ export async function engineeringEvaluationOracle(testCase: EngineeringBenchmark
 
 /** Verify the first implementation before any workflow repair stage runs. */
 export async function engineeringFirstImplementationOracle(testCase: EngineeringBenchmarkCase, cwd: string): Promise<boolean> {
+  if (testCase.kind === 'review') return reviewSourceVerification(testCase, cwd)
   return (await engineeringEvaluationOracle(testCase, cwd, [])).accepted
 }
 
@@ -139,14 +140,19 @@ export async function prepareEngineeringEvaluationRepository(testCase: Engineeri
         ? { executable, args: ['-e', `import('node:fs').then(fs=>{if(fs.readFileSync(${JSON.stringify(join(cwd, 'answer.txt'))},'utf8')!=='42\\n')process.exit(2)})`] }
         : { executable, args: ['-e', 'process.exit(0)'] }
   await writeFile(join(cwd, '.agent/adapters/evaluation.yaml'), dump({
-    runners: { node: { kind: 'local', workingDirectory: '.' } },
-    commands: { evaluation: { runner: 'node', executable: command.executable, args: command.args, terminationTimeoutMs: 5_000, outputLimitBytes: 8192 } },
+    adapters: { evaluation: {
+      executable: command.executable,
+      args: command.args,
+      terminationTimeoutMs: 30_000,
+    } },
   }))
 }
 
 async function runCommandOracle(testCase: EngineeringBenchmarkCase, cwd: string, command: string): Promise<EngineeringOracleResult> {
   const result = spawnSync(process.execPath, [command, cwd], { cwd, encoding: 'utf8' })
-  return { accepted: result.status === 0, evidence: { command, exitCode: result.status, stderr: result.stderr, caseDigest: testCase.sourceDigest } }
+  const changed = await changedPaths(cwd, testCase.seedSha)
+  const outOfScope = changed.filter(path => !(testCase.allowedPaths as readonly string[]).includes(path))
+  return { accepted: result.status === 0 && outOfScope.length === 0, evidence: { command, exitCode: result.status, stderr: result.stderr, caseDigest: testCase.sourceDigest, changed, outOfScope } }
 }
 
 async function runMlirOracle(testCase: EngineeringBenchmarkCase, cwd: string): Promise<EngineeringOracleResult> {
@@ -160,10 +166,25 @@ async function runMlirOracle(testCase: EngineeringBenchmarkCase, cwd: string): P
 }
 
 async function sourceOracle(testCase: EngineeringBenchmarkCase, cwd: string, path: string, expected: string): Promise<EngineeringOracleResult> {
-  const changed = await git(cwd, ['status', '--porcelain', '--untracked-files=all']).then(value => value.split('\n').filter(Boolean).map(line => line.slice(3)))
+  const changed = await changedPaths(cwd, testCase.seedSha)
   const outOfScope = changed.filter(value => !(testCase.allowedPaths as readonly string[]).includes(value))
   const actual = await readFile(join(cwd, path), 'utf8').catch(() => '')
   return { accepted: outOfScope.length === 0 && actual === expected, evidence: { path, expected, changed, outOfScope } }
+}
+
+async function changedPaths(cwd: string, seedSha?: string): Promise<string[]> {
+  const status = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd, encoding: 'utf8' })
+  const working = status.split('\n').filter(Boolean).map(line => line.slice(3).trim())
+  const fromSeed = seedSha === undefined ? '' : await git(cwd, ['diff', '--name-only', seedSha, 'HEAD'])
+  return [...new Set([...working, ...fromSeed.split('\n').filter(Boolean)])].sort()
+}
+
+async function reviewSourceVerification(testCase: EngineeringBenchmarkCase, cwd: string): Promise<boolean> {
+  const cleanSha = Reflect.get(testCase, 'cleanControlSha')
+  if (typeof cleanSha !== 'string') return false
+  const bad = execFileSync('git', ['show', `${testCase.seedSha}:add.mjs`], { cwd, encoding: 'utf8' })
+  const clean = execFileSync('git', ['show', `${cleanSha}:add.mjs`], { cwd, encoding: 'utf8' })
+  return await additionResult(bad, 2147483647, 1) === -2147483648 && await additionResult(clean, 2147483647, 1) === 2147483648
 }
 
 async function reviewResultOracle(testCase: EngineeringBenchmarkCase, cwd: string): Promise<EngineeringOracleResult> {
@@ -171,6 +192,7 @@ async function reviewResultOracle(testCase: EngineeringBenchmarkCase, cwd: strin
   const reports = await Promise.all(dirs.map(async id => readFile(join(cwd, '.agent/reviews', id, 'RESULT.json'), 'utf8').then(JSON.parse).catch(() => undefined)))
   const report = reports.find(value => typeof value === 'object' && value !== null && Array.isArray(Reflect.get(value, 'findings')))
   if (report === undefined) return { accepted: false, evidence: { reason: 'No durable review result' } }
+  if (Reflect.get(report, 'status') !== 'REVIEW_COMPLETE') return { accepted: false, evidence: { reason: 'Review is not durably complete' } }
   const targetCommit = testCase.seedSha
   const snapshot = Reflect.get(report, 'snapshot')
   const snapshotTarget = typeof snapshot === 'object' && snapshot !== null ? Reflect.get(snapshot, 'targetCommit') : undefined
@@ -184,11 +206,30 @@ async function reviewResultOracle(testCase: EngineeringBenchmarkCase, cwd: strin
     cleanControlVerified = cleanFile.status === 0 && await additionResult(cleanFile.stdout, 2147483647, 1) === 2147483648
   }
   const findings: unknown[] = Reflect.get(report, 'findings')
+  const evidence: unknown[] = Array.isArray(Reflect.get(report, 'evidence')) ? Reflect.get(report, 'evidence') : []
+  const inspectedIds = Array.isArray(Reflect.get(report, 'inspectedEvidenceIds')) ? Reflect.get(report, 'inspectedEvidenceIds') as unknown[] : []
+  const evidenceById = new Map(evidence.flatMap(item => {
+    if (typeof item !== 'object' || item === null || typeof Reflect.get(item, 'id') !== 'string') return []
+    return [[Reflect.get(item, 'id') as string, item] as const]
+  }))
   const accepted = snapshotTarget === targetCommit && pinnedBugVerified && cleanControlVerified && findings.some(item => typeof item === 'object' && item !== null
     && Reflect.get(item, 'path') === 'add.mjs' && Reflect.get(item, 'commit') === targetCommit
     && Reflect.get(item, 'startLine') === 2 && Reflect.get(item, 'endLine') === 2
-    && String(Reflect.get(item, 'failureCondition')).includes('2147483647') && String(Reflect.get(item, 'failureCondition')).includes('1'))
-  return { accepted, evidence: { targetCommit, snapshotTarget, pinnedBugVerified, cleanControlVerified, trigger: 'add(2147483647, 1) must return 2147483648', findingCount: findings.length } }
+    && String(Reflect.get(item, 'failureCondition')).includes('2147483647') && String(Reflect.get(item, 'failureCondition')).includes('1')
+    && Array.isArray(Reflect.get(item, 'evidenceIds')) && (Reflect.get(item, 'evidenceIds') as unknown[]).length > 0
+    && (Reflect.get(item, 'evidenceIds') as unknown[]).every(id => {
+      if (typeof id !== 'string') return false
+      const receipt = evidenceById.get(id)
+      return typeof receipt === 'object' && receipt !== null
+        && Reflect.get(receipt, 'path') === 'add.mjs' && Reflect.get(receipt, 'commit') === targetCommit
+        && inspectedIds.includes(id)
+    })
+    && evidence.some(receipt => typeof receipt === 'object' && receipt !== null && Reflect.get(receipt, 'operation') === 'show'
+      && Reflect.get(receipt, 'path') === 'add.mjs' && Reflect.get(receipt, 'commit') === targetCommit
+      && Number(Reflect.get(receipt, 'startLine')) <= 2 && Number(Reflect.get(receipt, 'endLine')) >= 2)
+    && evidence.some(receipt => typeof receipt === 'object' && receipt !== null && Reflect.get(receipt, 'operation') === 'diff'
+      && Reflect.get(receipt, 'path') === 'add.mjs' && Reflect.get(receipt, 'commit') === targetCommit))
+  return { accepted, evidence: { targetCommit, snapshotTarget, pinnedBugVerified, cleanControlVerified, trigger: 'add(2147483647, 1) must return 2147483648', findingCount: findings.length, evidenceCount: evidence.length } }
 }
 
 async function additionResult(source: string, left: number, right: number): Promise<number | undefined> {

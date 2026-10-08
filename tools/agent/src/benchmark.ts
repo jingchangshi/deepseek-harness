@@ -5,14 +5,13 @@ import { execFileSync } from 'node:child_process'
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { runEngineeringTask, type RoleExecutor } from './automatic.ts'
+import { runEngineeringTask, recoverEngineeringTask, getEngineeringStatus, type RoleExecutor } from './automatic.ts'
 import type { HarnessConfig } from './config.ts'
 import { runEngineeringReview } from './review-only.ts'
 import type { GitReviewTarget } from './git-evidence.ts'
 import type { TaskUsageReport } from './usage.ts'
 import { TaskRepository } from './repository.ts'
 import { RoleQuiescenceError } from './role-execution.ts'
-import { TaskSchedulingRepository } from './scheduling.ts'
 
 /** Strategies supported by the evaluation harness. */
 export type EngineeringStrategyId = 'A_STRONG' | 'B_CHEAP' | 'C_FIXED' | 'D_ADAPTIVE'
@@ -190,7 +189,8 @@ export async function runEngineeringBenchmark(options: {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         oracle = { accepted: false, evidence: { error: message } }
-        evidence = { confirmedStopped: !executionStarted || executorSettled && !(error instanceof RoleQuiescenceError) }
+        const reported = await options.executor.report?.(id, testCase, runRoot, receipts, runContext).catch(() => undefined)
+        evidence = reported ?? { confirmedStopped: !executionStarted || executorSettled && !(error instanceof RoleQuiescenceError) }
         status = error instanceof RoleQuiescenceError ? 'UNCERTAIN' : /budget/i.test(message) ? 'BUDGET_EXHAUSTED' : 'BLOCKED'
       }
       const elapsed = now() - started
@@ -371,6 +371,7 @@ export function createProductionEngineeringBindings(options: {
         for (const stage of stages) {
           receipts.push(await options.direct.invokeFixedStage({ stage, request: testCase.request, root: cwd, readOnly: review || stage !== 'IMPLEMENTER', testCase }))
           if (!review && stage === 'IMPLEMENTER') directFirstPass.set(cwd, await options.firstImplementationOracle(testCase, cwd).catch(() => 'UNKNOWN'))
+          if (receipts.at(-1)?.outcome !== 'SUCCESS') break
         }
         return receipts
       }
@@ -391,6 +392,10 @@ export function createProductionEngineeringBindings(options: {
           return output
         } catch (error) {
           if (error instanceof RoleQuiescenceError) confirmedStopped = false
+          if (!checkedFirstImplementation && invocation.role === 'implementer') {
+            checkedFirstImplementation = true
+            firstPass = await options.firstImplementationOracle(testCase, cwd).catch(() => 'UNKNOWN')
+          }
           roleReceipts.push({ stage: stageForRole(invocation.role), startedAt, endedAt: new Date().toISOString(), outcome: 'FAILED', requestIds: [] })
           throw error
         }
@@ -404,7 +409,18 @@ export function createProductionEngineeringBindings(options: {
         })
         return roleReceipts
       }
-      const result = await runEngineeringTask({ root: cwd, deployment: options.deployment, request: testCase.request, executeRole: tracedExecutor })
+      const runTask = () => runEngineeringTask({ root: cwd, deployment: options.deployment, request: testCase.request, executeRole: tracedExecutor })
+      let result: Awaited<ReturnType<typeof runEngineeringTask>>
+      try {
+        result = await runTask()
+      } catch (error) {
+        const tasks = (await getEngineeringStatus(cwd)).tasks
+        const taskId = tasks.length === 1 ? tasks[0]!.task.id : undefined
+        if (taskId !== undefined) durableRuns.set(cwd, { taskId, workflow: 'development', confirmedStopped, firstImplementationPass: firstPass, workflowStatus: confirmedStopped ? 'BLOCKED' : 'UNCERTAIN' })
+        if (testCase.id !== 'recovery-latch' || !confirmedStopped || taskId === undefined) throw error
+        await recoverEngineeringTask(cwd, taskId, true)
+        result = await runEngineeringTask({ root: cwd, deployment: options.deployment, taskId, request: '', executeRole: tracedExecutor })
+      }
       confirmedStopped = confirmedStopped && !result.requiresStopConfirmation
       durableRuns.set(cwd, {
         taskId: result.taskId, workflow: 'development', confirmedStopped,
@@ -419,31 +435,47 @@ export function createProductionEngineeringBindings(options: {
       const repository = new TaskRepository(cwd)
       const lifecycle = await repository.lifecycle(run.taskId, run.workflow, options.deployment.workflow.lifecycleBudget)
       const usageReport = await lifecycle.usageReport()
-      const attempts = await routeAttemptRecords(cwd, run.taskId, run.workflow)
-      const schedule = await new TaskSchedulingRepository(cwd, run.taskId, run.workflow, { maxEscalations: options.deployment.workflow.maxCapabilityEscalations }).read()
+      const attempts = await routeAttemptRecords(cwd, run.taskId, run.workflow, usageReport)
       return {
         ...run, usageReport,
-        fallbackCount: attempts.filter(attempt => attempt.mode === 'FALLBACK').length,
-        escalationCount: Math.max(attempts.filter(attempt => attempt.mode === 'ESCALATE').length, schedule.escalations.filter(item => item.status === 'COMPLETE').length),
+        ...(attempts === undefined ? {} : { fallbackCount: attempts.filter(attempt => attempt.mode === 'FALLBACK').length,
+          escalationCount: attempts.filter(attempt => attempt.mode === 'ESCALATE').length }),
       }
     },
   }
 }
 
-async function routeAttemptRecords(root: string, taskId: string, workflow: 'development' | 'review-only'): Promise<Array<{ mode?: string }>> {
+async function routeAttemptRecords(root: string, taskId: string, workflow: 'development' | 'review-only', usageReport: TaskUsageReport): Promise<Array<{ mode: string }> | undefined> {
   const directory = join(root, '.agent', workflow === 'development' ? 'tasks' : 'reviews', taskId)
   const names = await readdir(directory)
   const files = names.filter(name => /^ROUTE_ATTEMPTS\..+\.jsonl$/u.test(name))
-  const records: Array<{ mode?: string }> = []
+  if (files.length === 0) return undefined
+  const records: Array<{ mode: string }> = []
+  const expected = new Map<string, number>()
+  if (usageReport.unattributedHistory || usageReport.attempts.length !== usageReport.counts.physicalAttempts) return undefined
+  for (const attempt of usageReport.attempts) {
+    if (attempt.startedAt === undefined || attempt.endedAt === undefined) return undefined
+    const identity = JSON.stringify([attempt.role, attempt.provider, attempt.model, attempt.routeId, attempt.startedAt, attempt.endedAt])
+    expected.set(identity, (expected.get(identity) ?? 0) + 1)
+  }
   for (const name of files) {
     const content = await readFile(join(directory, name), 'utf8')
     for (const line of content.split('\n')) {
       if (line.trim() === '') continue
-      const value: unknown = JSON.parse(line)
-      if (typeof value === 'object' && value !== null && 'mode' in value && typeof value.mode === 'string') records.push({ mode: value.mode })
+      let value: unknown
+      try { value = JSON.parse(line) }
+      catch (error) { return undefined } // An incomplete audit cannot establish route counts.
+      if (typeof value !== 'object' || value === null || !('mode' in value) || typeof value.mode !== 'string' || !['PRIMARY', 'FALLBACK', 'ESCALATE'].includes(value.mode)) return undefined
+      const fields = ['role', 'provider', 'model', 'routeId', 'startedAt', 'endedAt'].map(field => Reflect.get(value, field))
+      if (!fields.every(field => typeof field === 'string')) return undefined
+      const identity = JSON.stringify(fields)
+      const remaining = expected.get(identity) ?? 0
+      if (remaining === 0) return undefined
+      expected.set(identity, remaining - 1)
+      records.push({ mode: value.mode })
     }
   }
-  return records
+  return [...expected.values()].every(count => count === 0) ? records : undefined
 }
 
 function stageForRole(role: string): EngineeringStageReceipt['stage'] {

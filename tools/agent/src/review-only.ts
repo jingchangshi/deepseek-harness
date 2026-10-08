@@ -231,6 +231,20 @@ function validateSemantics(output: ReviewOutput, snapshot: GitSnapshot, paths: r
   return [...new Set(problems)]
 }
 
+/** Validate a review against the model's observed receipts and the pinned changed source.
+ * @param value - schema-validated review output.
+ * @param evidence - receipts obtained by the reviewing role, excluding supervisor reads.
+ * @param signal - cancellation for independent Git validation.
+ * @returns evidence or semantic problems; an empty list permits completion.
+ */
+export async function validateEngineeringReviewEvidence(value: unknown, evidence: GitEvidenceRepository, signal: AbortSignal): Promise<string[]> {
+  const output = parseOutput(value)
+  const supervisor = new GitEvidenceRepository(evidence.snapshot)
+  const paths = await changedPaths(supervisor, signal)
+  const inspection = await inspectScope(supervisor, paths, signal)
+  return validateSemantics(output, evidence.snapshot, paths, evidence, inspection.changedLines, inspection.unsupported)
+}
+
 async function persistAttempts(root: string, taskId: string, role: EngineeringRole, records: RoleAttemptRecord[]): Promise<void> {
   if (records.length === 0) return
   const directory = join(root, '.agent', 'reviews', taskId)
