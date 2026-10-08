@@ -4,7 +4,7 @@ English | [中文](verification-report-v2.zh.md)
 
 ## Summary
 
-This report records executed evidence for the [acceptance matrix](acceptance-matrix-v2.md). Results apply only to the named test paths and commands. Phases 0–2 are `PASS`; Phase 2 push remains pending; Phases 3–4 are `NOT_RUN`.
+This report records executed evidence for the [acceptance matrix](acceptance-matrix-v2.md). Results apply only to the named test paths and commands. Phases 0–2 are accepted and pushed. Phase 3 is accepted and awaits delivery; Phase 4 is `NOT_RUN`.
 
 ## Phase 0 evidence
 
@@ -39,9 +39,9 @@ This report records executed evidence for the [acceptance matrix](acceptance-mat
 | Corpus `doc-sync` after adding these reports | PASS: latest 42 gates passed. |
 | Package hygiene | PARTIAL: 15/16 gates; one reproduced baseline failure. |
 | Independent implementation review | APPROVE. |
-| Commit and push confirmation | PASS: target remote branch matches the phase commit. |
-| Phase 2 acceptance | PASS: implementation evidence and final `doc-sync` are complete. Push remains pending. |
-| Phases 3–4 verification | NOT_RUN |
+| Phase 2 acceptance and push | PASS: accepted phase commit is confirmed on the target remote branch. |
+| Phase 3 final review and delivery | APPROVE; push pending. |
+| Phase 4 verification | NOT_RUN. |
 
 Original private Session ZIP files were unreadable because access returned `PermissionError`. Fixtures use the documented behavior; they do not claim to reproduce original Session bytes. The configured worker route was unavailable, so the actual test-design and implementation routes used supported `gpt-6-luna` and `gpt-6.1-sol` models. No live provider, benchmark, token-cost, or pricing evidence is claimed.
 
@@ -63,7 +63,7 @@ Original private Session ZIP files were unreadable because access returned `Perm
 | Pre-push typecheck | PASS. | Phase 1 pre-push check. |
 | Phase 1 commit and push | PASS; the exact pushed commit was confirmed on the configured target remote branch. | Phase 1 delivery record. |
 
-The first reviewer-only RED attempt failed during module import and ran no tests. It is not behavioral evidence. The meaningful RED run and later GREEN results are reported separately above. Phase 2 evidence follows; Phases 3–4 remain `NOT_RUN`.
+The first reviewer-only RED attempt failed during module import and ran no tests. It is not behavioral evidence. The meaningful RED run and later GREEN results are reported separately above. Phase 2 evidence follows; Phase 3 and Phase 4 evidence are recorded in their respective sections.
 
 ## Phase 2 evidence
 
@@ -79,6 +79,22 @@ The first reviewer-only RED attempt failed during module import and ran no tests
 | Final documentation aggregate | PASS: all 42 gates passed, with 0 failures and 0 skipped. | `/tmp/dsh-goal-1008/phase2-doc-sync-final.txt` |
 | Synchronous admission ordering | The corrected deterministic regression passed. An isolated reversed-order control failed as expected; the reviewer also checked the existing concurrency pass and approved the final change. | `/tmp/dsh-goal-1008/phase2-scout-start-order-latched-green.txt`; `/tmp/dsh-goal-1008/phase2-scout-start-order-latched-negative-red.txt`; `/tmp/dsh-goal-1008/phase2-review-verdict.txt` |
 | Provider cost evidence | NOT_RUN. Provider pricing is unverified; cost remains unknown, and `maxKnownCostUsd` fails closed after an unpriced request rather than acting as a spend cap. | `/tmp/dsh-goal-1008/provider-availability.json` |
-| Phase 2 acceptance and delivery | PASS. Commit `fef4e96a52aa7231eae84cc20cd37fbf6c4f97fa` was pushed to `ascendnpu-engineering-harness`; remote confirmation matches. | `/tmp/dsh-goal-1008/phase2-push.txt`; `/tmp/dsh-goal-1008/phase2-remote-confirmed.txt` |
+| Phase 2 acceptance and delivery | PASS. The accepted commit was pushed to `ascendnpu-engineering-harness`; remote confirmation matches. | `/tmp/dsh-goal-1008/phase2-push.txt`; `/tmp/dsh-goal-1008/phase2-remote-confirmed.txt` |
 
-Phase 2 acceptance and push are PASS. The target branch points to `fef4e96a52aa7231eae84cc20cd37fbf6c4f97fa`.
+Phase 2 acceptance and push are PASS.
+
+## Phase 3 evidence
+
+| Evidence | Result | Primary reference |
+|---|---|---|
+| Focused Phase 3 behavior tests | 59 tests passed across four independently maintained files. Earlier focused runs overlap and are not added to this count. | `/tmp/dsh-goal-1008/phase3-final-independent.txt`; `/tmp/dsh-goal-1008/phase3-diagnosis-durable-output.txt` |
+| Scheduling store regressions | 70 tests passed across three files. | `/tmp/dsh-goal-1008/phase3-store-regression.txt` |
+| Runtime regressions | 88 tests passed across three files. | `/tmp/dsh-goal-1008/phase3-runtime-regression.txt` |
+| Freeze checks | Three tests passed. | `/tmp/dsh-goal-1008/phase3-freeze-green.txt` |
+| Engineering Harness snapshot | One authored refresh and one replay passed. | `/tmp/dsh-goal-1008/phase3-snapshot-refresh.txt`; `/tmp/dsh-goal-1008/phase3-snapshot-replay.txt` |
+| Typecheck and scoped lint | PASS. | `/tmp/dsh-goal-1008/phase3-typecheck-final.txt`; `/tmp/dsh-goal-1008/phase3-lint.txt` |
+| RED evidence | Behavioral: adaptive scheduling had three failures and one pass before correction; capability dispatch had four failures before correction. The earlier ledger check had 15 failures because the new API was not yet present; those missing-API checks are separate from behavioral regressions. | `/tmp/dsh-goal-1008/phase3-adaptive-focused-red.txt`; `/tmp/dsh-goal-1008/phase3-capability-dispatch-red.txt`; `/tmp/dsh-goal-1008/phase3-scheduling-final-capability-red.txt` |
+| Design review | APPROVE. | `/tmp/dsh-goal-1008/phase3-interfaces.md`; Phase 3 design-review verdict. |
+| Independent source review | Final verdict: APPROVE. The reviewer checked code, crash regressions and final documentation evidence. | `/tmp/dsh-goal-1008/phase3-review-verdict.txt` |
+| Phase 3 acceptance | PASS; normal push pending. The final documentation aggregate passed all 42 gates, with no failures or skips. | `/tmp/dsh-goal-1008/phase3-doc-sync-final.txt`; Phase 3 delivery record. |
+| Phase 4 verification | NOT_RUN. | Not started. |

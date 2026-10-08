@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for adaptive-scheduling-v2.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/software-engineering-harness/adaptive-scheduling-v2.md
+/adaptive-development-scheduling-v2-design:
+  en: a059126b7802426a
+  zh: 4d3d4b80ee2d37aa
+/adaptive-development-scheduling-v2-design/summary:
+  en: c94f8591bc5c53b0
+  zh: 0508fdccdc9581a3
+/adaptive-development-scheduling-v2-design/table-of-contents:
+  en: 025121b96014b6c6
+  zh: ecf55fed4d5dc387
+/adaptive-development-scheduling-v2-design/classification-and-role-stages:
+  en: eb23ed2c420f3251
+  zh: 4a4e44c668bf9c92
+/adaptive-development-scheduling-v2-design/response-and-route-policy:
+  en: dedf65e432101d97
+  zh: 62257e29256acb92
+/adaptive-development-scheduling-v2-design/durable-escalation:
+  en: 2b95aa1222913436
+  zh: 7559157aa4ee01d7
+/adaptive-development-scheduling-v2-design/writer-diagnosis-and-crash-safety:
+  en: 296e11205206e19c
+  zh: 21249508ec6194af

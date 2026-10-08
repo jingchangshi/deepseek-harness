@@ -19,10 +19,12 @@ The main agent owns interfaces and acceptance. A read-only Scout investigates th
 | 0 | Tool registry dispatch metadata and runtime mutation observation | Authorized validated dispatch only; no unsafe writer fallback |
 | 1 | Typed Git evidence and separate Review-only task lifecycle | Immutable SHA, validated evidence, no Implementer or source writes |
 | 2 | Work units, durable checkpoints and task lifecycle budgets | Runtime bounds and cumulative recovery accounting |
-| 3 | Auditable task classification and capability escalation | Minimal sufficient roles, bounded independent escalation |
+| 3 | Auditable adaptive task classification, minimal role stages, and distinct capability escalation | Monotonic classification floor, finite durable escalation, and crash-safe writer diagnosis; required tests are listed in the [acceptance matrix](acceptance-matrix-v2.md) and [adaptive scheduling design](adaptive-scheduling-v2.md) |
 | 4 | Request usage ledger and reproducible benchmark runner | Deduplicated actual usage and independent E2E or explicit NOT_RUN |
 
 No phase begins production implementation before the preceding phase passes acceptance. Architecture review precedes Phase 0 implementation. Test creation may expose missing new capabilities; record these as capability RED rather than an existing regression. Production corrections must not edit independent test expectations to accept wrong behavior.
+
+Phase 3 implementation starts only after its frozen interfaces and independent RED tests are approved. The [adaptive scheduling design](adaptive-scheduling-v2.md) owns classification floors, success and escalation responses, durable escalation states, and writer-diagnosis crash ordering.
 
 ## Validation and delivery
 

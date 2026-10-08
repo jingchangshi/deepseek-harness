@@ -4,7 +4,7 @@
 
 ## 概述
 
-本报告按[验收矩阵](acceptance-matrix-v2.zh.md)记录已执行的证据。结果仅适用于所列测试路径和命令。Phase 0–2 均为 `PASS`；Phase 2 推送仍待完成；Phase 3–4 为 `NOT_RUN`。
+本报告记录[验收矩阵](acceptance-matrix-v2.zh.md)的已执行证据。结果仅适用于具名测试路径和命令。Phase 0–2 已验收并推送。Phase 3 已验收，等待交付；Phase 4 为 `NOT_RUN`。
 
 ## Phase 0 证据
 
@@ -39,9 +39,9 @@
 | 新增本报告后的全量 `doc-sync` | PASS：最新 42 项 gate 通过。 |
 | Package hygiene | PARTIAL：16 项 gate 中 15 项通过；一项失败已在基线复现。 |
 | 独立实现评审 | APPROVE。 |
-| 提交与推送确认 | PASS：目标 remote 分支与阶段提交一致。 |
-| Phase 2 验收 | PASS：实现证据与最终 `doc-sync` 均已完成。推送仍待完成。 |
-| Phase 3–4 验证 | NOT_RUN |
+| Phase 2 验收与推送 | PASS：已在目标 remote 分支确认已验收的阶段提交。 |
+| Phase 3 最终审查和交付 | APPROVE；等待推送。 |
+| Phase 4 验证 | NOT_RUN。 |
 
 原始私有 Session ZIP 文件因读取返回 `PermissionError` 而不可用。fixture 根据已记录行为编写，不声称复现原始 Session 字节。配置的 worker route 不可用，因此测试设计和实现使用了实际可用的 `gpt-6-luna` 与 `gpt-6.1-sol` 模型。本文不声称有在线 provider、benchmark、token 成本或定价证据。
 
@@ -63,7 +63,7 @@
 | 推送前 typecheck | PASS。 | Phase 1 推送前检查。 |
 | Phase 1 提交和推送 | PASS；已在配置的目标 remote 分支确认推送的准确提交。 | Phase 1 交付记录。 |
 
-首次 reviewer RED 尝试在模块导入时失败，没有执行测试，因此不构成行为证据。上表分别记录了有效 RED 运行和后续 GREEN 结果。下方记录 Phase 2 证据；Phase 3–4 仍为 `NOT_RUN`。
+首次 reviewer RED 尝试在模块导入时失败，没有执行测试，因此不构成行为证据。上表分别记录了有效 RED 运行和后续 GREEN 结果。下方记录 Phase 2 证据；Phase 3 和 Phase 4 的证据见对应章节。
 
 ## Phase 2 证据
 
@@ -79,6 +79,22 @@
 | 最终文档总检查 | PASS：42 项 gate 全部通过，0 项失败、0 项跳过。 | `/tmp/dsh-goal-1008/phase2-doc-sync-final.txt` |
 | 同步准入排序 | 修正后的确定性回归测试通过。隔离的反序控制按预期失败；评审者也检查了现有并发通过结果，并批准最终修改。 | `/tmp/dsh-goal-1008/phase2-scout-start-order-latched-green.txt`；`/tmp/dsh-goal-1008/phase2-scout-start-order-latched-negative-red.txt`；`/tmp/dsh-goal-1008/phase2-review-verdict.txt` |
 | Provider 成本证据 | NOT_RUN。Provider 定价尚未核验；成本仍未知，未定价请求会使 `maxKnownCostUsd` 关闭后续请求，因此它不是支出上限。 | `/tmp/dsh-goal-1008/provider-availability.json` |
-| Phase 2 验收与交付 | PASS。提交 `fef4e96a52aa7231eae84cc20cd37fbf6c4f97fa` 已推送到 `ascendnpu-engineering-harness`；远端确认一致。 | `/tmp/dsh-goal-1008/phase2-push.txt`；`/tmp/dsh-goal-1008/phase2-remote-confirmed.txt` |
+| Phase 2 验收与交付 | PASS。已验收的提交已推送到 `ascendnpu-engineering-harness`；远端确认一致。 | `/tmp/dsh-goal-1008/phase2-push.txt`；`/tmp/dsh-goal-1008/phase2-remote-confirmed.txt` |
 
-Phase 2 验收和推送均为 PASS。目标分支当前指向 `fef4e96a52aa7231eae84cc20cd37fbf6c4f97fa`。
+Phase 2 验收和推送均为 PASS。
+
+## Phase 3 证据
+
+| 证据 | 结果 | 一手依据 |
+|---|---|---|
+| Phase 3 定向行为测试 | 四个由独立测试设计者维护的文件共 59 个测试通过。此前定向运行有重叠，不计入累计数量。 | `/tmp/dsh-goal-1008/phase3-final-independent.txt`；`/tmp/dsh-goal-1008/phase3-diagnosis-durable-output.txt` |
+| Scheduling store 回归 | 三个文件中的 70 个测试通过。 | `/tmp/dsh-goal-1008/phase3-store-regression.txt` |
+| Runtime 回归 | 三个文件中的 88 个测试通过。 | `/tmp/dsh-goal-1008/phase3-runtime-regression.txt` |
+| Freeze 检查 | 三个测试通过。 | `/tmp/dsh-goal-1008/phase3-freeze-green.txt` |
+| Engineering Harness 快照 | 一次录制刷新和一次回放通过。 | `/tmp/dsh-goal-1008/phase3-snapshot-refresh.txt`；`/tmp/dsh-goal-1008/phase3-snapshot-replay.txt` |
+| Typecheck 和定向 lint | PASS。 | `/tmp/dsh-goal-1008/phase3-typecheck-final.txt`；`/tmp/dsh-goal-1008/phase3-lint.txt` |
+| RED 证据 | 行为回归：adaptive scheduling 修复前 3 项失败、1 项通过；capability dispatch 修复前 4 项失败。更早的 ledger 检查有 15 项失败，原因为新 API 尚不存在；这些缺少 API 的检查与行为回归分开记录。 | `/tmp/dsh-goal-1008/phase3-adaptive-focused-red.txt`；`/tmp/dsh-goal-1008/phase3-capability-dispatch-red.txt`；`/tmp/dsh-goal-1008/phase3-scheduling-final-capability-red.txt` |
+| 设计评审 | APPROVE。 | `/tmp/dsh-goal-1008/phase3-interfaces.md`；Phase 3 设计评审结论。 |
+| 独立源码审查 | 最终结论：APPROVE。Reviewer 检查了代码、崩溃回归和最终文档证据。 | `/tmp/dsh-goal-1008/phase3-review-verdict.txt` |
+| Phase 3 验收 | PASS；等待普通推送。最终文档汇总的 42 个 gate 全部通过，没有失败或跳过。 | `/tmp/dsh-goal-1008/phase3-doc-sync-final.txt`；Phase 3 交付记录。 |
+| Phase 4 验证 | NOT_RUN。 | 尚未开始。 |

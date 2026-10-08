@@ -4,7 +4,7 @@
 
 ## 概述
 
-本参考文档冻结[实现计划](implementation-plan-v2.zh.md)要求的行为。每一行都必须有主要证据才能判定 PASS。通过的 mock、smoke 或 schema validator 不能替代其他类别的证据。所有阶段目前都要求实现和验证。
+本参考文档冻结[实现计划](implementation-plan-v2.zh.md)要求的行为。每一行都必须有主要证据才能判定 PASS。通过的 mock、smoke 或 schema validator 不能替代其他类别的证据。Phase 3–4 仍需实现和验证。
 
 ## 需求追踪
 
@@ -33,10 +33,13 @@
 | P2-04 | Recover/replan 保留所有生命周期计数器 | 重复恢复和并发预留测试 |
 | P2-05 | 耗尽时停止调度且不会重复 writer | BUDGET_EXHAUSTED 和关停不确定性集成测试 |
 | P2-06 | 上下文包含相关增量，spill locator 错误可操作 | 有界 prompt capture 和无效 locator 诊断测试 |
-| P3-01 | Simple 省略 Scout；Standard 进行设计；Complex 评审风险 | 可复现的分类和 dispatch trace fixture |
-| P3-02 | Review-only 不能进入 Development | 状态转换和 role 准入拒绝 |
-| P3-03 | Provider fallback 与能力升级有区别 | 已分类失败/证据不足的 dispatch trace |
-| P3-04 | 重复失败和低预算会安全终止 | 有限升级及 mutation/quiescence 回归 |
+| P3-01 | Simple、Standard 和 Complex 选择最少充分阶段；Review-only 保留固定范围且不能进入 Development | 可复现的分类和 dispatch trace；拒绝 Review-only 准入测试（[自适应设计](adaptive-scheduling-v2.zh.md#classification-and-role-stages)） |
+| P3-02 | 同一 task 的范围和风险下限保持单调；只有有界的显式文件路径及完整条件才可归为 Simple | 恢复、策略变更、replan、dirty baseline 和越界写入测试（[分类与角色阶段](adaptive-scheduling-v2.zh.md#classification-and-role-stages)） |
+| P3-03 | 结构化角色输出区分完整成功和能力升级；升级断言不能成为回执或成功产物 | 有效/无效 envelope fixture，包括混合分支和伪造成功字段（[响应与路由策略](adaptive-scheduling-v2.zh.md#response-and-route-policy)） |
+| P3-04 | Provider FALLBACK 与更高能力的 ESCALATE 不同，并遵守正常路由策略 | Provider 失败与能力不足 trace；更强 route 的 fallback 能力必须高于失败 route（[响应与路由策略](adaptive-scheduling-v2.zh.md#response-and-route-policy)） |
+| P3-05 | 升级预留有上限、持久化、在每个 recovery epoch 内幂等；dispatch 状态或历史不确定时 fail closed | 覆盖账本每个状态的崩溃/恢复测试；不得重复 dispatch 或重置上限（[持久化升级](adaptive-scheduling-v2.zh.md#durable-escalation)） |
+| P3-06 | Writer 失败时须在 lease 持有期间持久化诊断义务；建议被持久化应用前，不得启动后续 writer | disposal/persist/release 顺序及 writer 准入中断测试（[Writer 诊断](adaptive-scheduling-v2.zh.md#writer-diagnosis-and-crash-safety)） |
+| P3-07 | 只读诊断期间源码保持稳定，修复/replan 建议绑定当前 plan 和 worktree | 源码指纹、受限修复、持久化 REPLAN 和 complete/apply 崩溃测试（[Writer 诊断](adaptive-scheduling-v2.zh.md#writer-diagnosis-and-crash-safety)） |
 | P4-01 | 实际 request 用量会持久化原始和标准化字段 | 单元测试/回放，以及可用时的在线 provider 集成 |
 | P4-02 | Retry、压缩、缓存和回放只计数一次 | 持久化 event/request identity fixture；保留未知用量 |
 | P4-03 | 缺少价格时为 UNKNOWN；重叠区间保留 task wall time | 价格版本/缓存和重叠区间 fixture |

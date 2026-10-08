@@ -4,7 +4,7 @@ English | [中文](acceptance-matrix-v2.zh.md)
 
 ## Summary
 
-This reference freezes required behavior for the [implementation plan](implementation-plan-v2.md). PASS requires primary evidence for every row in a phase. A passing mock, smoke or schema validator cannot substitute for a different evidence class. All phases currently require implementation and verification.
+This reference freezes required behavior for the [implementation plan](implementation-plan-v2.md). PASS requires primary evidence for every row in a phase. A passing mock, smoke or schema validator cannot substitute for a different evidence class. Phases 3–4 still require implementation and verification.
 
 ## Requirement traceability
 
@@ -33,10 +33,13 @@ This reference freezes required behavior for the [implementation plan](implement
 | P2-04 | Recover/replan preserves every lifecycle counter | Repeated recovery and concurrent reservation tests |
 | P2-05 | Exhaustion stops scheduling and cannot duplicate writer | BUDGET_EXHAUSTED and uncertain shutdown integration |
 | P2-06 | Context carries relevant deltas and spill locator errors are actionable | Bounded prompt capture and invalid locator diagnostic test |
-| P3-01 | Simple omits Scouts; Standard designs; Complex reviews risk | Reproducible classification and dispatch trace fixtures |
-| P3-02 | Review-only cannot enter Development | State transition and role admission rejection tests |
-| P3-03 | Provider fallback differs from capability escalation | Classified failure/evidence insufficiency dispatch traces |
-| P3-04 | Repeated failure and low budget terminate safely | Finite escalation and mutation/quiescence regression |
+| P3-01 | Simple, Standard and Complex choose minimal sufficient stages; Review-only retains its pinned scope and never enters Development | Reproducible class and dispatch traces; Review-only admission rejection ([adaptive design](adaptive-scheduling-v2.md#classification-and-role-stages)) |
+| P3-02 | Scope and risk floors are monotonic for one task; only bounded explicit file leaves with complete criteria may be Simple | Recovery, policy-change, replan, dirty-baseline and out-of-scope-write tests ([classification and role stages](adaptive-scheduling-v2.md#classification-and-role-stages)) |
+| P3-03 | Structured role output distinguishes complete success from capability escalation; escalation assertions cannot become receipts or successful artifacts | Valid/invalid envelope fixtures, including mixed branches and fabricated success fields ([response and route policy](adaptive-scheduling-v2.md#response-and-route-policy)) |
+| P3-04 | Provider FALLBACK remains distinct from higher-capability ESCALATE and follows normal route policy | Provider failure and capability insufficiency traces; stronger-route fallback remains above the failed capability ([response and route policy](adaptive-scheduling-v2.md#response-and-route-policy)) |
+| P3-05 | Escalation reservations are finite, durable, idempotent per recovery epoch, and fail closed on uncertain dispatch or missing history | Crash/recovery tests for every ledger state; no duplicate dispatch or limit reset ([durable escalation](adaptive-scheduling-v2.md#durable-escalation)) |
+| P3-06 | Writer failure persists a diagnosis obligation while its lease is held; no later writer starts until the recommendation is durably applied | Disposal/persist/release ordering and writer-admission interruption tests ([writer diagnosis](adaptive-scheduling-v2.md#writer-diagnosis-and-crash-safety)) |
+| P3-07 | Read-only diagnosis is source-stable and its repair/replan recommendation binds to the current plan and worktree | Source fingerprint, constrained repair, durable REPLAN, and complete/apply crash tests ([writer diagnosis](adaptive-scheduling-v2.md#writer-diagnosis-and-crash-safety)) |
 | P4-01 | Actual request usage persists raw and normalized fields | Unit/replay plus available live provider integration |
 | P4-02 | Retries, compaction, caching and replay count exactly once | Durable event/request identity fixtures; unknown usage preserved |
 | P4-03 | Missing pricing is UNKNOWN; overlap preserves task wall time | Rate-version/cache and overlapping interval fixtures |

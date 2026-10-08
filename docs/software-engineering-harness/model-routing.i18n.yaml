@@ -11,6 +11,9 @@
 /model-routing/validation:
   en: a81ccfa72d38d7cf
   zh: 5df7072ebd5e87bf
+/model-routing/adaptive-scheduling-and-capability-routes:
+  en: 20b2d8359e32aa66
+  zh: 3c710fd6ea4436ba
 /model-routing/deployment-values:
   en: e82bb90ed71b02b7
   zh: 47ab131490045e49

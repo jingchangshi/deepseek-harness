@@ -34,11 +34,11 @@ dsh
 dsh engineering-run "<requirement>"
 ```
 
-Coordinator 把需求提交给工程 runtime 一次。两个 Scout 并行运行，随后 Architect 和 Challenger 冻结计划。只有一个 Implementer 获得写工具；必需 adapter command 在模型控制之外运行；新的 Reviewer 独立评估结果。只有 repository state engine 可以写入 `ACCEPTED`。
+Coordinator 把需求提交给工程 runtime 一次。自适应调度会选择 task 分类和最少角色阶段：simple 省略 Scout、Architect 和 Challenger；standard 仅在缺少证据时使用 Scout，并增加 Architect；complex 执行有界调查，高风险时增加 Challenger。只有一个 Implementer 获得写工具；必需 adapter command 在模型控制之外运行；新的 Reviewer 独立评估结果。只有 repository state engine 可以写入 `ACCEPTED`。
 
 ## 项目配置
 
-Session cwd 选择目标仓库的 `.agent/config/project.yaml`、schema、verification profile、adapter 和任务状态。模型与角色映射、全局数据策略、workflow 准入限制和 persona 只来自用户 deployment。通用初始化不提供命令：缺失的 required adapter 报告 `NOT_RUN`。显式 [Ascend preset](ascend-integration.zh.md) 提供 compiler 命令；任何 required check 缺失、失败或不完整都会阻止验收。
+Session cwd 选择目标仓库的 `.agent/config/project.yaml`、schema、verification profile、adapter 和任务状态。在仓库 `project.yaml` 中设置任务范围、验收条件和可选调度策略；compiler profile 因编译器与 IR 工作属于高风险，分类仍为 complex。模型与角色映射、全局数据策略、自适应阈值、workflow 准入限制和 persona 只来自用户 deployment。通用初始化不提供命令：缺失的 required adapter 报告 `NOT_RUN`。显式 [Ascend preset](ascend-integration.zh.md) 提供 compiler 命令；任何 required check 缺失、失败或不完整都会阻止验收。workflow 阈值和升级路由见[模型路由](model-routing.zh.md)；分类与恢复行为见[自适应调度设计](adaptive-scheduling-v2.zh.md)。
 
 Magpie provider 在 `<DSH_HOME>/engineering/.agent/config/models.yaml` 中要求 `DSH_MAGPIE_GATEWAY_URL`，并引用 `DSH_MAGPIE_API_KEY_ENV` 选择的凭据变量（默认为 `MAGPIE_API_KEY`）。仓库模型声明不能覆盖该 deployment。`agentctl run` 和 `smoke-models` 默认读取同一份用户 deployment；`--deployment-root <directory>` 显式选择其他 deployment 目录。 设置 `DSH_MAGPIE_API_KEY_ENV=MAGPIE_API_KEY` 或不设置该变量；实际密钥放在 `MAGPIE_API_KEY` 中。选择器必须填写环境变量名，不能填写密钥内容。
 

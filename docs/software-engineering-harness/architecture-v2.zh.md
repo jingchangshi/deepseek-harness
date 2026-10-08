@@ -27,6 +27,10 @@ flowchart LR
 
 简单开发会省略不必要的调查和设计调用，但仍会执行验证和与风险相称的独立检查。Review-only 不会获取产品源码 writer lease，也不会调度 Implementer。
 
+## 自适应 Development 调度
+
+Development 会根据显式范围、验收条件、配置策略和风险事实将 task 分为 simple、standard 或 complex。只有范围是有界的显式文件路径且验收条件完整时，task 才能归为 simple。同一 task 在恢复、策略变更或重新规划期间，分类和风险下限不得降低。Review-only 保留固定的变更文件范围，不能进入 Development。[自适应调度设计](adaptive-scheduling-v2.zh.md)定义分类规则、角色阶段、升级记录和 writer 诊断恢复。
+
 ```mermaid
 flowchart LR
   REQUEST --> SNAPSHOT --> SCOPE_CLASSIFIED
@@ -43,7 +47,7 @@ flowchart LR
 
 逻辑角色选择由部署配置的 route。每个 route 指定 provider、model、reasoning 选项、数据许可和工具权限。repository policy 不能注入凭据，也不能悄然覆盖部署路由。继续支持现有的基于环境变量的 route 选择。工作流代码中不嵌入 model identifier。
 
-一次逻辑调用可以包含多次物理 model attempt。一次 model attempt 可以包含多次 provider request，包括重试和压缩。每种身份都会单独记录。FALLBACK 在已分类的 provider、协议或输出失败且工作已完全停稳后切换 route。ESCALATE 会因证据不足、重复修复失败或设计遭拒而提升能力。升级会继续受影响的诊断工作，而不是重启已完成的工作。两种机制都消耗生命周期预算，并有有限次数。
+一次逻辑调用可以包含多次物理 model attempt。一次 model attempt 可以包含多次 provider request，包括重试和压缩。每种身份都会单独记录。FALLBACK 在已分类的 provider、协议或输出失败且工作已完全停稳后切换 route。ESCALATE 在出现类型化的证据不足结果或持久化诊断义务后，使用单独配置且能力更高的 route。升级会继续受影响的工作，而不是重启已完成的工作；它消耗生命周期预算，并受持久化的有限次数限制。Writer 失败时，必须先持久化只读诊断义务，才能释放 writer lease；建议被持久化应用前，writer 仍不能启动。响应 envelope 和崩溃顺序见[自适应调度设计](adaptive-scheduling-v2.zh.md)。
 
 ## 工具副作用与 writer 安全
 

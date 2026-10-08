@@ -19,10 +19,12 @@
 | 0 | Tool registry dispatch metadata 和 runtime mutation observation | 仅允许通过授权且验证成功的 dispatch；writer fallback 安全 |
 | 1 | 类型化 Git 证据和独立的 Review-only task 生命周期 | 不可变 SHA、已验证证据、不使用 Implementer 或源码写入 |
 | 2 | 工作单元、持久化 checkpoint 和 task 生命周期预算 | Runtime 限制及恢复时累计核算 |
-| 3 | 可审计的 task 分类和能力升级 | 最少充分角色、有界的独立升级 |
+| 3 | 可审计的自适应 task 分类、最少角色阶段和独立能力升级 | 分类下限单调、升级持久且有限、writer 诊断具备崩溃安全；必需测试见[验收矩阵](acceptance-matrix-v2.zh.md)和[自适应调度设计](adaptive-scheduling-v2.zh.md) |
 | 4 | Request 用量账本和可复现 benchmark runner | 去重后的实际用量和独立 E2E，或明确标记 NOT_RUN |
 
 前一阶段通过验收之前，不得开始任何阶段的生产代码实现。Phase 0 实现前要完成架构评审。创建测试时可能会发现缺失的新能力；应将其记录为 capability RED，而不是已有回归。生产代码修正不得修改独立测试的预期结果来接受错误行为。
+
+只有冻结接口和独立 RED 测试获得批准后，才能开始 Phase 3 实现。[自适应调度设计](adaptive-scheduling-v2.zh.md)是分类下限、成功与升级响应、持久化升级状态及 writer 诊断崩溃顺序的唯一详细说明。
 
 ## 验证与交付
 

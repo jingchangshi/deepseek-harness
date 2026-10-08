@@ -14,6 +14,12 @@
 
 `loadHarnessConfig` 拒绝未知 provider、未知路由、不支持的 reasoning 等级、重复工具名、未授权的高成本路由、第二个可写角色、被改变的深度或并发限制，以及默认启用的 arbiter。它还拒绝多于两个 fallback、与主路由相同的 fallback，以及重复 provider/model 组合的候选。每个候选都必须支持角色的 effort 并具备高成本路由授权。共用同一个 provider 和模型的路由必须声明相同的 reasoning 映射；有冲突的映射会在配置验证时失败。`resolveRoleRoute` 返回 smoke 诊断记录的精确路由。
 
+## 自适应调度和能力路由
+
+目标仓库在 `.agent/config/project.yaml` 的 `scheduling` 下配置可选 task 策略。用户 deployment 在 `<DSH_HOME>/engineering/.agent/config/workflow.yaml` 中用顶层字段 `simpleMaxFiles`、`standardMaxFiles`、`maxCapabilityEscalations` 和 `repairEscalationThreshold` 配置限制；默认值分别为 3、12、2 和 2。Task 策略可设置 `class`、显式的 `scopePaths` 与 `acceptanceCriteria`、已知 `risks`、`needsInvestigation` 和 `needsChallenge`。Simple 工作要求规范化的显式文件路径和验收条件；目录与 glob 范围不能授权 simple。
+
+用户 deployment 的 `roles.yaml` 使用 `escalationRoutes` 声明更强的只读路由，并可为每个角色配置最多两个 `escalationFallbackRoutes`。`models.yaml` 中每条 route 可设置非负整数 `capabilityLevel`；省略时为 0。每条升级 route 的能力必须高于主路由和普通 fallback，provider/model 不同，支持角色的 reasoning effort，并通过数据分类及 premium 策略。Escalation fallback 也必须高于普通路由的能力下限并通过路由策略。Runtime 会按失败 attempt 的准确 level 过滤候选路由。`FALLBACK` 仍处理已分类的 provider/输出失败；`ESCALATE` 处理类型化的能力请求或已持久化的 writer 诊断。Task artifact、角色响应和恢复行为见[自适应调度设计](adaptive-scheduling-v2.zh.md)。
+
 ## 部署值
 
 两个 Magpie provider 别名都从 `DSH_MAGPIE_GATEWAY_URL` 读取端点；未解析的端点会阻止激活。`magpie` 通过 `${DSH_MAGPIE_API:-openai-completions}` 默认使用 Chat Completions；部署声明含有该占位符时，`DSH_MAGPIE_API` 可选择其他 adapter 协议。`magpie-responses` 默认使用 Responses，可通过 `DSH_MAGPIE_RESPONSES_API` 切换 adapter 协议。`DSH_MAGPIE_API_KEY_ENV` 选择凭据变量名，默认为 `MAGPIE_API_KEY`；其值是变量名，绝非凭据本身。MiMo 使用 Chat Completions，因为实际 Responses 请求拒绝该协议，尽管目录元数据列出了它。

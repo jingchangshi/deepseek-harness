@@ -27,6 +27,10 @@ flowchart LR
 
 Simple development omits unnecessary investigation and design calls but retains verification and an independent risk-appropriate check. Review-only never acquires a product-source writer lease or dispatches an Implementer.
 
+## Adaptive Development scheduling
+
+Development classifies each task as simple, standard, or complex from explicit scope, acceptance criteria, configured policy, and risk facts. Only bounded explicit file scope with complete acceptance criteria can qualify as simple. Class and risk floors cannot decrease during recovery, policy changes, or replanning for the same task. Review-only keeps its pinned changed-file scope and cannot enter Development. The [adaptive scheduling design](adaptive-scheduling-v2.md) defines the classification rules, role stages, escalation records, and writer-diagnosis recovery.
+
 ```mermaid
 flowchart LR
   REQUEST --> SNAPSHOT --> SCOPE_CLASSIFIED
@@ -43,7 +47,7 @@ flowchart LR
 
 A logical role selects deployment-configured routes. Each route names a provider, model, reasoning options, data allowance and tool permissions. Repository policy cannot inject credentials or silently override deployment routing. Existing environment-based route selection remains supported. No model identifier is embedded in workflow code.
 
-A logical invocation can contain several physical model attempts. A model attempt can contain several provider requests, including retries and compaction. Each identity is recorded separately. FALLBACK changes route after a classified provider, protocol or output failure and quiescent shutdown. ESCALATE raises capability for insufficient evidence, repeated repair failure or a rejected design. Escalation resumes the affected diagnostic work instead of restarting completed work. Both mechanisms consume lifecycle budgets and have finite limits.
+A logical invocation can contain several physical model attempts. A model attempt can contain several provider requests, including retries and compaction. Each identity is recorded separately. FALLBACK changes route after a classified provider, protocol or output failure and quiescent shutdown. ESCALATE uses a separately configured route with higher capability after a typed insufficient-evidence result or a durable diagnosis obligation. Escalation resumes the affected work instead of restarting completed work, consumes lifecycle budgets, and has a durable finite limit. Writer failures require a persisted read-only diagnosis obligation before the writer lease can be released; the writer stays blocked until the recommendation is durably applied. See the [adaptive scheduling design](adaptive-scheduling-v2.md) for the response envelope and crash ordering.
 
 ## Tool side effects and writer safety
 
