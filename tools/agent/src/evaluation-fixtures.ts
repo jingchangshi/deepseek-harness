@@ -127,6 +127,10 @@ export async function prepareEngineeringEvaluationRepository(testCase: Engineeri
   const profile = `evaluation-${testCase.id}`
   await writeFile(join(cwd, '.agent/config/project.yaml'), dump({
     schemaVersion: 1, profile, adapter: '.agent/adapters/evaluation.yaml', dataClass: 'public', maxSteps: 12, maxRoleCalls: 12, commandTimeoutMs: 30_000,
+    ...(testCase.kind === 'review' ? {} : { scheduling: {
+      class: 'auto', scopePaths: [...testCase.allowedPaths as readonly string[]], acceptanceCriteria: [testCase.criteria],
+      risks: [], needsInvestigation: false, needsChallenge: false,
+    } }),
   }))
   await writeFile(join(cwd, `.agent/profiles/${profile}.yaml`), dump({ schemaVersion: 1, id: profile, checks: testCase.kind === 'review' ? [] : [
     { name: 'evaluation-oracle', category: 'source', scope: { case: testCase.id }, adapter: 'evaluation', required: true, timeoutMs: 30_000 },
@@ -212,24 +216,45 @@ async function reviewResultOracle(testCase: EngineeringBenchmarkCase, cwd: strin
     if (typeof item !== 'object' || item === null || typeof Reflect.get(item, 'id') !== 'string') return []
     return [[Reflect.get(item, 'id') as string, item] as const]
   }))
-  const accepted = snapshotTarget === targetCommit && pinnedBugVerified && cleanControlVerified && findings.some(item => typeof item === 'object' && item !== null
-    && Reflect.get(item, 'path') === 'add.mjs' && Reflect.get(item, 'commit') === targetCommit
-    && Reflect.get(item, 'startLine') === 2 && Reflect.get(item, 'endLine') === 2
-    && String(Reflect.get(item, 'failureCondition')).includes('2147483647') && String(Reflect.get(item, 'failureCondition')).includes('1')
-    && Array.isArray(Reflect.get(item, 'evidenceIds')) && (Reflect.get(item, 'evidenceIds') as unknown[]).length > 0
-    && (Reflect.get(item, 'evidenceIds') as unknown[]).every(id => {
-      if (typeof id !== 'string') return false
-      const receipt = evidenceById.get(id)
-      return typeof receipt === 'object' && receipt !== null
-        && Reflect.get(receipt, 'path') === 'add.mjs' && Reflect.get(receipt, 'commit') === targetCommit
-        && inspectedIds.includes(id)
-    })
-    && evidence.some(receipt => typeof receipt === 'object' && receipt !== null && Reflect.get(receipt, 'operation') === 'show'
-      && Reflect.get(receipt, 'path') === 'add.mjs' && Reflect.get(receipt, 'commit') === targetCommit
-      && Number(Reflect.get(receipt, 'startLine')) <= 2 && Number(Reflect.get(receipt, 'endLine')) >= 2)
-    && evidence.some(receipt => typeof receipt === 'object' && receipt !== null && Reflect.get(receipt, 'operation') === 'diff'
-      && Reflect.get(receipt, 'path') === 'add.mjs' && Reflect.get(receipt, 'commit') === targetCommit))
-  return { accepted, evidence: { targetCommit, snapshotTarget, pinnedBugVerified, cleanControlVerified, trigger: 'add(2147483647, 1) must return 2147483648', findingCount: findings.length, evidenceCount: evidence.length } }
+  const sourceShowCoversLine2 = evidence.some(receipt => typeof receipt === 'object' && receipt !== null && Reflect.get(receipt, 'operation') === 'show'
+    && Reflect.get(receipt, 'path') === 'add.mjs' && Reflect.get(receipt, 'commit') === targetCommit
+    && Number(Reflect.get(receipt, 'startLine')) <= 2 && Number(Reflect.get(receipt, 'endLine')) >= 2)
+  const diffPresent = evidence.some(receipt => typeof receipt === 'object' && receipt !== null && Reflect.get(receipt, 'operation') === 'diff'
+    && Reflect.get(receipt, 'path') === 'add.mjs' && Reflect.get(receipt, 'commit') === targetCommit)
+  const findingChecks = findings.map((item, index) => {
+    const finding = typeof item === 'object' && item !== null ? item : undefined
+    const field = (name: string): unknown => finding === undefined ? undefined : Reflect.get(finding, name)
+    const startLine = field('startLine')
+    const endLine = field('endLine')
+    const evidenceIds = field('evidenceIds')
+    const checks = {
+      index,
+      pathMatchesTarget: field('path') === 'add.mjs',
+      commitMatchesTarget: field('commit') === targetCommit,
+      exactLine2: startLine === 2 && endLine === 2,
+      validSpanContainsLine2: typeof startLine === 'number' && Number.isSafeInteger(startLine) && startLine >= 1
+        && typeof endLine === 'number' && Number.isSafeInteger(endLine) && endLine >= startLine && startLine <= 2 && endLine >= 2,
+      failureConditionIncludesLiteral2147483647: String(field('failureCondition')).includes('2147483647'),
+      failureConditionIncludesLiteral1: String(field('failureCondition')).includes('1'),
+      nonemptyCitations: Array.isArray(evidenceIds) && evidenceIds.length > 0,
+      allCitationsObservedForTargetPath: Array.isArray(evidenceIds) && evidenceIds.every(id => {
+        if (typeof id !== 'string') return false
+        const receipt = evidenceById.get(id)
+        return typeof receipt === 'object' && receipt !== null
+          && Reflect.get(receipt, 'path') === 'add.mjs' && Reflect.get(receipt, 'commit') === targetCommit
+          && inspectedIds.includes(id)
+      }),
+      sourceShowCoversLine2,
+      diffPresent,
+    }
+    const accepted = checks.pathMatchesTarget && checks.commitMatchesTarget && checks.exactLine2
+      && checks.failureConditionIncludesLiteral2147483647 && checks.failureConditionIncludesLiteral1
+      && checks.nonemptyCitations && checks.allCitationsObservedForTargetPath && checks.sourceShowCoversLine2 && checks.diffPresent
+    return { ...checks, accepted }
+  })
+  const reviewChecks = { durableComplete: true, snapshotMatchesTarget: snapshotTarget === targetCommit, pinnedBugVerified, cleanControlVerified }
+  const accepted = reviewChecks.snapshotMatchesTarget && pinnedBugVerified && cleanControlVerified && findingChecks.some(check => check.accepted)
+  return { accepted, evidence: { targetCommit, snapshotTarget, pinnedBugVerified, cleanControlVerified, trigger: 'add(2147483647, 1) must return 2147483648', findingCount: findings.length, evidenceCount: evidence.length, reviewChecks, findingChecks } }
 }
 
 async function additionResult(source: string, left: number, right: number): Promise<number | undefined> {

@@ -13,7 +13,12 @@ import { roleResponseSchema, unwrapRoleResponse } from './role-response.ts'
 import { CapabilityInsufficientError, RoleQuiescenceError, RoleInvocationError } from './role-execution.ts'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { REVIEW_OUTPUT_SCHEMA, validateEngineeringReviewEvidence } from './review-only.ts'
-import type { EngineeringRole, RoleExecutor, RoleInvocation } from './automatic.ts'
+import { loadEngineeringProject } from './automatic.ts'
+import type { EngineeringRole, RoleExecutor, RoleInvocation, EngineeringProject } from './automatic.ts'
+import { TaskRepository } from './repository.ts'
+import { loadRepositoryVerificationContext } from './identity.ts'
+import type { TaskStateRecord } from './types.ts'
+import { runCommand, runVerificationProfile, verificationEvidence } from './verification.ts'
 import type { EngineeringBenchmarkCase, EngineeringStageReceipt, EngineeringRunEvidence, EngineeringStrategyId, EngineeringBenchmarkRunContext, ProductionBenchmarkRoleInvoker } from './benchmark.ts'
 import { createGitSnapshot, GitEvidenceRepository } from './git-evidence.ts'
 import type { GitReviewTarget } from './git-evidence.ts'
@@ -21,11 +26,14 @@ import type { GitReviewTarget } from './git-evidence.ts'
 type DirectRole = 'scout-primary' | 'architect' | 'challenger' | 'implementer' | 'reviewer'
 
 interface DirectRun {
-  lifecycle: FileTaskLifecycle
+  lifecycle: TaskLifecycle
   taskId: string
   workflow: 'development' | 'review-only'
   started: boolean
   confirmedStopped: boolean
+  repository: TaskRepository
+  project?: EngineeringProject
+  state?: TaskStateRecord
 }
 
 /** Create route-bound benchmark calls backed by the production role executor and durable usage ledger.
@@ -38,10 +46,12 @@ export function createDirectEngineeringInvoker(options: {
   verify(testCase: EngineeringBenchmarkCase, root: string): Promise<boolean>
   reviewTarget(testCase: EngineeringBenchmarkCase): GitReviewTarget
   limits?: HarnessConfig['workflow']['lifecycleBudget']
+  signal?: AbortSignal
 }): ProductionBenchmarkRoleInvoker {
   const runs = new Map<string, DirectRun>()
   const contexts = new Map<string, Record<string, unknown>>()
   const getRun = async (root: string, testCase: EngineeringBenchmarkCase): Promise<DirectRun> => {
+    options.signal?.throwIfAborted()
     const key = root
     if (!contexts.has(key)) contexts.set(key, {})
     const prior = runs.get(key)
@@ -49,9 +59,27 @@ export function createDirectEngineeringInvoker(options: {
     const workflow = testCase.kind === 'review' ? 'review-only' : 'development'
     const taskId = `benchmark-${createHash('sha256').update(`${testCase.id}\0${root}`).digest('hex').slice(0, 24)}`
     await mkdir(join(root, '.agent', workflow === 'development' ? 'tasks' : 'reviews', taskId), { recursive: true, mode: 0o700 })
-    const lifecycle = new FileTaskLifecycle(root, taskId, workflow, options.limits ?? options.deployment.workflow.lifecycleBudget, () => new Date().toISOString(), 0, false)
-    await lifecycle.initialize()
-    const run: DirectRun = { lifecycle, taskId, workflow, started: false, confirmedStopped: true }
+    const repository = new TaskRepository(root)
+    await repository.init()
+    const limits = options.limits ?? options.deployment.workflow.lifecycleBudget
+    let state: TaskStateRecord | undefined
+    let project: EngineeringProject | undefined
+    let lifecycle: TaskLifecycle
+    if (workflow === 'development') {
+      project = await loadEngineeringProject(root)
+      state = await repository.createTask({ schemaVersion: 1, id: taskId, title: testCase.request, profile: project.profile,
+        dataClass: project.dataClass, createdAt: new Date().toISOString() })
+      lifecycle = await repository.initializeLifecycle(taskId, workflow, limits)
+      const head = await runCommand(root, { executable: 'git', args: ['rev-parse', 'HEAD'] }, project.commandTimeoutMs, options.signal)
+      const dirty = await runCommand(root, { executable: 'git', args: ['status', '--porcelain', '--', '.', ':(exclude).agent'] }, project.commandTimeoutMs, options.signal)
+      if (head.status !== 'PASS' || dirty.status !== 'PASS') throw new Error('cannot capture benchmark Git baseline')
+      state = await repository.baseline(taskId, state.revision, { repositoryHead: head.stdout.trim(), dirty: dirty.stdout.trim().length > 0, summary: testCase.request })
+    } else {
+      lifecycle = new FileTaskLifecycle(root, taskId, workflow, limits, () => new Date().toISOString(), 0, false)
+      await lifecycle.initialize()
+    }
+    const run: DirectRun = { lifecycle, taskId, workflow, started: false, confirmedStopped: true, repository,
+      ...(state === undefined ? {} : { state }), ...(project === undefined ? {} : { project }) }
     runs.set(key, run)
     return run
   }
@@ -65,7 +93,30 @@ export function createDirectEngineeringInvoker(options: {
   const invokeFixedStage = async (input: { stage: 'SCOUT' | 'ARCHITECT' | 'CHALLENGER' | 'IMPLEMENTER' | 'VERIFICATION' | 'REVIEWER'; request: string; root: string; readOnly: boolean; testCase: EngineeringBenchmarkCase }): Promise<EngineeringStageReceipt> => {
     if (input.stage === 'VERIFICATION') {
       const startedAt = new Date().toISOString()
-      const passed = await options.verify(input.testCase, input.root)
+      const run = await getRun(input.root, input.testCase)
+      if (!run.confirmedStopped) throw new Error('benchmark writer quiescence is uncertain; confirm stopped work before dispatch')
+      let passed: boolean
+      if (run.workflow === 'review-only') passed = await options.verify(input.testCase, input.root)
+      else {
+        if (run.state?.state !== 'VERIFYING' || run.project === undefined) throw new Error('benchmark verification requires a completed writer')
+        const snapshot = await run.repository.verificationExecutionContext(run.taskId)
+        const assertCurrent = async (): Promise<void> => {
+          options.signal?.throwIfAborted()
+          await run.repository.assertVerificationExecutionContext(run.taskId, snapshot)
+          options.signal?.throwIfAborted()
+        }
+        const execution = await runVerificationProfile(input.root, run.project.profile, snapshot.config, options.signal,
+          snapshot.gates, snapshot.arguments, snapshot.identity, assertCurrent)
+        if (execution.results.some(({ result }) => result.quiescence === 'UNCERTAIN')) {
+          run.confirmedStopped = false
+          throw new RoleQuiescenceError('benchmark verification termination is uncertain')
+        }
+        await assertCurrent()
+        await run.repository.appendEvidence(run.taskId, run.state.workRevision, verificationEvidence(input.root, execution), run.state.revision)
+        run.state = await run.repository.finishVerification(run.taskId, run.state.revision, execution.verification)
+        contexts.get(input.root)!.verification = JSON.parse(await readFile(join(input.root, '.agent/tasks', run.taskId, 'VERIFY.json'), 'utf8'))
+        passed = execution.verification.status === 'PASS'
+      }
       return { stage: 'VERIFICATION', startedAt, endedAt: new Date().toISOString(), outcome: passed ? 'SUCCESS' : 'FAILED', requestIds: [] }
     }
     const role: DirectRole = input.stage === 'SCOUT' ? 'scout-primary'
@@ -89,14 +140,32 @@ export function createDirectEngineeringInvoker(options: {
     const effectiveRoute: ResolvedRoleRoute = { ...route, writable: input.readOnly ? false : input.role === 'implementer' }
     assertRouteDispatchAllowed(options.deployment, route.routeId, 'public')
     const run = await getRun(input.root, input.testCase)
+    if (!run.confirmedStopped) throw new Error('benchmark writer quiescence is uncertain; confirm stopped work before dispatch')
+    await run.repository.assertDispatchAdmission(run.taskId)
+    if (run.workflow === 'development' && input.role === 'reviewer' && run.state?.state !== 'VERIFIED') {
+      throw new Error('benchmark Reviewer requires successful verification')
+    }
+    if (run.workflow === 'development' && input.role === 'reviewer') await run.repository.verificationGates(run.taskId)
     if (!run.started) {
       await run.lifecycle.recordRunState({ state: 'RUNNING', at: new Date().toISOString() })
       run.started = true
     }
-    const invocationId = await run.lifecycle.reserveInvocation(input.role)
-    const attemptId = await run.lifecycle.reserveAttempt(invocationId, effectiveRoute)
+    const schema = await outputSchema(input.root, input.role, input.testCase.kind === 'review')
+    const context = contexts.get(input.root) ?? {}
+    const reviewEvidence = input.testCase.kind === 'review'
+      ? new GitEvidenceRepository(await createGitSnapshot(input.root, options.reviewTarget(input.testCase)))
+      : undefined
+    if (run.workflow === 'development') {
+      const verification = await loadRepositoryVerificationContext(input.root, run.project!.profile)
+      context.verificationPolicy = verification.policy
+      context.verificationInstances = verification.gates
+      context.verificationCommands = verification.verificationConfig
+      context.acceptanceTier = verification.tier
+    }
     const bounds = options.deployment.workflow.roleBounds[input.role]
     if (bounds === undefined) throw new Error(`benchmark role ${input.role} has no configured execution bounds`)
+    const invocationId = await run.lifecycle.reserveInvocation(input.role)
+    const attemptId = await run.lifecycle.reserveAttempt(invocationId, effectiveRoute)
     const requestIds: string[] = []
     const reservedToolCalls = new Set<string>()
     let bodyCalls = 0
@@ -125,28 +194,46 @@ export function createDirectEngineeringInvoker(options: {
         bodyCalls += 1
       },
     }
-    const schema = await outputSchema(input.root, input.role, input.testCase.kind === 'review')
-    const context = contexts.get(input.root) ?? {}
-    const reviewEvidence = input.testCase.kind === 'review'
-      ? new GitEvidenceRepository(await createGitSnapshot(input.root, options.reviewTarget(input.testCase)))
-      : undefined
     const startedAt = new Date().toISOString()
     const controller = new AbortController()
+    const signal = options.signal ?? controller.signal
+    let ownedWriterToken: string | undefined
     try {
+      signal.throwIfAborted()
+      if (run.workflow === 'development' && input.role === 'implementer') {
+        await prepareWriter(run, input.root, input.testCase)
+        ownedWriterToken = run.state?.writer?.token
+      }
       const output = await options.executeRole({
         role: input.role as EngineeringRole, route: effectiveRoute, attemptIndex: 1, root: input.root, taskId: run.taskId,
-        request: input.request, state: { state: input.readOnly ? 'REVIEWING' : 'IMPLEMENTING', revision: 0, workRevision: 0, fixAttempts: 0 },
+        request: input.request, state: run.state === undefined
+          ? { state: 'REVIEWING', revision: 0, workRevision: 0, fixAttempts: 0 }
+          : { state: run.state.state, revision: run.state.revision, workRevision: run.state.workRevision, fixAttempts: run.state.fixAttempts },
         context: { ...context, benchmark: { caseId: input.testCase.id, kind: input.testCase.kind, criteria: input.testCase.criteria, allowedPaths: input.testCase.allowedPaths, commandProfile: input.testCase.commandProfile, failureInjection: input.testCase.failureInjection }, ...input.context },
-        outputSchema: roleResponseSchema(schema.structured), signal: controller.signal, executionControl,
+        outputSchema: roleResponseSchema(schema.structured), signal, executionControl,
         ...(reviewEvidence === undefined ? {} : { reviewEvidence }),
         ...(!input.readOnly ? { markMutationStarted: () => {} } : {}),
       })
+      signal.throwIfAborted()
       const result = unwrapRoleResponse(output, schema.validation)
       if (!schema.validate(result)) throw new RoleInvocationError(`benchmark ${input.role} returned invalid output: ${JSON.stringify(schema.validate.errors)}`, 'SCHEMA_INVALID', false)
       context[input.role] = result
       contexts.set(input.root, context)
+      if (run.workflow === 'development' && run.state !== undefined) {
+        if (input.role === 'scout-primary') {
+          run.state = await run.repository.investigate(run.taskId, run.state.revision, asRecord(result))
+        } else if (input.role === 'architect') context.candidatePlan = result
+        else if (input.role === 'challenger' && asRecord(result).decision === 'ACCEPT') {
+          run.state = await run.repository.freezePlan(run.taskId, run.state.revision, asRecord(context.candidatePlan))
+          context.plan = JSON.parse(await readFile(join(input.root, '.agent/tasks', run.taskId, 'PLAN.json'), 'utf8'))
+        } else if (input.role === 'implementer') {
+          const token = run.state.writer?.token
+          if (token === undefined) throw new Error('benchmark implementation has no writer lease')
+          run.state = await run.repository.beginVerification(run.taskId, run.state.revision, token)
+        }
+      }
       if (input.testCase.kind === 'review' && reviewEvidence !== undefined && input.role === 'reviewer') {
-        const problems = await validateEngineeringReviewEvidence(result, reviewEvidence, controller.signal)
+        const problems = await validateEngineeringReviewEvidence(result, reviewEvidence, signal)
         if (problems.length > 0) throw new RoleInvocationError(`benchmark review lacks complete evidence: ${problems.join('; ')}`, 'NON_FALLBACKABLE', false)
         await persistReviewResult(input.root, run, result, reviewEvidence)
       }
@@ -158,9 +245,39 @@ export function createDirectEngineeringInvoker(options: {
       if (error instanceof RoleQuiescenceError) {
         run.confirmedStopped = false
         await run.lifecycle.settleAttempt(attemptId, { startedAt, endedAt: new Date().toISOString(), outcome: 'UNCERTAIN' })
-      } else await run.lifecycle.settleAttempt(attemptId, { startedAt, endedAt: new Date().toISOString(), outcome: error instanceof CapabilityInsufficientError ? 'CAPABILITY_INSUFFICIENT' : 'FAILED' })
+      } else {
+        if (input.role === 'implementer' && ownedWriterToken !== undefined && run.state?.writer?.token === ownedWriterToken) {
+          run.state = await run.repository.releaseImplementation(run.taskId, run.state.revision, ownedWriterToken)
+        }
+        await run.lifecycle.settleAttempt(attemptId, { startedAt, endedAt: new Date().toISOString(), outcome: error instanceof CapabilityInsufficientError ? 'CAPABILITY_INSUFFICIENT' : 'FAILED' })
+      }
       throw error
     }
+  }
+
+  async function prepareWriter(run: DirectRun, root: string, testCase: EngineeringBenchmarkCase): Promise<void> {
+    let state = run.state
+    if (state === undefined) throw new Error('benchmark development task has no state')
+    const context = contexts.get(root)!
+    if (state.state === 'BASELINED') {
+      state = await run.repository.investigate(run.taskId, state.revision, {
+        findings: ['Explicit evaluation-owned scope and acceptance criteria; source investigation was not requested.'],
+        hypotheses: [], unresolvedAssumptions: [],
+      })
+      const { gates } = await loadRepositoryVerificationContext(root, run.project!.profile)
+      state = await run.repository.freezePlan(run.taskId, state.revision, {
+        problemStatement: testCase.request, hypotheses: ['Explicit acceptance criteria define the requested result.'],
+        selectedApproach: `Implement only the declared files: ${testCase.allowedPaths.join(', ')}`,
+        rejectedAlternatives: ['Modify undeclared files'], invariants: ['Preserve all files outside the declared scope'],
+        expectedComponents: testCase.allowedPaths, implementationScope: testCase.allowedPaths,
+        falsificationTests: [testCase.criteria], acceptanceGates: gates.filter(gate => gate.required).map(gate => gate.name),
+        unresolvedAssumptions: [],
+      })
+      context.plan = JSON.parse(await readFile(join(root, '.agent/tasks', run.taskId, 'PLAN.json'), 'utf8'))
+    }
+    if (state.state !== 'PLAN_FROZEN' && state.state !== 'IMPLEMENTING') throw new Error('benchmark writer requires an accepted frozen plan')
+    run.state = state
+    run.state = await run.repository.startImplementation(run.taskId, state.revision)
   }
 
   return {

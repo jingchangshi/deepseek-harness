@@ -7,10 +7,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Session, TurnEndReason } from '@deepseek-ai/dsh-session'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { POLICY_REFUSAL_CODE, ReasoningEffortId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { SubagentRun } from '@deepseek-ai/dsh-subagent'
+import { appendDelegatedPolicyOverrides, applyChildComposition, captureDelegatedPolicyOverrides, delegationDepthOf } from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { loadHarnessConfig, resolveRoleRoute } from '../src/config.ts'
 import type { HarnessConfig } from '../src/config.ts'
@@ -509,6 +511,9 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
     let lifetimeTimer: NodeJS.Timeout | undefined
     let lifetimeStopped = false
     try {
+      if (await realpath(workspace(parent)) !== await realpath(invocation.root)) {
+        throw new Error('Engineering role workspace must match its parent Session working directory')
+      }
       const loaded = await project(invocation.root)
       const route = invocation.route
       const roleConfig = loaded.roles[invocation.role]!
@@ -600,9 +605,43 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
         const parent = exec.agent
         if (parent === undefined || !coordinators.has(parent)) throw new Error('Evaluation requires an engineering Coordinator')
         if (closing) throw new Error('Engineering profile is shutting down')
+        const inherited = captureDelegatedPolicyOverrides(parent)
+        const carriers = new Map<string, Agent>()
+        const signal = AbortSignal.any([exec.signal, shutdown.signal])
         const operation = runProfileEngineeringEvaluation({
           checkout: resolve(import.meta.dirname, '../../..'), deployment, ...evaluation, caseId: args.caseId,
-          executeRole: invocation => executeRole(parent, { ...invocation, signal: AbortSignal.any([invocation.signal, exec.signal, shutdown.signal]) }),
+          deploymentRoot: config.deploymentRoot, roleTimeoutMs: config.roleTimeoutMs, signal,
+          withFixture: async (root, operation) => {
+            signal.throwIfAborted()
+            const canonicalRoot = await realpath(root)
+            if (carriers.has(canonicalRoot)) throw new Error('Evaluation fixture already has an active parent Session')
+            const agentPreset = parent.ctx.get('agentPresets')?.composedPreset(parent.ctx)
+            const handle = await parent.ctx.agents.create({
+              sessionId: SessionId(randomUUID()), parentAgent: parent,
+              meta: { cwd: canonicalRoot, delegationDepth: delegationDepthOf(parent),
+                ...(agentPreset === undefined ? {} : { agentPreset }) },
+              agentOptions: { ...parent.options }, signal,
+              setup: (carrierCtx, carrier) => {
+                appendDelegatedPolicyOverrides(carrier.session, inherited)
+                applyChildComposition(carrierCtx, parent, {})
+              },
+            })
+            // The original Coordinator captured these tools before its workflow-only restriction.
+            availableTools.set(handle.agent, [...availableTools.get(parent)!])
+            carriers.set(canonicalRoot, handle.agent)
+            try {
+              signal.throwIfAborted()
+              return await operation()
+            } finally {
+              await handle.dispose()
+              carriers.delete(canonicalRoot)
+            }
+          },
+          executeRole: async invocation => {
+            const carrier = carriers.get(await realpath(invocation.root))
+            if (carrier === undefined) throw new Error('Engineering evaluation role requires an active fixture parent Session')
+            return executeRole(carrier, { ...invocation, signal: AbortSignal.any([invocation.signal, signal]) })
+          },
         })
         running.add(operation)
         try { return JSON.stringify(await operation) }
