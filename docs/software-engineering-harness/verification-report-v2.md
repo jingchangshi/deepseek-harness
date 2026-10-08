@@ -79,6 +79,6 @@ The first reviewer-only RED attempt failed during module import and ran no tests
 | Final documentation aggregate | PASS: all 42 gates passed, with 0 failures and 0 skipped. | `/tmp/dsh-goal-1008/phase2-doc-sync-final.txt` |
 | Synchronous admission ordering | The corrected deterministic regression passed. An isolated reversed-order control failed as expected; the reviewer also checked the existing concurrency pass and approved the final change. | `/tmp/dsh-goal-1008/phase2-scout-start-order-latched-green.txt`; `/tmp/dsh-goal-1008/phase2-scout-start-order-latched-negative-red.txt`; `/tmp/dsh-goal-1008/phase2-review-verdict.txt` |
 | Provider cost evidence | NOT_RUN. Provider pricing is unverified; cost remains unknown, and `maxKnownCostUsd` fails closed after an unpriced request rather than acting as a spend cap. | `/tmp/dsh-goal-1008/provider-availability.json` |
-| Phase 2 acceptance and delivery | Acceptance PASS. Push remains PENDING. | This report; `/tmp/dsh-goal-1008/phase2-doc-sync-final.txt`; `/tmp/dsh-goal-1008/phase2-review-verdict.txt` |
+| Phase 2 acceptance and delivery | PASS. Commit `fef4e96a52aa7231eae84cc20cd37fbf6c4f97fa` was pushed to `ascendnpu-engineering-harness`; remote confirmation matches. | `/tmp/dsh-goal-1008/phase2-push.txt`; `/tmp/dsh-goal-1008/phase2-remote-confirmed.txt` |
 
-Phase 2 acceptance is PASS with the final documentation aggregate and reviewer approval. Push remains pending.
+Phase 2 acceptance and push are PASS. The target branch points to `fef4e96a52aa7231eae84cc20cd37fbf6c4f97fa`.

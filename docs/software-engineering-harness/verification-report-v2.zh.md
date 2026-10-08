@@ -79,6 +79,6 @@
 | 最终文档总检查 | PASS：42 项 gate 全部通过，0 项失败、0 项跳过。 | `/tmp/dsh-goal-1008/phase2-doc-sync-final.txt` |
 | 同步准入排序 | 修正后的确定性回归测试通过。隔离的反序控制按预期失败；评审者也检查了现有并发通过结果，并批准最终修改。 | `/tmp/dsh-goal-1008/phase2-scout-start-order-latched-green.txt`；`/tmp/dsh-goal-1008/phase2-scout-start-order-latched-negative-red.txt`；`/tmp/dsh-goal-1008/phase2-review-verdict.txt` |
 | Provider 成本证据 | NOT_RUN。Provider 定价尚未核验；成本仍未知，未定价请求会使 `maxKnownCostUsd` 关闭后续请求，因此它不是支出上限。 | `/tmp/dsh-goal-1008/provider-availability.json` |
-| Phase 2 验收与交付 | 验收 PASS。推送仍为 PENDING。 | 本报告；`/tmp/dsh-goal-1008/phase2-doc-sync-final.txt`；`/tmp/dsh-goal-1008/phase2-review-verdict.txt` |
+| Phase 2 验收与交付 | PASS。提交 `fef4e96a52aa7231eae84cc20cd37fbf6c4f97fa` 已推送到 `ascendnpu-engineering-harness`；远端确认一致。 | `/tmp/dsh-goal-1008/phase2-push.txt`；`/tmp/dsh-goal-1008/phase2-remote-confirmed.txt` |
 
-Phase 2 验收为 PASS，最终文档总检查和评审均已通过。推送仍待完成。
+Phase 2 验收和推送均为 PASS。目标分支当前指向 `fef4e96a52aa7231eae84cc20cd37fbf6c4f97fa`。
