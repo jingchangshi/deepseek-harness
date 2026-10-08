@@ -81,6 +81,8 @@ schema 校验会在执行前拒绝缺失或非数组的 `queries` 字段、非�
 
 -----
 
+`web_fetch` 和 `web_search` 工具为[经过验证的工具执行观察](../../core/tools/README.zh.md)声明只读副作用。运行时缓存和 Session 记账不计为工作区修改。
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 

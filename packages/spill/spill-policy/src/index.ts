@@ -100,6 +100,7 @@ export function apply(ctx: Context, config: Config): void {
   }
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'spill_read',
+    sideEffects: 'read-only',
     description: 'Read a bounded page of spilled text by its opaque locator, including locators inherited in a fork or received as context. Follow the returned byteOffset to continue within long lines.',
     parameters: {
       locator: { type: 'string', required: true, description: 'Opaque full-result locator from the spill notice. Do not parse or make one up.' },

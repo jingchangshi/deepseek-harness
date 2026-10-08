@@ -208,6 +208,7 @@ function imageReadContent(value: ImageReadValue): ContentBlock[] {
 export function applyReadImageTool(ctx: Context): void {
   ctx.tools.register(defineTool({
     name: 'read_image',
+    sideEffects: 'read-only',
     description: 'Read a PNG/JPEG/WebP/GIF file and return the image itself. '
       + 'Large images are downscaled automatically; do not install image libraries or create thumbnails to inspect an image.',
     parameters: {

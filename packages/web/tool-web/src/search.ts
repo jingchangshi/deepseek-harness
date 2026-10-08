@@ -324,6 +324,7 @@ export function applyWebSearchTool(
 
   ctx.tools.register(defineTool({
     name: 'web_search',
+    sideEffects: 'read-only',
     description: 'Search the web for current information. Returns an optional summary answer and a list of source URLs.',
     parameters: {
       queries: {

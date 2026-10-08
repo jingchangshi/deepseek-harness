@@ -7061,6 +7061,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
+      ajv:
+        specifier: ^8.20.0
+        version: 8.20.0
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:~

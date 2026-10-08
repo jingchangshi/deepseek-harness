@@ -70,6 +70,8 @@ PTC programs receive complete canonical values. Image-bearing sub-results are bo
 
 -----
 
+The `spill_read` tools declare read-only effects for [validated body-start observation](../../core/tools/README.md). Runtime cache and Session bookkeeping do not count as workspace mutation.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 

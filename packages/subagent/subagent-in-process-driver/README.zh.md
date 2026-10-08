@@ -41,6 +41,8 @@ kind: "package-library"
 
 -----
 
+子级完成工具声明只读副作用，并在[工具执行观察](../../core/tools/README.zh.md)之前验证其捕获的结果 schema；暂存结果只改变子级持有的运行时状态。
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 

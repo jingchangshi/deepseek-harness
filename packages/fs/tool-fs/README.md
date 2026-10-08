@@ -75,6 +75,8 @@ Failures are normalized as `Error: <message>` with a structured code preserved f
 
 -----
 
+The `read` and `read_image` tools declare read-only effects for [validated body-start observation](../../core/tools/README.md). Runtime cache and Session bookkeeping do not count as workspace mutation.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 

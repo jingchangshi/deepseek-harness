@@ -51,6 +51,8 @@ kind: "package-reference"
 
 -----
 
+`lsp` 工具为[经过验证的工具执行观察](../../core/tools/README.zh.md)声明只读副作用。运行时缓存和 Session 记账不计为工作区修改。
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 

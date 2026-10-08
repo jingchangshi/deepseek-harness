@@ -5,6 +5,7 @@
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
+import Ajv from 'ajv'
 import z from '@deepseek-ai/schemastery'
 import { AnonymousEntries, NamedEntries, ScopedLayers, scopeOf, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { ScopeKey, ScopeLayer, Scoped } from '@deepseek-ai/dsh-scope'
@@ -22,6 +23,7 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import type { ToolCallView, ToolResultView } from './presentation.ts'
 import { assertSupportedJsonSchema, validateJsonSchemaValue } from './json-schema.ts'
 import type { JsonSchemaNode } from './json-schema.ts'
+import { ToolArgsError } from './schema.ts'
 import { createRunCodeTool, RUN_CODE_NAME } from './ptc.ts'
 import type { PtcSdkLanguage } from './ptc.ts'
 import { renderToolsSdk } from './ts-types.ts'
@@ -221,6 +223,15 @@ export interface ToolOutputDefinition {
 
 /** A registered tool: its schema plus the execution function. */
 export interface ToolDefinition extends ToolSchema {
+  /** Whether the tool body is read-only; omission means it may mutate state. */
+  readonly sideEffects?: ToolSideEffects
+  /**
+   * Validate arguments captured by this tool definition before body dispatch.
+   * @param args - losslessly materialized tool arguments.
+   * @returns Nothing when valid; throws when arguments violate the schema.
+   * @throws {ToolArgsError} when arguments violate a `defineTool` parameter schema.
+   */
+  validateArguments?(args: unknown): void
   /** Mandatory canonical output declaration. */
   readonly output: ToolOutputDefinition
   /**
@@ -297,6 +308,17 @@ export interface ToolDefinition extends ToolSchema {
    */
   presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined
 }
+
+/** Declared side effects used when observing a validated tool body start. */
+export type ToolSideEffects = 'read-only' | 'potentially-mutating'
+
+/**
+ * Synchronous observer notified immediately before an accepted tool body starts.
+ * @param exec - immutable execution identity and arguments.
+ * @param sideEffects - resolved effect classification; missing declarations resolve to potentially-mutating.
+ * @returns `undefined`; asynchronous callbacks and returned values are rejected.
+ */
+export type ToolBodyStartObserver = (exec: Readonly<ToolExecution>, sideEffects: ToolSideEffects) => void
 
 /** The completed outcome handed to {@link ToolDefinition.presentResult}. */
 export interface ToolResult {
@@ -796,6 +818,7 @@ class ToolLayer implements ScopeLayer {
   readonly tools: NamedEntries<ToolDefinition>
   readonly restrictions = new AnonymousEntries<CompiledToolRestriction>()
   readonly guards = new AnonymousEntries<ToolGuard>()
+  readonly bodyStartObservers = new AnonymousEntries<ToolBodyStartObserver>()
   /**
    * Presentation this scope's agent declared for itself, shadowing the
    * deployment default. One cell rather than an entry table: two answers to
@@ -811,7 +834,7 @@ class ToolLayer implements ScopeLayer {
 
   /** Whether every contribution table in this aggregate layer is empty. */
   isEmpty(): boolean {
-    return this.tools.isEmpty() && this.restrictions.isEmpty() && this.guards.isEmpty()
+    return this.tools.isEmpty() && this.restrictions.isEmpty() && this.guards.isEmpty() && this.bodyStartObservers.isEmpty()
       && this.mode === undefined
   }
 
@@ -898,6 +921,11 @@ export class ToolRuntime extends Service {
   /** Presentation for scopes that declare none; {@link presentAs} shadows it per scope. */
   private readonly defaultMode: ToolPresentationMode
   private readonly maxParallelSubCalls: number
+  /** Full JSON Schema validators cached against each definition's current frozen schema snapshot. */
+  private readonly rawArgumentValidators = new WeakMap<ToolDefinition, {
+    readonly serialized: string
+    readonly validate: (args: unknown) => void
+  }>()
   /**
    * Reserved presentation transport, kept outside the filterable registration
    * layers. Built on first need rather than at construction: which agents run
@@ -1200,6 +1228,71 @@ export class ToolRuntime extends Service {
       layer => layer.guards.append(guard),
       { label: 'tools.guard()', notify: false },
     )
+  }
+
+  /**
+   * Observe a validated tool body immediately before invocation.
+   * @param observer - synchronous callback receiving immutable execution identity and side-effect metadata.
+   * @returns the exact disposer that unregisters the observer.
+   */
+  observeBodyStart(observer: ToolBodyStartObserver): () => void {
+    return this.layers.effect(
+      this.ctx,
+      layer => layer.bodyStartObservers.append(observer),
+      { label: 'tools.observeBodyStart()', notify: false },
+    )
+  }
+
+  /** Validate raw tool arguments with Ajv's full JSON Schema implementation. */
+  private validateRawArguments(tool: ToolDefinition, args: unknown): void {
+    const previous = this.rawArgumentValidators.get(tool)
+    const snapshot = snapshotJsonValue(tool.parameters)
+    if (Array.isArray(snapshot) || typeof snapshot !== 'object') {
+      throw new Error(`tool "${tool.name}" parameters must be a JSON Schema object`)
+    }
+    const serialized = JSON.stringify(snapshot)
+    let validate = previous?.serialized === serialized ? previous.validate : undefined
+    if (validate === undefined) {
+      const frozenSchema = deepFreeze(snapshot)
+      if ('$async' in frozenSchema && frozenSchema.$async === true) {
+        throw new Error(`tool "${tool.name}" parameters use an unsupported asynchronous JSON Schema`)
+      }
+      const validator = new Ajv({
+        allErrors: true,
+        strictSchema: true,
+        strictTypes: false,
+        strictTuples: false,
+        strictRequired: false,
+        validateSchema: true,
+      })
+      const compiled = validator.compile(frozenSchema)
+      validate = (candidate) => {
+        if (compiled(candidate)) return
+        const violations = (compiled.errors ?? []).map(error => `${error.instancePath || '/'} ${error.message ?? 'is invalid'}`)
+        throw new ToolArgsError(violations.length === 0 ? ['arguments do not match the JSON Schema'] : violations)
+      }
+      this.rawArgumentValidators.set(tool, { serialized, validate })
+    }
+    validate(args)
+  }
+
+  /** Invoke matching observers in global then scope order with one immutable execution snapshot. */
+  private notifyBodyStart(exec: MutableToolRunContext, sideEffects: ToolSideEffects): void {
+    const snapshot = Object.freeze({ ...exec })
+    for (const layer of [this.layers.global, ...(exec.agent === undefined ? [] : this.layers.chainLayers(exec.agent))]) {
+      for (const observer of layer.bodyStartObservers.values()) {
+        // Runtime JavaScript callbacks can return promises despite the void TypeScript contract.
+        // oxlint-disable-next-line typescript/no-confusing-void-expression
+        const returned: unknown = Reflect.apply(observer, undefined, [snapshot, sideEffects])
+        if (returned !== undefined) {
+          void Promise.resolve(returned).catch((rejection: unknown) => {
+            // The synchronous dispatch error already rejects this observer's result.
+            void rejection
+          })
+          throw new Error('tools body-start observers must be synchronous and return undefined')
+        }
+      }
+    }
   }
 
   /** First monotonic denial from the global then the scope chain's guard layers, farthest first. */
@@ -1654,8 +1747,16 @@ export class ToolRuntime extends Service {
     try {
       const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
       if (!tool) throw this.unknownTool(exec.name, exec.agent)
+      const execute = tool.execute.bind(tool)
+      const sideEffects = tool.sideEffects ?? 'potentially-mutating'
+      const validateArguments = tool.validateArguments?.bind(tool)
+      if (validateArguments !== undefined) validateArguments(exec.arguments)
+      else this.validateRawArguments(tool, exec.arguments)
+      if (isAborted(signal)) return toolAbortedBeforeDispatchResult()
+      this.notifyBodyStart(exec, sideEffects)
+      if (isAborted(signal)) return toolAbortedBeforeDispatchResult()
       state.bodyInvoked = true
-      const returned = await tool.execute(exec.arguments, exec)
+      const returned = await execute(exec.arguments, exec)
       const result = this.createSuccessResult(exec, tool, returned)
       return isAborted(signal)
         ? toolAbortedResult(result)

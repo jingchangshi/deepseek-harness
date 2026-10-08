@@ -317,6 +317,7 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
 
   const tool = defineTool({
     name: 'grep',
+    sideEffects: 'read-only',
     description: 'Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. '
       + `Returns up to ${caps.maxMatches} matches; a larger result reports where the complete match list was saved.`,
     parameters: {

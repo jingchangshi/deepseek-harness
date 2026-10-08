@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-使用 `dsh-tools` 可向模型公开类型化能力、校验调用、执行允许／拒绝／询问策略，并在普通工具失败时返回最终结果而不中止当前轮次。通过 `mode` 选择原生 Function Calling（函数调用）、[PTC mode](#ptc-mode) 或两者；单个 agent（智能体）可用 `presentAs` 覆盖默认值。工具作者使用 `defineTool` 声明类型化参数与输出、协作式超时、并行安全属性和可选 UI 展示。模型会看到每个获准工具声明的名称、描述与参数 schema；按 agent 设置的限制可缩小该可见集合。
+使用 `dsh-tools` 可向模型公开类型化能力、校验调用、执行允许／拒绝／询问策略，并在普通工具失败时返回最终结果而不中止当前轮次。通过 `mode` 选择原生 Function Calling（函数调用）、[PTC mode](#ptc-mode) 或两者；单个 agent（智能体）可用 `presentAs` 覆盖默认值。工具作者使用 `defineTool` 声明类型化参数与输出、协作式超时、副作用分类、并行安全属性和可选 UI 展示。模型会看到每个获准工具声明的名称、描述与参数 schema；按 agent 设置的限制可缩小该可见集合。
 
 ## 目录
 
@@ -29,7 +29,7 @@ kind: "package-reference"
 
 ### 注册工具
 
-`defineTool` 构建类型化工具定义：面向模型的名称、描述与参数 schema、规范输出声明，以及只返回所声明 JSON 值的 `execute` 主体。模型参数在执行前被校验；无效输入变成普通错误结果。
+`defineTool` 构建类型化工具定义：面向模型的名称、描述与参数 schema、规范输出声明，以及只返回所声明 JSON 值的 `execute` 主体。注册表会在策略和守卫之后、即将分派主体前校验参数；无效输入会变成普通错误结果。原始定义可以提供 `validateArguments`；若希望无效参数返回 `INVALID_ARGS`，请抛出 `ToolArgsError`。否则，注册表会在分派前根据定义的 JSON Schema 校验参数。原始 schema 使用 Ajv 默认的 Draft 7 dialect 并执行严格 schema 校验；不支持的关键字、format 或 dialect、无法解析的引用都会失败，且不会远程获取引用。
 
 规范值属于执行过程；Session 记录渲染后的内容及可选展示元数据。替换或脱敏这些内容不会移除程序化调用方可读取的规范值；需要禁止该访问的策略必须阻止执行或替换该值。
 
@@ -43,6 +43,7 @@ declare const ctx: Context
 ctx.tools.register(defineTool({
   name: 'read_file',
   description: 'Read a file from disk.',
+  sideEffects: 'read-only',
   parameters: {
     path: { type: 'string', required: true, description: 'Absolute file path' },
     offset: { type: 'number' },
@@ -86,6 +87,8 @@ ctx.tools.register(defineTool({
 
 `ctx.tools.guard(guard)` 在可扩展的 `tools/pre-execute` waterfall（瀑布式事件）之后注册单调同步守卫：返回的理由会拒绝调用，后续监听器无法把该拒绝重新变为允许。流水线事件给插件更多控制——`tools/pre-execute` 决定允许／拒绝／询问，`tools/execute` 为超时或重试包装分发，`tools/post-execute` 检查或替换结果，`tools/result` 观测冻结的最终结果。
 
+工具定义可以把 `sideEffects` 设为 `read-only` 或 `potentially-mutating`。省略时按保守规则视为可能产生 mutation。只读表示主体不会修改调用方 workspace 或外部系统；runtime cache 与 Session bookkeeping 仍可变化。此分类是内部元数据，不会授予权限。`ctx.tools.observeBodyStart(observer)` 会在策略、守卫和环绕分发包装器都允许主体执行后，同步观察每次经过验证的主体调用。它接收不可变执行信息和解析后的分类；抛出异常或返回值都会阻止主体分派。可全局注册，也可从 agent 作用域注册，并由所属方 dispose 返回的注册句柄。回调细节见[工具子系统参考](../../../docs/subsystems/tools.zh.md)。
+
 工具的 `projectContent` 在执行后策略之前安装执行期间准备的图文内容。策略仍可替换或阻止这些内容；`finalizeContent` 保留为策略之后的最终内容处理。
 
 ### Host 展示描述
@@ -104,7 +107,7 @@ ctx.tools.register(defineTool({
 
 ### 设计理念
 
-注册表在作用域层中持有类型化 `ToolDefinition`，并在请求时把它们投影为面向模型的 `ToolSchema` 集合——`output`、`execute`、`finalizeContent`、`timeoutMs` 与呈现回调绝不会泄漏到协议上。每次调用都运行一条固定流水线：`tools/pre-execute`（可扩展的允许／拒绝／询问）→ 已注册单调守卫 → `tools/execute`（环绕分发包装层）→ `tools/post-execute`（检查／替换、附加上下文）→ 由定义持有的 `finalizeContent` → 仅观测的 `tools/result` 事件。只有 `tools/execute` 视图可以替换必填信号，注册表会在调用主体前重新融合调用方信号。
+注册表在作用域层中持有类型化 `ToolDefinition`，并在请求时把它们投影为面向模型的 `ToolSchema` 集合——`output`、`execute`、`sideEffects`、`validateArguments`、`finalizeContent`、`timeoutMs` 与呈现回调绝不会泄漏到协议上。每次调用都运行一条固定流水线：`tools/pre-execute`（可扩展的允许／拒绝／询问）→ 已注册单调守卫 → `tools/execute`（环绕分发包装层）→ 参数验证与 body-start observer → 工具主体 → `tools/post-execute`（检查／替换、附加上下文）→ 由定义持有的 `finalizeContent` → 仅观测的 `tools/result` 事件。只有 `tools/execute` 视图可以替换必填信号，注册表会在调用主体前重新融合调用方信号。
 
 ### 源码地图
 

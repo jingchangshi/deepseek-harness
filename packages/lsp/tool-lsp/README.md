@@ -51,6 +51,8 @@ The tool requires a session workspace root (`header.cwd`) with no fallback; abse
 
 -----
 
+The `lsp` tools declare read-only effects for [validated body-start observation](../../core/tools/README.md). Runtime cache and Session bookkeeping do not count as workspace mutation.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 

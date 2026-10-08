@@ -41,6 +41,8 @@ The child receives the parent's working-directory/session lineage and inherits t
 
 -----
 
+The child completion tool declares read-only effects and validates its captured result schema before [body-start observation](../../core/tools/README.md); staging a result changes only child-owned runtime state.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 

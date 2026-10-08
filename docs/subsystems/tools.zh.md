@@ -8,7 +8,7 @@
 
 ## `ToolDefinition` — 一个已注册的工具
 
-由一个 `ToolSchema`（面向模型的字段）、必需的规范输出声明、`execute` 函数、仅供宿主使用的调度器元数据、可选的最终内容回调和可选 UI 展示函数组成。注册表持有这些定义，循环通过它们分派调用。注册表的 `schemas()` 通过显式允许列表构建面向模型的 `ToolSchema[]`；`output`/`execute`/`projectContent`/`finalizeContent`/`timeoutMs`/`isConcurrencySafe`/`presentCall`/`presentResult` 绝不能泄漏到模型请求中。
+由一个 `ToolSchema`（面向模型的字段）、必需的规范输出声明、`execute` 函数、仅供宿主使用的调度器元数据、可选的最终内容回调和可选 UI 展示函数组成。注册表持有这些定义，循环通过它们分派调用。注册表的 `schemas()` 通过显式允许列表构建面向模型的 `ToolSchema[]`；`output`/`execute`/`projectContent`/`finalizeContent`/`timeoutMs`/`isConcurrencySafe`/`sideEffects`/`validateArguments`/`presentCall`/`presentResult` 绝不能泄漏到模型请求中。
 
 ```ts type-equiv
 /** Tool-owned canonical output contract used after the body returns a JSON value. */
@@ -25,6 +25,15 @@ interface ToolOutputDefinition {
 ```ts type-equiv
 /** A registered tool: its schema plus the execution function. */
 interface ToolDefinition extends ToolSchema {
+  /** Whether the tool body is read-only; omission means it may mutate state. */
+  readonly sideEffects?: ToolSideEffects
+  /**
+   * Validate arguments captured by this tool definition before body dispatch.
+   * @param args - losslessly materialized tool arguments.
+   * @returns Nothing when valid; throws when arguments violate the schema.
+   * @throws {ToolArgsError} when arguments violate a `defineTool` parameter schema.
+   */
+  validateArguments?(args: unknown): void
   /** Mandatory canonical output declaration. */
   readonly output: ToolOutputDefinition
   /**
@@ -103,7 +112,11 @@ interface ToolDefinition extends ToolSchema {
 }
 ```
 
-`execute` 接收 `args: unknown`——原始的 `ToolDefinition` 自行校验输入。第一方工具不需要手写校验；它们使用 `defineTool`，由后者代为校验并收窄参数类型、根据 `output.schema` 推导函数体返回类型，并为两个输出投影器提供类型约束。`finalizeContent` 特意接收不可变的执行对象而非类型化参数，因为无效输入和外层流水线失败也会到达该回调；它可以施加工具自有的内容限制，同时保留 `isError`、规范值、结构化错误身份、延迟上下文与展示元数据。
+`defineTool` 会将参数验证器捕获为 `validateArguments`；其 `execute` 包装器仍为直接调用方执行相同校验。没有此回调的原始定义由注册表使用 Ajv Draft 7，根据原始 JSON Schema 校验参数，然后才分派主体。严格校验会拒绝不支持的关键字、format 和 schema dialect；无法解析的引用会直接失败，不会远程获取。无效参数及这些 schema 错误都会在 body-start observation 前失败。`defineTool` 还会根据 `output.schema` 推导函数体返回类型，并约束两个输出投影器。`finalizeContent` 特意接收不可变的执行对象而非类型化参数，因为无效输入和外层流水线失败也会到达该回调；它可以施加工具自有的内容限制，同时保留 `isError`、规范值、结构化错误身份、延迟上下文与展示元数据。
+
+`sideEffects` 将主体分类为 `read-only` 或 `potentially-mutating`；省略时按可能产生 mutation 处理。只读表示主体不会修改调用方 workspace 或外部系统，而 runtime cache 与 Session bookkeeping 仍可变化。注册表会在 `ToolSideEffects` observation 中使用此分类；它不会授予权限。
+
+`ToolBodyStartObserver` 是 `observeBodyStart` 使用的同步回调类型。回调会收到 readonly `ToolExecution` 快照和解析后的 `ToolSideEffects` 分类。注册可归属于全局 runtime，也可归属于创建注册的 agent 作用域。
 
 ## 统一的 JSON 值 schema DSL
 
@@ -179,7 +192,9 @@ interface ToolRestriction {
 
 ## 执行：可扩展的 waterfall（瀑布式事件）加单调策略
 
-`ctx.tools.execute()` 接受由调用方拥有且包含必需 readonly `signal` 的 `ToolExecutionInput`，将其解析后的 JSON 参数一次性物化为流水线拥有的 `ToolExecution`，然后让调用依次经过 `tools/pre-execute`（可重排的 allow/deny/ask waterfall）→ 已注册的单调 guard → `tools/execute`（环绕分派包装层）→ `projectContent` → `tools/post-execute`（检查/替换结果）→ 可选且由定义拥有的 `finalizeContent` → `tools/result`（不可变的权威结果）。只有 `tools/execute` 视图可以替换必需的 signal。最终产出为 `ToolExecutionResult`。
+`ctx.tools.execute()` 接受由调用方拥有且包含必需 readonly `signal` 的 `ToolExecutionInput`，将其解析后的 JSON 参数一次性物化为流水线拥有的 `ToolExecution`，然后让调用依次经过 `tools/pre-execute`（可重排的 allow/deny/ask waterfall）→ 已注册的单调 guard → `tools/execute`（环绕分派包装层）→ 参数验证与 body-start observer → 工具主体 → `projectContent` → `tools/post-execute`（检查/替换结果）→ 可选且由定义拥有的 `finalizeContent` → `tools/result`（不可变的权威结果）。只有 `tools/execute` 视图可以替换必需的 signal。最终产出为 `ToolExecutionResult`。
+
+`ctx.tools.observeBodyStart(observer)` 可全局注册，也可在调用方 agent 作用域注册，并返回其准确的 disposer。注册表在参数验证、pre-execute policy、守卫和环绕分发包装器之后、每次主体调用之前，以同一个冻结执行快照和已解析的 `ToolSideEffects` 同步调用匹配的 observer。Observer 抛出异常或返回非 `undefined` 值都会 fail closed；observer 执行后会再次检查取消。Scope dispose 时移除该作用域的 observer。
 
 ```ts type-equiv
 /** Opaque call identity that permits correlation without exposing mutable execution state. */
@@ -551,6 +566,13 @@ restrict(filter: ToolRestriction): () => void
  * @returns the exact disposer that unregisters the guard.
  */
 guard(guard: ToolGuard): () => void
+
+/**
+ * Observe a validated tool body immediately before invocation.
+ * @param observer - synchronous callback receiving immutable execution identity and side-effect metadata.
+ * @returns the exact disposer that unregisters the observer.
+ */
+observeBodyStart(observer: ToolBodyStartObserver): () => void
 
 /**
  * Look up a tool as one scope sees it (scoped

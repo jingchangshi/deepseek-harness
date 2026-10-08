@@ -70,6 +70,8 @@ PTC 程序收到完整的规范值。图片子结果在转发给模型前设定�
 
 -----
 
+`spill_read` 工具为[经过验证的工具执行观察](../../core/tools/README.zh.md)声明只读副作用。运行时缓存和 Session 记账不计为工作区修改。
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 

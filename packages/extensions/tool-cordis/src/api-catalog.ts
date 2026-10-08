@@ -3316,6 +3316,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the exact disposer that unregisters the guard.',
       },
       {
+        signature: 'observeBodyStart(observer: ToolBodyStartObserver): () => void',
+        description: 'Observe a validated tool body immediately before invocation.',
+        parameters: [{ name: 'observer', description: 'synchronous callback receiving immutable execution identity and side-effect metadata.' }],
+        returns: 'the exact disposer that unregisters the observer.',
+      },
+      {
         signature: 'get(name: string, scope?: ScopeKey): ToolDefinition | undefined',
         description: 'Look up a tool as one scope sees it (scoped shadows global; a restricted-away global reads as absent). Presenters pass the calling agent so the rendered card matches the definition that actually executed.',
         parameters: [{ name: 'name', description: 'the tool name as registered.' }, { name: 'scope', description: 'the viewing scope (the agent); omitted = the global view.' }],
@@ -7779,6 +7785,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ToolAdditionBlock {\n    type: \'tool-addition\';\n    toolName: string;\n    tool?: never;\n}',
   },
   {
+    name: 'ToolBodyStartObserver',
+    declaration: 'export type ToolBodyStartObserver = (exec: Readonly<ToolExecution>, sideEffects: ToolSideEffects) => void;',
+  },
+  {
     name: 'ToolCallBlock',
     declaration: 'export interface ToolCallBlock {\n    type: \'tool-call\';\n    id: ToolCallId;\n    name: string;\n    arguments: string;\n}',
   },
@@ -7804,7 +7814,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolDefinition',
-    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    projectContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
+    declaration: 'export interface ToolDefinition extends ToolSchema {\n    readonly sideEffects?: ToolSideEffects;\n    validateArguments?(args: unknown): void;\n    readonly output: ToolOutputDefinition;\n    execute(args: unknown, exec: ToolRunContext): Promise<unknown>;\n    projectContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    finalizeContent?(exec: Readonly<ToolExecution>, result: Readonly<ToolExecutionResult>): ContentBlock[] | undefined;\n    timeoutMs?: number;\n    isConcurrencySafe?(args: unknown): boolean;\n    presentCall?(args: unknown): ToolCallView | undefined;\n    presentResult?(args: unknown, result: ToolResult): ToolResultView | undefined;\n}',
   },
   {
     name: 'ToolDispatchExecution',
@@ -7900,7 +7910,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolRuntime',
-    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
+    declaration: 'export class ToolRuntime extends Service {\n    static inject;\n    static Config: z<Config>;\n    readonly [TOOL_RUNTIME_SCHEDULER]: ToolRuntimeScheduler;\n    constructor(ctx: Context, config: Config = {});\n    presentAs(mode: ToolPresentationMode): () => void;\n    register(definition: ToolDefinition): () => void;\n    restrict(filter: ToolRestriction): () => void;\n    guard(guard: ToolGuard): () => void;\n    observeBodyStart(observer: ToolBodyStartObserver): () => void;\n    get(name: string, scope?: ScopeKey): ToolDefinition | undefined;\n    schemas(scope?: ScopeKey): ToolSchema[];\n    executionMode(exec: ToolExecutionInput): ToolExecutionMode;\n    async execute(exec: ToolExecutionInput): Promise<ToolExecutionResult>;\n}',
   },
   {
     name: 'ToolRuntimeScheduler',
@@ -7909,6 +7919,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ToolSchema',
     declaration: 'export interface ToolSchema {\n    deferLoading?: true;\n    name: string;\n    description: string;\n    parameters: Record<string, unknown>;\n}',
+  },
+  {
+    name: 'ToolSideEffects',
+    declaration: 'export type ToolSideEffects = \'read-only\' | \'potentially-mutating\';',
   },
   {
     name: 'ToolSpec',

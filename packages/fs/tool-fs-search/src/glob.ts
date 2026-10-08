@@ -305,6 +305,7 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
   const overCapDescription = caps.sampleOverCapGlobResults ? 'is sampled across top-level entries' : 'keeps the first paths'
   const tool = defineTool({
     name: 'glob',
+    sideEffects: 'read-only',
     description: 'Find files, not directories, whose paths match a glob pattern, including hidden and ignored files. '
       + `Returns up to ${caps.maxResults} paths in modification-time order; a larger result ${overCapDescription} `
       + 'and reports where the complete list was saved.',

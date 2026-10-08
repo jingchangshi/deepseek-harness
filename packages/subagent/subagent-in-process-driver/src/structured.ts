@@ -71,8 +71,15 @@ export function attachStructuredRuntime(childCtx: Context, schema: ObjectJsonSch
     parameters: schema as unknown as Record<string, unknown>,
   }
 
+  const validateArguments = (args: unknown): void => {
+    const violations = validateJsonSchemaValue(schema, args)
+    if (violations.length > 0) throw new ToolArgsError(violations)
+  }
+
   childCtx.tools.register({
     ...schemaEntry,
+    sideEffects: 'read-only',
+    validateArguments,
     output: {
       schema: {
         type: 'object',
@@ -83,10 +90,7 @@ export function attachStructuredRuntime(childCtx: Context, schema: ObjectJsonSch
       render: () => [{ type: 'text', text: 'Structured output recorded.' }],
     },
     execute(args: unknown, exec: ToolRunContext): Promise<{ recorded: true }> {
-      const violations = validateJsonSchemaValue(schema, args)
-      // ToolArgsError → isError result with INVALID_ARGS: the model retries
-      // within the same turn, exactly like a schema-validated defineTool call.
-      if (violations.length > 0) throw new ToolArgsError(violations)
+      validateArguments(args)
       // Two-phase commit, keyed by THIS execution: later transformable
       // waterfalls may still turn the success into an error. ToolRuntime has
       // already frozen model-bound arguments at the actual input boundary.

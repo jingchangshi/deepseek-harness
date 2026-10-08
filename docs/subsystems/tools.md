@@ -8,7 +8,7 @@ Source: [`packages/core/tools/src/index.ts`](../../packages/core/tools/src/index
 
 ## `ToolDefinition` — a registered tool
 
-A `ToolSchema` (the model-facing fields) plus a mandatory canonical output declaration, the `execute` function, host-only scheduler metadata, an optional final-content callback, and optional UI presenters. The registry holds these; the loop dispatches calls through them. The registry's `schemas()` builds the model-facing `ToolSchema[]` by an explicit allowlist — `output`/`execute`/`projectContent`/`finalizeContent`/`timeoutMs`/`isConcurrencySafe`/`presentCall`/`presentResult` must never leak into a model request.
+A `ToolSchema` (the model-facing fields) plus a mandatory canonical output declaration, the `execute` function, host-only scheduler metadata, an optional final-content callback, and optional UI presenters. The registry holds these; the loop dispatches calls through them. The registry's `schemas()` builds the model-facing `ToolSchema[]` by an explicit allowlist — `output`/`execute`/`projectContent`/`finalizeContent`/`timeoutMs`/`isConcurrencySafe`/`sideEffects`/`validateArguments`/`presentCall`/`presentResult` must never leak into a model request.
 
 ```ts type-equiv
 /** Tool-owned canonical output contract used after the body returns a JSON value. */
@@ -25,6 +25,15 @@ interface ToolOutputDefinition {
 ```ts type-equiv
 /** A registered tool: its schema plus the execution function. */
 interface ToolDefinition extends ToolSchema {
+  /** Whether the tool body is read-only; omission means it may mutate state. */
+  readonly sideEffects?: ToolSideEffects
+  /**
+   * Validate arguments captured by this tool definition before body dispatch.
+   * @param args - losslessly materialized tool arguments.
+   * @returns Nothing when valid; throws when arguments violate the schema.
+   * @throws {ToolArgsError} when arguments violate a `defineTool` parameter schema.
+   */
+  validateArguments?(args: unknown): void
   /** Mandatory canonical output declaration. */
   readonly output: ToolOutputDefinition
   /**
@@ -103,7 +112,11 @@ interface ToolDefinition extends ToolSchema {
 }
 ```
 
-`execute` receives `args: unknown` — a raw `ToolDefinition` validates its own input. First-party tools don't write that by hand; they use `defineTool`, which validates and narrows the arguments, infers the body return from `output.schema`, and types both output projectors. `finalizeContent` deliberately receives the immutable execution instead of typed arguments because invalid-input and outer pipeline failures reach it too; it may enforce a tool-owned content bound while preserving `isError`, canonical value, structured error identity, deferred contexts, and presentation metadata.
+`defineTool` captures its parameter validator as `validateArguments`; its `execute` wrapper retains the same check for direct callers. For a raw definition without that callback, the registry validates arguments against its raw JSON Schema with Ajv Draft 7 before body dispatch. Strict validation rejects unsupported keywords, formats, and schema dialects; unresolved references fail without remote retrieval. These failures and invalid arguments occur before body-start observation. `defineTool` also infers the body return from `output.schema` and types both output projectors. `finalizeContent` deliberately receives the immutable execution instead of typed arguments because invalid-input and outer pipeline failures reach it too; it may enforce a tool-owned content bound while preserving `isError`, canonical value, structured error identity, deferred contexts, and presentation metadata.
+
+`sideEffects` classifies the body as `read-only` or `potentially-mutating`; omission means potentially mutating. Read-only means the body does not mutate the caller's workspace or external systems, while runtime caches and Session bookkeeping may change. The registry uses this classification for `ToolSideEffects` observations; it does not grant permission.
+
+`ToolBodyStartObserver` is the synchronous callback type used by `observeBodyStart`. It receives a readonly `ToolExecution` snapshot and the resolved `ToolSideEffects` classification. Registrations belong to the global runtime or the agent scope from which they were made.
 
 ## The unified JSON-value schema DSL
 
@@ -179,7 +192,9 @@ interface ToolRestriction {
 
 ## Execution: extensible waterfalls plus monotonic policy
 
-`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput` with a required readonly `signal`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `projectContent` → `tools/post-execute` (inspect/replace the result) → optional definition-owned `finalizeContent` → `tools/result` (the immutable authoritative outcome). Only the `tools/execute` view may replace the required signal. The outcome is a `ToolExecutionResult`.
+`ctx.tools.execute()` accepts a caller-owned `ToolExecutionInput` with a required readonly `signal`, materializes its parsed JSON arguments once into a pipeline-owned `ToolExecution`, and runs that call through `tools/pre-execute` (the reorderable allow/deny/ask waterfall) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → argument validation and body-start observers → tool body → `projectContent` → `tools/post-execute` (inspect/replace the result) → optional definition-owned `finalizeContent` → `tools/result` (the immutable authoritative outcome). Only the `tools/execute` view may replace the required signal. The outcome is a `ToolExecutionResult`.
+
+`ctx.tools.observeBodyStart(observer)` registers a synchronous observer globally or in the calling agent scope and returns its exact disposer. The registry calls matching observers with one frozen execution snapshot and the resolved `ToolSideEffects` immediately before every body invocation, after validation, pre-execute policy, guards, and around-dispatch wrappers. Observer exceptions or non-`undefined` returns fail the call closed; cancellation is checked again after observers. Scope disposal removes scoped observers.
 
 ```ts type-equiv
 /** Opaque call identity that permits correlation without exposing mutable execution state. */
@@ -551,6 +566,13 @@ restrict(filter: ToolRestriction): () => void
  * @returns the exact disposer that unregisters the guard.
  */
 guard(guard: ToolGuard): () => void
+
+/**
+ * Observe a validated tool body immediately before invocation.
+ * @param observer - synchronous callback receiving immutable execution identity and side-effect metadata.
+ * @returns the exact disposer that unregisters the observer.
+ */
+observeBodyStart(observer: ToolBodyStartObserver): () => void
 
 /**
  * Look up a tool as one scope sees it (scoped

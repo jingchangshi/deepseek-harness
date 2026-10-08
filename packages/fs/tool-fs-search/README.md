@@ -79,6 +79,8 @@ Search failures carry `SEARCH_INVALID_PATTERN`, `SEARCH_FAILED`, `SEARCH_RAW_OUT
 
 -----
 
+The `glob` and `grep` tools declare read-only effects for [validated body-start observation](../../core/tools/README.md). Runtime cache and Session bookkeeping do not count as workspace mutation.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 

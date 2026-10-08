@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Use `dsh-tools` to expose typed capabilities to models, validate calls, enforce allow/deny/ask policy, and return finalized results without ending a turn on ordinary tool failures. Choose native Function Calling, [PTC mode](#ptc-mode), or both with `mode`; an agent can override the default through `presentAs`. Tool authors use `defineTool` to declare typed parameters and outputs, cooperative timeouts, parallel-safety, and optional UI presentation. Models see each permitted tool's declared name, description, and parameter schema; per-agent restrictions can narrow that visible set.
+Use `dsh-tools` to expose typed capabilities to models, validate calls, enforce allow/deny/ask policy, and return finalized results without ending a turn on ordinary tool failures. Choose native Function Calling, [PTC mode](#ptc-mode), or both with `mode`; an agent can override the default through `presentAs`. Tool authors use `defineTool` to declare typed parameters and outputs, cooperative timeouts, side-effect classification, parallel-safety, and optional UI presentation. Models see each permitted tool's declared name, description, and parameter schema; per-agent restrictions can narrow that visible set.
 
 ## Table of Contents
 
@@ -29,7 +29,7 @@ Mount `dsh-tools` wherever agents call tools: it provides `ctx.tools`, the regis
 
 ### Register a tool
 
-`defineTool` builds a typed tool definition: a model-facing name, description, and parameter schema, a canonical output declaration, and an `execute` body that returns only the declared JSON value. Model arguments are validated before execution; invalid input becomes a normal error result.
+`defineTool` builds a typed tool definition: a model-facing name, description, and parameter schema, a canonical output declaration, and an `execute` body that returns only the declared JSON value. The registry validates arguments after policy and guards, immediately before body dispatch; invalid input becomes a normal error result. A raw definition may provide `validateArguments`; throw `ToolArgsError` for invalid arguments that should return `INVALID_ARGS`. Otherwise, the registry validates arguments against the definition's JSON Schema before dispatch. Raw schemas use Ajv's default Draft 7 dialect with strict schema checks; unsupported keywords, formats or dialects and unresolved references fail without remote retrieval.
 
 Canonical values belong to execution; the Session records rendered content and optional presentation metadata instead. Replacing or redacting that content does not remove the canonical value available to a programmatic caller; a policy that must deny that access must block execution or replace the value.
 
@@ -43,6 +43,7 @@ declare const ctx: Context
 ctx.tools.register(defineTool({
   name: 'read_file',
   description: 'Read a file from disk.',
+  sideEffects: 'read-only',
   parameters: {
     path: { type: 'string', required: true, description: 'Absolute file path' },
     offset: { type: 'number' },
@@ -86,6 +87,8 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 `ctx.tools.guard(guard)` registers a monotonic synchronous guard after the extensible `tools/pre-execute` waterfall: a returned reason denies the call, and no later listener can turn that denial back into permission. The pipeline's events give plugins more control — `tools/pre-execute` decides allow/deny/ask, `tools/execute` wraps dispatch for timeout or retry, `tools/post-execute` inspects or replaces the result, and `tools/result` observes the frozen final outcome.
 
+Tool definitions may set `sideEffects` to `read-only` or `potentially-mutating`. Omission is conservative and means potentially mutating. Read-only means the body does not mutate the caller's workspace or external systems; runtime cache and Session bookkeeping may still change. This classification is internal metadata and does not grant permission. `ctx.tools.observeBodyStart(observer)` synchronously observes each validated body invocation after policy, guards, and around-dispatch wrappers reach the body. It receives the immutable execution and resolved classification; throwing or returning a value prevents body dispatch. Register it globally or from an agent scope, and dispose the returned registration with its owner. See the [tool subsystem reference](../../../docs/subsystems/tools.md) for callback details.
+
 A tool’s `projectContent` installs execution-prepared content before post-execute policies. Policies may still replace or block it; `finalizeContent` remains the final content transform after those policies.
 
 ### Host presentation descriptors
@@ -104,7 +107,7 @@ This section explains how the package realizes the behavior above; the observabl
 
 ### Design concept
 
-The registry holds typed `ToolDefinition`s in scoped layers and projects them onto the model-facing `ToolSchema` set at request time — `output`, `execute`, `finalizeContent`, `timeoutMs`, and presentation callbacks never leak onto the wire. Every call runs a fixed pipeline: `tools/pre-execute` (extensible allow/deny/ask) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → `tools/post-execute` (inspect/replace, attach context) → definition-owned `finalizeContent` → the observe-only `tools/result` event. Only the `tools/execute` view may replace the required signal, and the registry re-fuses the caller signal before the body.
+The registry holds typed `ToolDefinition`s in scoped layers and projects them onto the model-facing `ToolSchema` set at request time — `output`, `execute`, `sideEffects`, `validateArguments`, `finalizeContent`, `timeoutMs`, and presentation callbacks never leak onto the wire. Every call runs a fixed pipeline: `tools/pre-execute` (extensible allow/deny/ask) → registered monotonic guards → `tools/execute` (around-dispatch wrappers) → argument validation and body-start observers → tool body → `tools/post-execute` (inspect/replace, attach context) → definition-owned `finalizeContent` → the observe-only `tools/result` event. Only the `tools/execute` view may replace the required signal, and the registry re-fuses the caller signal before the body.
 
 ### Source map
 

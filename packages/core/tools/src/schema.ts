@@ -3,7 +3,7 @@
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
-import type { ToolDefinition, ToolExecution, ToolExecutionResult, ToolRunContext, ToolResult } from './index.ts'
+import type { ToolDefinition, ToolExecution, ToolExecutionResult, ToolRunContext, ToolResult, ToolSideEffects } from './index.ts'
 import { assertSupportedJsonSchema, isJsonSchemaRecord, isPlainJsonArray, JsonSchemaError, validateJsonSchemaValue } from './json-schema.ts'
 import type { JsonSchemaNode, JsonSchemaScalar, ObjectJsonSchema } from './json-schema.ts'
 import type { ToolCallView, ToolResultView } from './presentation.ts'
@@ -487,6 +487,8 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec, O extends Valu
   readonly description: string
   /** Per-property parameter schema compiled to an implicit open object root. */
   readonly parameters: S
+  /** Declares whether an accepted execution body can mutate state; omission is conservative. */
+  readonly sideEffects?: ToolSideEffects
   /** Canonical output schema plus pure Native and presentation projections. */
   readonly output: {
     /** Schema enforced against every successful body or policy-replaced value. */
@@ -571,6 +573,10 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
   const userPresentResult = options.presentResult
   // oxlint-disable-next-line typescript/unbound-method
   const userIsConcurrencySafe = options.isConcurrencySafe
+  const validateArguments = (args: unknown): void => {
+    const violations = validateJsonSchemaValue(parameters, args, '')
+    if (violations.length > 0) throw new ToolArgsError(violations)
+  }
   if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) {
     throw new Error(`defineTool(${options.name}): timeoutMs must be a positive finite number`)
   }
@@ -580,6 +586,8 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
   const tool: ToolDefinition = {
     name: options.name,
     description: options.description,
+    ...options.sideEffects !== undefined ? { sideEffects: options.sideEffects } : {},
+    validateArguments,
     parameters: parameters as unknown as Record<string, unknown>,
     output: {
       schema: outputSchema,
@@ -595,8 +603,7 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
     ...(options.deferLoading === true ? { deferLoading: options.deferLoading } : {}),
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
     async execute(args: unknown, exec: ToolRunContext): Promise<JsonValue> {
-      const violations = validate(args)
-      if (violations.length > 0) throw new ToolArgsError(violations)
+      validateArguments(args)
       return userExecute(args as InferArgs<S>, exec) as Promise<JsonValue>
     },
   }
