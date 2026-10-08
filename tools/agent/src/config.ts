@@ -60,6 +60,8 @@ export interface RoleConfig {
   routeReasoningEfforts?: Readonly<Record<string, string>>
   maxTokens: number
   personaFile: string
+  /** Persona used when the role is bound to a trusted Review-only Git snapshot. */
+  reviewPersonaFile?: string
   writable: boolean
   toolPolicy: 'coordinator' | 'read-only' | 'writer'
   toolName?: string
@@ -414,12 +416,16 @@ export async function loadHarnessConfig(
       if (candidate.reasoningEfforts[escalationEffort] === undefined) throw new Error(`role ${id} escalation fallback route ${routeId} does not support reasoning effort ${escalationEffort}`)
       if (candidate.costClass === 'premium' && !allowPremium) throw new Error(`role ${id} must explicitly allow its premium escalation fallback route ${routeId}`)
     }
+    const reviewPersonaFile = value.reviewPersonaFile === undefined
+      ? undefined
+      : string(value.reviewPersonaFile, `roles.roles.${id}.reviewPersonaFile`)
     roles[id] = {
       route,
       reasoningEffort: effort,
       ...(Object.keys(routeReasoningEfforts).length === 0 ? {} : { routeReasoningEfforts }),
       maxTokens: positiveInteger(value.maxTokens, `roles.roles.${id}.maxTokens`),
       personaFile: string(value.personaFile, `roles.roles.${id}.personaFile`),
+      ...(reviewPersonaFile === undefined ? {} : { reviewPersonaFile }),
       writable,
       toolPolicy,
       ...toolName === undefined ? {} : { toolName },

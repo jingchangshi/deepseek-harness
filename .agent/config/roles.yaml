@@ -14,6 +14,7 @@ roles:
     maxTokens: 32768
     toolName: ask_architect
     personaFile: .agent/roles/architect.md
+    reviewPersonaFile: .agent/roles/review-only.md
     writable: false
     allowPremium: true
     toolPolicy: read-only
@@ -28,6 +29,7 @@ roles:
     maxTokens: 16384
     toolName: ask_scout_primary
     personaFile: .agent/roles/scout.md
+    reviewPersonaFile: .agent/roles/review-only.md
     writable: false
     toolPolicy: read-only
   scout-secondary:
@@ -39,6 +41,7 @@ roles:
     maxTokens: 16000
     toolName: ask_scout_secondary
     personaFile: .agent/roles/scout.md
+    reviewPersonaFile: .agent/roles/review-only.md
     writable: false
     toolPolicy: read-only
   implementer:
@@ -65,6 +68,7 @@ roles:
     maxTokens: 16000
     toolName: ask_challenger
     personaFile: .agent/roles/challenger.md
+    reviewPersonaFile: .agent/roles/review-only.md
     writable: false
     toolPolicy: read-only
   reviewer:
@@ -73,6 +77,7 @@ roles:
     maxTokens: 32768
     toolName: ask_reviewer
     personaFile: .agent/roles/reviewer.md
+    reviewPersonaFile: .agent/roles/review-only.md
     writable: false
     allowPremium: true
     toolPolicy: read-only

@@ -511,7 +511,12 @@ async function applyDeployment(ctx: Context, config: Config, deployment: Harness
     try {
       const loaded = await project(invocation.root)
       const route = invocation.route
-      const persona = await readFile(resolve(config.deploymentRoot, loaded.roles[invocation.role]!.personaFile), 'utf8')
+      const roleConfig = loaded.roles[invocation.role]!
+      const personaPath = invocation.reviewEvidence === undefined
+        ? roleConfig.personaFile
+        : roleConfig.reviewPersonaFile
+      if (personaPath === undefined) throw new Error(`role ${invocation.role} has no reviewPersonaFile for Review-only execution`)
+      const persona = await readFile(resolve(config.deploymentRoot, personaPath), 'utf8')
       if (invocation.reviewEvidence !== undefined && route.writable) throw new Error('Review-only roles must remain read-only')
       const allowed = availableTools.get(parent)!
         .filter(name => invocation.reviewEvidence !== undefined ? GIT_REVIEW_TOOLS.includes(name) || READ_TOOLS.includes(name) : route.writable || READ_TOOLS.includes(name))
