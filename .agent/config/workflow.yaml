@@ -33,7 +33,7 @@ roleBounds:
     maxToolCalls: 40
   challenger:
     softDeadlineMs: 180000
-    hardDeadlineMs: 300000
+    hardDeadlineMs: 600000
     maxToolCalls: 30
   reviewer:
     softDeadlineMs: 300000

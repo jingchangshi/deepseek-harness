@@ -65,7 +65,7 @@ Engineering runtime 将观察结果关联到确切的子 Agent，而不是工具
 
 ## 有界调查与恢复
 
-每个工作单元都要命名一个问题、允许路径、工具调用上限、软时限、硬时限和证据格式。部署配置拥有角色默认值：Scout 90s/240s/40 次调用，Architect 300s/480s/40 次，Challenger 180s/300s/30 次，Reviewer 300s/600s/50 次。Runtime 会在达到上限时停止新工具调用，并在硬时限到达时请求协作式取消。软时限会请求交接；checkpoint 只包含实际取得的证据。
+每个工作单元都要命名一个问题、允许路径、工具调用上限、软时限、硬时限和证据格式。部署配置拥有角色默认值：Scout 90s/240s/40 次调用，Architect 300s/480s/40 次，Challenger 180s/600s/30 次，Reviewer 300s/600s/50 次。Runtime 会在达到上限时停止新工具调用，并在硬时限到达时请求协作式取消。软时限会请求交接；checkpoint 只包含实际取得的证据。
 
 TaskRepository 按 task、revision、snapshot 和 work-unit identity 原子保存 checkpoint。存储证据、未解决问题、完成状态、时间戳和 attempt 引用。复用已完成的独立单元；重试未完成单元时附带仍有效的部分证据。范围、依赖项或 snapshot 变化会使受影响的单元失效。精简后的角色输入包含相关证据引用和增量内容，默认不包含所有历史产物。
 

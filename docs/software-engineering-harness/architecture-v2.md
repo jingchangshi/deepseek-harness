@@ -65,7 +65,7 @@ Evidence includes repository/snapshot identity, commit, path, new-version line r
 
 ## Bounded investigation and recovery
 
-Each work unit names a question, allowed paths, tool limit, soft deadline, hard deadline and evidence format. Deployment configuration owns role defaults: Scout 90s/240s/40 calls, Architect 300s/480s/40, Challenger 180s/300s/30, Reviewer 300s/600s/50. Runtime enforcement stops new tools at the limit and requests cooperative cancellation at the hard deadline. Soft deadlines request a handoff; checkpoints contain only evidence actually obtained.
+Each work unit names a question, allowed paths, tool limit, soft deadline, hard deadline and evidence format. Deployment configuration owns role defaults: Scout 90s/240s/40 calls, Architect 300s/480s/40, Challenger 180s/600s/30, Reviewer 300s/600s/50. Runtime enforcement stops new tools at the limit and requests cooperative cancellation at the hard deadline. Soft deadlines request a handoff; checkpoints contain only evidence actually obtained.
 
 TaskRepository owns atomic checkpoints keyed by task, revision, snapshot and work-unit identity. Store evidence, unresolved questions, completion state, timestamps and attempt references. Reuse completed independent units; retry incomplete units with their valid partial evidence. Changed scope, dependency or snapshot invalidates the affected units. Compact role input includes relevant evidence references and deltas, never every historical artifact by default.
 

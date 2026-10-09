@@ -15,7 +15,7 @@
     ".agent/config/data-policy.yaml": "116c98d24f0c8a39b2b91f50918f4177c37ed029de904ecf07cf623dda5bb566",
     ".agent/config/models.yaml": "6f898213ba50aae115bbdcb27a4940fcb663237f724c6494c304abfa9241f985",
     ".agent/config/roles.yaml": "5aa849cdd703a012239ffdaefba2e18e0769ff46f4107614ae9200a0adf360d8",
-    ".agent/config/workflow.yaml": "aaae3e0ea4d82eecb74399c93daec5e77740ea26c02c27918f2b7fdc0ac6e2c4",
+    ".agent/config/workflow.yaml": "fc8fded2f4ef48f72bfa5200b46c602501d89683d7f82f389ad060600d57f1ce",
     ".agent/roles/arbiter.md": "4c2e8a177ec3408d964f9e43723a9269e01f626f75896920dec1b7bb1345ef23",
     ".agent/roles/architect.md": "3c344ce2c5a961179832237d0094312c1839b983940717e45eacc93550488ea8",
     ".agent/roles/challenger.md": "818dba24ed92e5c32e317c04074f92dc648501518f5c924ea5ab9e74aa62350a",
