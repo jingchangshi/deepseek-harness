@@ -2605,6 +2605,152 @@
         "D completed the same-task recovery on the configured routes and current frozen persona, and the independent source oracle accepted answer.txt. Its first implementation did not pass the oracle. A/B/C were blocked by the named injected failure.",
         "This run establishes accepted recovery-latch behavior for D only. It does not establish MLIR completion, a complete evaluation goal, comparative savings, or known cost."
       ]
+    },
+    {
+      "runId": 15,
+      "mode": "LIVE_PROVIDER",
+      "sourceArtifact": "dsh-engineering-comparison-39e2a835-e62b-4dca-9d0b-7f41fded3419.json",
+      "caseId": "mlir-pass",
+      "caseDigest": "96f111e81fb6241f12ce9aceb10553eaa03c710f7cae922df5cae87faf6b96c4",
+      "runtime": {
+        "personaRevision": "CURRENT_FREEZE",
+        "roleTimeoutMs": 600000,
+        "freezeManifestSha256": "2fd10bc3383e42302681a0eeaedddbf1677b3ed61de71ab456745a24d65c3699",
+        "pinnedVerifierVersion": "15.0.6",
+        "roleRoutes": {
+          "coordinator": "architecture",
+          "architect": "architecture",
+          "scout-primary": "worker",
+          "scout-secondary": "worker-secondary",
+          "implementer": "worker",
+          "challenger": "worker-secondary",
+          "reviewer": "architecture"
+        }
+      },
+      "results": [
+        {
+          "caseId": "mlir-pass",
+          "strategy": "A_STRONG",
+          "status": "ACCEPTED",
+          "firstImplementationPass": true,
+          "wallTimeMs": 396085,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 8
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 113805,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": "UNKNOWN"
+          },
+          "oracleAccepted": true,
+          "actualBilledCostUsd": "UNKNOWN",
+          "sourceOracleExitCode": 0,
+          "grammarVerifierExitCode": 0
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "B_CHEAP",
+          "status": "ACCEPTED",
+          "firstImplementationPass": true,
+          "wallTimeMs": 325492,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 14
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 212809,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": "UNKNOWN"
+          },
+          "oracleAccepted": true,
+          "actualBilledCostUsd": "UNKNOWN",
+          "sourceOracleExitCode": 0,
+          "grammarVerifierExitCode": 0
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "C_FIXED",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 444165,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 22
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 258569,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": "UNKNOWN"
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN",
+          "blockerCategory": "UNDECLARED_VERIFICATION_INSTANCE",
+          "oracleError": "verification policy references an undeclared instance: Configured evaluation oracle"
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "D_ADAPTIVE",
+          "status": "BLOCKED",
+          "firstImplementationPass": true,
+          "wallTimeMs": 2216371,
+          "fallbackCount": 0,
+          "escalationCount": 1,
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 83
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 1360093,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": "UNKNOWN"
+          },
+          "oracleAccepted": true,
+          "actualBilledCostUsd": "UNKNOWN",
+          "sourceOracleExitCode": 0,
+          "grammarVerifierExitCode": 0
+        }
+      ],
+      "comparisonStatus": "COMPLETE",
+      "qualityStatus": "PARTIAL",
+      "pricingStatus": "UNKNOWN",
+      "separateReviewEvidence": {
+        "kind": "SEPARATE_REVIEW_OBSERVATION",
+        "observation": "A reviewer who examined D output reported that the latest Challenger returned CAPABILITY_INSUFFICIENT after 566114 ms, with one capability escalation and no fallback. After the first implementation and oracle success, bounded repair/replan produced no second successful implementation or Reviewer acceptance.",
+        "lifecycleEvidence": {
+          "logicalInvocations": 11,
+          "physicalAttempts": 11,
+          "providerRequests": 83,
+          "toolCalls": 130,
+          "configuredLimitsExceeded": false,
+          "endToEndMs": "UNKNOWN"
+        },
+        "limitations": "This observation is separate from the comparison report. Raw root/launcher and Session artifacts were cleaned; it does not change the report status BLOCKED."
+      },
+      "limitations": [
+        "A and B were ACCEPTED on their first implementation and passed the source oracle and LLVM 15.0.6 verifier.",
+        "C was BLOCKED because verification referenced the undeclared instance \"Configured evaluation oracle\"; the report does not attribute this to a user or actor.",
+        "D was BLOCKED although its first implementation, source oracle, and LLVM verifier passed. Separate reviewer observations are recorded independently and do not change the report status.",
+        "No strategy cost or comparative savings are established."
+      ]
     }
   ],
   "roleSmokeEvidence": {
@@ -2969,19 +3115,23 @@
       "attemptId": "fixed-mlir-current",
       "mode": "LIVE_PROVIDER",
       "caseId": "mlir-pass",
-      "status": "RUNNING",
+      "status": "COMPLETED",
       "cliTimeoutMs": 3600000,
       "roleTimeoutMs": 600000,
-      "comparisonReport": "NOT_AVAILABLE",
-      "strategyResults": "NOT_REPORTED",
-      "usageTotals": "NOT_REPORTED",
-      "goalStatus": "NOT_REPORTED",
+      "comparisonReport": "AVAILABLE",
+      "strategyResults": "REPORTED_IN_RUN_15",
+      "usageTotals": "REPORTED_IN_RUN_15",
+      "goalStatus": "PARTIAL_STRATEGY_ACCEPTANCE",
       "sourceArtifacts": [
-        "/tmp/dsh-goal-1009/responses-fixed-mlir-driver.txt"
+        "/tmp/dsh-goal-1009/responses-fixed-mlir-driver.txt",
+        "/tmp/dsh-engineering-comparison-39e2a835-e62b-4dca-9d0b-7f41fded3419.json"
       ],
       "limitations": [
-        "No comparison report was available when this evidence was updated."
-      ]
+        "Run 15 accepted A/B; C/D were BLOCKED. Overall comparison quality remains PARTIAL and cost remains UNKNOWN."
+      ],
+      "diagnostic": "CLI_EXITED",
+      "reportArtifact": "dsh-engineering-comparison-39e2a835-e62b-4dca-9d0b-7f41fded3419.json",
+      "runId": 15
     }
   ]
 }
