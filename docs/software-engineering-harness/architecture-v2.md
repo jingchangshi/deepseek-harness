@@ -31,6 +31,8 @@ Simple development omits unnecessary investigation and design calls but retains 
 
 Development classifies each task as simple, standard, or complex from explicit scope, acceptance criteria, configured policy, and risk facts. Only bounded explicit file scope with complete acceptance criteria can qualify as simple. Class and risk floors cannot decrease during recovery, policy changes, or replanning for the same task. Review-only keeps its pinned changed-file scope and cannot enter Development. The [adaptive scheduling design](adaptive-scheduling-v2.md) defines the classification rules, role stages, escalation records, and writer-diagnosis recovery.
 
+A candidate-plan challenge checks the proposed plan against the task's established scope and acceptance criteria. A verification operation that has not run yet belongs in `acceptanceGates` or `falsificationTests`; its pending status alone does not make a design assumption unresolved or block plan acceptance. Keep a blocking assumption only when its unknown value could change the design choice or violate a task constraint.
+
 ```mermaid
 flowchart LR
   REQUEST --> SNAPSHOT --> SCOPE_CLASSIFIED

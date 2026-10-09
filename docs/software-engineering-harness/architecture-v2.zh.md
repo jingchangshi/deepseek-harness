@@ -31,6 +31,8 @@ flowchart LR
 
 Development 会根据显式范围、验收条件、配置策略和风险事实将 task 分为 simple、standard 或 complex。只有范围是有界的显式文件路径且验收条件完整时，task 才能归为 simple。同一 task 在恢复、策略变更或重新规划期间，分类和风险下限不得降低。Review-only 保留固定的变更文件范围，不能进入 Development。[自适应调度设计](adaptive-scheduling-v2.zh.md)定义分类规则、角色阶段、升级记录和 writer 诊断恢复。
 
+Candidate-plan challenge 会根据 task 已确定的范围和验收条件检查提议计划。尚未运行的验证操作应记录在 `acceptanceGates` 或 `falsificationTests` 中；仅因 gate 待执行，不代表设计假设尚未解决，也不能单独阻止计划验收。只有当未知设计值可能改变方案选择或违反 task 约束时，才将该假设标记为阻断项。
+
 ```mermaid
 flowchart LR
   REQUEST --> SNAPSHOT --> SCOPE_CLASSIFIED
