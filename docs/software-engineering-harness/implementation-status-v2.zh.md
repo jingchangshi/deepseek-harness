@@ -14,7 +14,7 @@
 | 1 — 不可变评审证据 | PASS | 独立评审已批准；Git evidence、review-only 和 runtime-review 测试共 52 项通过；schema 测试 40 项通过；typecheck、定向 lint 和已记录的 42 项 `doc-sync` 通过；现有 automatic 回归 64 项通过；Engineering Harness 快照刷新和回放覆盖七个子角色并通过；freeze 更新和检查通过；推送前 typecheck 通过；已在目标 remote 分支确认推送的准确提交。 | 无。 |
 | 2 — 有界调查与恢复 | PASS | 聚焦验收、runtime 回归、独立评审、文档检查和推送记录见验证报告。 | 无。 |
 | 3 — 分类与升级 | PASS | 聚焦行为和 runtime 回归、独立评审、文档检查和推送记录见验证报告。 | 无。 |
-| 4 — 用量与基准 | PARTIAL | 持久化 usage ledger 和 benchmark 实施通过聚焦检查。Pebble、Review、MLIR 和 Recovery 对比见验证报告；最近一次 Review 运行中 A 通过，B/C 被阻断，D 被拒绝；固定版 MLIR 运行中 A/B 通过，C/D 被阻断；Recovery 的所有策略均被阻断。 | 更多在线策略验收结果和完整成本证据。 |
+| 4 — 用量与基准 | PARTIAL | 持久化 usage ledger 和 benchmark 实施通过聚焦检查。Run 12 恢复的 HY4 MLIR 报告中 A 通过，B/D 被阻断，C 虽通过源码和 grammar oracle 仍被拒绝，原因 UNKNOWN。Run 13 使用旧 persona，没有证明恢复最终验收。Run 14 使用当前冻结 persona 和配置路由：D 完成同一 task 恢复，独立 oracle 接受最终源码；A/B/C 被注入故障阻断。D 的首次实现未通过 oracle，因此这只证明 recovery-latch fixture 的恢复后验收。Fixed-persona 重试已完成；另一项固定版 MLIR 运行仍在进行。整体评测目标为 partial，节省和成本仍为 UNKNOWN。 | 更多在线策略验收结果、MLIR 完成结果和完整成本证据。 |
 
 ## 交付状态
 

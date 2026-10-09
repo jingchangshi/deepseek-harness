@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "limitations": [
     "Sanitized aggregate evidence; provider request bodies and private sessions are excluded",
-    "Only A_STRONG was accepted in the latest Review comparison; comparative savings are not established",
     "No verified provider pricing or billed-cost evidence",
-    "The latest accepted adaptive Review result used an alternate isolated deployment with worker-secondary and challenger routes rewritten to worker; default deployment remains unproven."
+    "The latest accepted adaptive Review result used an alternate isolated deployment with worker-secondary and challenger routes rewritten to worker; the default Review deployment remains unproven.",
+    "No pricing evidence establishes comparative savings; timeout attempts, role smokes, and outer-coordinator failures are excluded from the selected engineering aggregate."
   ],
   "runs": [
     {
@@ -2025,6 +2025,963 @@
       "comparisonStatus": "COMPLETE",
       "qualityStatus": "PARTIAL",
       "pricingStatus": "UNKNOWN"
+    },
+    {
+      "runId": 11,
+      "mode": "LIVE_PROVIDER",
+      "sourceArtifact": "dsh-engineering-comparison-2e60b9cf-42ef-4801-a9e3-5e543d1bef48.json",
+      "caseId": "mlir-pass",
+      "caseDigest": "fc541f7edc957bbb87b29412e536148b0bfe58d8600f07ef693e417eaedd037f",
+      "runtime": {
+        "roleTimeoutMs": 600000,
+        "pinnedVerifier": {
+          "name": "mlir-opt",
+          "version": "15.0.6",
+          "sourceOracleExitCode": 0,
+          "grammarVerifierExitCode": 0
+        }
+      },
+      "results": [
+        {
+          "caseId": "mlir-pass",
+          "strategy": "A_STRONG",
+          "status": "ACCEPTED",
+          "firstImplementationPass": true,
+          "wallTimeMs": 128303,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 9,
+              "failedRequests": 0,
+              "toolCalls": 16
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 112121,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 9
+            }
+          },
+          "actualBilledCostUsd": "UNKNOWN",
+          "oracleAccepted": true,
+          "sourceOracleExitCode": 0,
+          "grammarVerifierExitCode": 0
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "B_CHEAP",
+          "status": "ACCEPTED",
+          "firstImplementationPass": true,
+          "wallTimeMs": 329319,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 23,
+              "failedRequests": 0,
+              "toolCalls": 33
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 387210,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 23
+            }
+          },
+          "actualBilledCostUsd": "UNKNOWN",
+          "oracleAccepted": true,
+          "sourceOracleExitCode": 0,
+          "grammarVerifierExitCode": 0
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "C_FIXED",
+          "status": "REJECTED",
+          "firstImplementationPass": true,
+          "wallTimeMs": 701936,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 30,
+              "failedRequests": 0,
+              "toolCalls": 76
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 506700,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 30
+            }
+          },
+          "actualBilledCostUsd": "UNKNOWN",
+          "oracleAccepted": true,
+          "sourceOracleExitCode": 0,
+          "grammarVerifierExitCode": 0,
+          "reviewerOutcome": "FAILED",
+          "reviewerFailureReason": "UNKNOWN"
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "D_ADAPTIVE",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 535368,
+          "fallbackCount": 1,
+          "escalationCount": 0,
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 28,
+              "failedRequests": 1,
+              "toolCalls": 52
+            },
+            "totalTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 185514,
+              "unknownRequestCount": 1
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 28
+            }
+          },
+          "actualBilledCostUsd": "UNKNOWN",
+          "oracleAccepted": false,
+          "timeoutMs": 300000,
+          "fallbackEvidence": {
+            "glmFallbackAttempt": "FAILED_BEFORE_PROVIDER_DISPATCH",
+            "glmFailureReason": "UNKNOWN",
+            "qwenFallbackAttempt": "NOT_ATTEMPTED"
+          }
+        }
+      ],
+      "comparisonStatus": "COMPLETE",
+      "qualityStatus": "PARTIAL",
+      "pricingStatus": "UNKNOWN",
+      "limitations": [
+        "C was REJECTED after Reviewer outcome FAILED; the specific reason is UNKNOWN.",
+        "D timed out at 300 seconds. The GLM fallback attempt failed before provider dispatch, with reason UNKNOWN; Qwen fallback was not attempted."
+      ]
+    },
+    {
+      "runId": 12,
+      "mode": "LIVE_PROVIDER",
+      "sourceArtifact": "dsh-engineering-comparison-271daedf-9ccb-4e1d-b521-5c8939cca903.json",
+      "caseId": "mlir-pass",
+      "caseDigest": "eb82ef90f5285276596921cca58c2f8ce415bcc432bd178ed631875449cf87a6",
+      "runtime": {
+        "roleTimeoutMs": 600000,
+        "cliAttemptTimeoutMs": 2400000,
+        "cliAttemptStatus": "TIMEOUT",
+        "comparisonReportRecovered": true,
+        "reportMtimeMatchedCliEnd": true,
+        "pinnedVerifierVersion": "15.0.6",
+        "personaRevision": "PRE_CURRENT_EDIT"
+      },
+      "results": [
+        {
+          "caseId": "mlir-pass",
+          "strategy": "A_STRONG",
+          "status": "ACCEPTED",
+          "firstImplementationPass": true,
+          "wallTimeMs": 130017,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 9,
+              "failedRequests": 0,
+              "toolCalls": 14
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 121600,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 9
+            }
+          },
+          "oracleAccepted": true,
+          "actualBilledCostUsd": "UNKNOWN",
+          "sourceOracleExitCode": 0,
+          "grammarVerifierExitCode": 0
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "B_CHEAP",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 249816,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 18,
+              "failedRequests": 0,
+              "toolCalls": 22
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 225643,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 18
+            }
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN",
+          "blockerCategory": "MUTATING_TOOL_DISPATCHED_WITHOUT_STRUCTURED_OUTPUT_FALLBACK_DISABLED"
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "C_FIXED",
+          "status": "REJECTED",
+          "firstImplementationPass": true,
+          "wallTimeMs": 791308,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 42,
+              "failedRequests": 0,
+              "toolCalls": 89
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 710962,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 42
+            }
+          },
+          "oracleAccepted": true,
+          "actualBilledCostUsd": "UNKNOWN",
+          "sourceOracleExitCode": 0,
+          "grammarVerifierExitCode": 0,
+          "reviewerFailureReason": "UNKNOWN"
+        },
+        {
+          "caseId": "mlir-pass",
+          "strategy": "D_ADAPTIVE",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 1223152,
+          "fallbackCount": 0,
+          "escalationCount": 0,
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 49,
+              "failedRequests": 0,
+              "toolCalls": 87
+            },
+            "totalTokens": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 440017,
+              "unknownRequestCount": 1
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 49
+            }
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN",
+          "sourceOracleExitCode": 1
+        }
+      ],
+      "comparisonStatus": "COMPLETE",
+      "qualityStatus": "PARTIAL",
+      "pricingStatus": "UNKNOWN",
+      "limitations": [
+        "The CLI timed out and did not capture reportPath, but the complete report was recovered from disk. The full evaluation goal was not passed.",
+        "C was REJECTED despite passing source and grammar oracles; the specific rejection cause is UNKNOWN."
+      ]
+    },
+    {
+      "runId": 13,
+      "mode": "LIVE_PROVIDER",
+      "sourceArtifact": "dsh-engineering-comparison-41a004d1-e309-4b53-a1c0-fe1f8a7ed306.json",
+      "caseId": "recovery-latch",
+      "caseDigest": "fddc120cab10b2f646d8acf26c5887f7896dbfe2b020cbcc1c5674b9cb6858a9",
+      "runtime": {
+        "personaRevision": "PRE_CURRENT_EDIT"
+      },
+      "results": [
+        {
+          "caseId": "recovery-latch",
+          "strategy": "A_STRONG",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 2483,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 0,
+              "failedRequests": 0,
+              "toolCalls": 0
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            }
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN",
+          "blockerCategory": "INJECTED_FAILURE_BEFORE_WRITE_ZERO_STRATEGY_REQUESTS"
+        },
+        {
+          "caseId": "recovery-latch",
+          "strategy": "B_CHEAP",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 2396,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 0,
+              "failedRequests": 0,
+              "toolCalls": 0
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            }
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN",
+          "blockerCategory": "INJECTED_FAILURE_BEFORE_WRITE_ZERO_STRATEGY_REQUESTS"
+        },
+        {
+          "caseId": "recovery-latch",
+          "strategy": "C_FIXED",
+          "status": "REJECTED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 361634,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 27,
+              "failedRequests": 0,
+              "toolCalls": 62
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 457251,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 27
+            }
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN"
+        },
+        {
+          "caseId": "recovery-latch",
+          "strategy": "D_ADAPTIVE",
+          "status": "BLOCKED",
+          "firstImplementationPass": false,
+          "wallTimeMs": 920361,
+          "fallbackCount": 0,
+          "escalationCount": 0,
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 65,
+              "failedRequests": 0,
+              "toolCalls": 118
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 1287088,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": {
+              "status": "UNKNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 65
+            }
+          },
+          "oracleAccepted": true,
+          "actualBilledCostUsd": "UNKNOWN"
+        }
+      ],
+      "comparisonStatus": "COMPLETE",
+      "qualityStatus": "PARTIAL",
+      "pricingStatus": "UNKNOWN",
+      "limitations": [
+        "This completed run used the previously copied persona. D was BLOCKED although its oracle accepted the changed in-scope file; firstImplementationPass was false. The run does not establish accepted recovery completion."
+      ]
+    },
+    {
+      "runId": 14,
+      "mode": "LIVE_PROVIDER",
+      "sourceArtifact": "dsh-engineering-comparison-8deef849-6044-48f3-bbdd-321b5690e2a8.json",
+      "caseId": "recovery-latch",
+      "caseDigest": "ffeba127ce025f712374afeb1c783e6b8bc8ea9cd9a2f84c7b50bb3b9acc08be",
+      "runtime": {
+        "personaRevision": "CURRENT_FREEZE",
+        "roleTimeoutMs": 600000,
+        "freezeManifestSha256": "2fd10bc3383e42302681a0eeaedddbf1677b3ed61de71ab456745a24d65c3699",
+        "roleRoutes": {
+          "coordinator": "architecture",
+          "architect": "architecture",
+          "scout-primary": "worker",
+          "scout-secondary": "worker-secondary",
+          "implementer": "worker",
+          "challenger": "worker-secondary",
+          "reviewer": "architecture"
+        }
+      },
+      "results": [
+        {
+          "caseId": "recovery-latch",
+          "strategy": "A_STRONG",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 1552,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 0
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": "UNKNOWN"
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN",
+          "blockerCategory": "INJECTED_FAILURE_BEFORE_WRITE_ZERO_STRATEGY_REQUESTS"
+        },
+        {
+          "caseId": "recovery-latch",
+          "strategy": "B_CHEAP",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 1384,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 0
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 0,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": "UNKNOWN"
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN",
+          "blockerCategory": "INJECTED_FAILURE_BEFORE_WRITE_ZERO_STRATEGY_REQUESTS"
+        },
+        {
+          "caseId": "recovery-latch",
+          "strategy": "C_FIXED",
+          "status": "BLOCKED",
+          "firstImplementationPass": "UNKNOWN",
+          "wallTimeMs": 231012,
+          "fallbackCount": "UNKNOWN",
+          "escalationCount": "UNKNOWN",
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 21
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 301785,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": "UNKNOWN"
+          },
+          "oracleAccepted": false,
+          "actualBilledCostUsd": "UNKNOWN",
+          "blockerCategory": "INJECTED_FAILURE_BEFORE_WRITE"
+        },
+        {
+          "caseId": "recovery-latch",
+          "strategy": "D_ADAPTIVE",
+          "status": "ACCEPTED",
+          "firstImplementationPass": false,
+          "wallTimeMs": 932660,
+          "fallbackCount": 0,
+          "escalationCount": 0,
+          "humanInterventionCount": "UNKNOWN",
+          "usageReport": {
+            "counts": {
+              "providerRequests": 69
+            },
+            "totalTokens": {
+              "status": "KNOWN",
+              "knownSubtotal": 1035079,
+              "unknownRequestCount": 0
+            },
+            "estimatedCostUsd": "UNKNOWN"
+          },
+          "oracleAccepted": true,
+          "actualBilledCostUsd": "UNKNOWN",
+          "recoveryLifecycle": {
+            "taskIdentity": "SAME_TASK",
+            "roleOutcomes": [
+              "scout-primary:SUCCESS",
+              "scout-secondary:SUCCESS",
+              "architect:SUCCESS",
+              "challenger:SUCCESS",
+              "implementer:FAILED",
+              "scout-secondary:SUCCESS",
+              "architect:SUCCESS",
+              "challenger:SUCCESS",
+              "implementer:SUCCESS",
+              "reviewer:SUCCESS"
+            ],
+            "sessionUsageMatches": 69
+          }
+        }
+      ],
+      "comparisonStatus": "COMPLETE",
+      "qualityStatus": "PARTIAL",
+      "pricingStatus": "UNKNOWN",
+      "limitations": [
+        "D completed the same-task recovery on the configured routes and current frozen persona, and the independent source oracle accepted answer.txt. Its first implementation did not pass the oracle. A/B/C were blocked by the named injected failure.",
+        "This run establishes accepted recovery-latch behavior for D only. It does not establish MLIR completion, a complete evaluation goal, comparative savings, or known cost."
+      ]
+    }
+  ],
+  "roleSmokeEvidence": {
+    "sourceArtifact": "/tmp/dsh-goal-1009/responses-role-smokes.json",
+    "testedAt": "2026-10-09T02:01:18.379Z",
+    "qualification": "role-smoke-only",
+    "protocols": {
+      "magpie": "openai-responses",
+      "magpie-responses": "openai-responses",
+      "company": "openai-responses"
+    },
+    "timeoutMs": 180000,
+    "results": [
+      {
+        "routeId": "architecture",
+        "role": "coordinator",
+        "status": "PASS",
+        "qualification": "role",
+        "checks": {
+          "provider-resolves": "PASS",
+          "model-resolves": "PASS",
+          "reasoning-routed": "PASS",
+          "completion": "PASS",
+          "tool-use": "PASS",
+          "subagent": "NOT_RUN",
+          "background": "NOT_RUN",
+          "structured-output": "NOT_RUN",
+          "bounded-cancellation": "PASS",
+          "route-diagnostic": "PASS"
+        }
+      },
+      {
+        "routeId": "architecture",
+        "role": "architect",
+        "status": "PASS",
+        "qualification": "role",
+        "checks": {
+          "provider-resolves": "PASS",
+          "model-resolves": "PASS",
+          "reasoning-routed": "PASS",
+          "completion": "PASS",
+          "tool-use": "PASS",
+          "subagent": "PASS",
+          "background": "NOT_RUN",
+          "structured-output": "NOT_RUN",
+          "bounded-cancellation": "PASS",
+          "route-diagnostic": "PASS"
+        }
+      },
+      {
+        "routeId": "worker",
+        "role": "scout-primary",
+        "status": "PASS",
+        "qualification": "role",
+        "checks": {
+          "provider-resolves": "PASS",
+          "model-resolves": "PASS",
+          "reasoning-routed": "PASS",
+          "completion": "PASS",
+          "tool-use": "PASS",
+          "subagent": "PASS",
+          "background": "NOT_RUN",
+          "structured-output": "NOT_RUN",
+          "bounded-cancellation": "PASS",
+          "route-diagnostic": "PASS"
+        }
+      },
+      {
+        "routeId": "worker-secondary",
+        "role": "scout-secondary",
+        "status": "PASS",
+        "qualification": "role",
+        "checks": {
+          "provider-resolves": "PASS",
+          "model-resolves": "PASS",
+          "reasoning-routed": "PASS",
+          "completion": "PASS",
+          "tool-use": "PASS",
+          "subagent": "PASS",
+          "background": "NOT_RUN",
+          "structured-output": "NOT_RUN",
+          "bounded-cancellation": "PASS",
+          "route-diagnostic": "PASS"
+        }
+      },
+      {
+        "routeId": "worker",
+        "role": "implementer",
+        "status": "PASS",
+        "qualification": "role",
+        "checks": {
+          "provider-resolves": "PASS",
+          "model-resolves": "PASS",
+          "reasoning-routed": "PASS",
+          "completion": "PASS",
+          "tool-use": "PASS",
+          "subagent": "PASS",
+          "background": "NOT_RUN",
+          "structured-output": "NOT_RUN",
+          "bounded-cancellation": "PASS",
+          "route-diagnostic": "PASS"
+        }
+      },
+      {
+        "routeId": "worker-secondary",
+        "role": "challenger",
+        "status": "PASS",
+        "qualification": "role",
+        "checks": {
+          "provider-resolves": "PASS",
+          "model-resolves": "PASS",
+          "reasoning-routed": "PASS",
+          "completion": "PASS",
+          "tool-use": "PASS",
+          "subagent": "PASS",
+          "background": "NOT_RUN",
+          "structured-output": "NOT_RUN",
+          "bounded-cancellation": "PASS",
+          "route-diagnostic": "PASS"
+        }
+      },
+      {
+        "routeId": "architecture",
+        "role": "reviewer",
+        "status": "PASS",
+        "qualification": "role",
+        "checks": {
+          "provider-resolves": "PASS",
+          "model-resolves": "PASS",
+          "reasoning-routed": "PASS",
+          "completion": "PASS",
+          "tool-use": "PASS",
+          "subagent": "PASS",
+          "background": "NOT_RUN",
+          "structured-output": "NOT_RUN",
+          "bounded-cancellation": "PASS",
+          "route-diagnostic": "PASS"
+        }
+      },
+      {
+        "routeId": "architecture",
+        "role": "coordinator",
+        "status": "PASS",
+        "qualification": "route",
+        "checks": {
+          "provider-resolves": "PASS",
+          "model-resolves": "PASS",
+          "reasoning-routed": "PASS",
+          "completion": "PASS",
+          "tool-use": "PASS",
+          "subagent": "NOT_RUN",
+          "background": "NOT_RUN",
+          "structured-output": "NOT_RUN",
+          "bounded-cancellation": "PASS",
+          "route-diagnostic": "PASS"
+        }
+      },
+      {
+        "routeId": "worker",
+        "role": "scout-primary",
+        "status": "PASS",
+        "qualification": "route",
+        "checks": {
+          "provider-resolves": "PASS",
+          "model-resolves": "PASS",
+          "reasoning-routed": "PASS",
+          "completion": "PASS",
+          "tool-use": "PASS",
+          "subagent": "PASS",
+          "background": "NOT_RUN",
+          "structured-output": "NOT_RUN",
+          "bounded-cancellation": "PASS",
+          "route-diagnostic": "PASS"
+        }
+      },
+      {
+        "routeId": "worker-secondary",
+        "role": "scout-secondary",
+        "status": "PASS",
+        "qualification": "route",
+        "checks": {
+          "provider-resolves": "PASS",
+          "model-resolves": "PASS",
+          "reasoning-routed": "PASS",
+          "completion": "PASS",
+          "tool-use": "PASS",
+          "subagent": "PASS",
+          "background": "NOT_RUN",
+          "structured-output": "NOT_RUN",
+          "bounded-cancellation": "PASS",
+          "route-diagnostic": "PASS"
+        }
+      },
+      {
+        "routeId": "worker",
+        "role": "implementer",
+        "status": "PASS",
+        "qualification": "route",
+        "checks": {
+          "provider-resolves": "PASS",
+          "model-resolves": "PASS",
+          "reasoning-routed": "PASS",
+          "completion": "PASS",
+          "tool-use": "PASS",
+          "subagent": "PASS",
+          "background": "NOT_RUN",
+          "structured-output": "NOT_RUN",
+          "bounded-cancellation": "PASS",
+          "route-diagnostic": "PASS"
+        }
+      },
+      {
+        "routeId": "worker-fallback",
+        "role": "scout-primary",
+        "status": "PASS",
+        "qualification": "route",
+        "checks": {
+          "provider-resolves": "PASS",
+          "model-resolves": "PASS",
+          "reasoning-routed": "PASS",
+          "completion": "PASS",
+          "tool-use": "PASS",
+          "subagent": "PASS",
+          "background": "NOT_RUN",
+          "structured-output": "NOT_RUN",
+          "bounded-cancellation": "PASS",
+          "route-diagnostic": "PASS"
+        }
+      },
+      {
+        "routeId": "worker-secondary-fallback",
+        "role": "scout-secondary",
+        "status": "PASS",
+        "qualification": "route",
+        "checks": {
+          "provider-resolves": "PASS",
+          "model-resolves": "PASS",
+          "reasoning-routed": "PASS",
+          "completion": "PASS",
+          "tool-use": "PASS",
+          "subagent": "PASS",
+          "background": "NOT_RUN",
+          "structured-output": "NOT_RUN",
+          "bounded-cancellation": "PASS",
+          "route-diagnostic": "PASS"
+        }
+      }
+    ],
+    "summary": {
+      "roleSmokesPassed": 7,
+      "fallbackRoleSmokesPassed": 2,
+      "structuredOutput": "NOT_RUN",
+      "engineeringTaskSuccess": "NOT_ESTABLISHED"
+    },
+    "limitations": [
+      "Successful role smoke does not establish structured-output compatibility or a complete engineering workflow.",
+      "The Qwen and GLM fallback smokes passed as role smokes; this does not establish structured completion."
+    ]
+  },
+  "liveComparisonAttempts": [
+    {
+      "attemptId": "responses-600s-mlir-timeout",
+      "mode": "LIVE_PROVIDER",
+      "caseId": "mlir-pass",
+      "status": "TIMEOUT",
+      "diagnostic": "CLI_TIMEOUT",
+      "cliTimeoutMs": 2400000,
+      "comparisonReport": "RECOVERED_COMPLETE",
+      "strategyResults": "REPORTED_IN_RUN_12",
+      "usageTotals": "REPORTED_IN_RUN_12",
+      "goalStatus": "NOT_PASSED",
+      "sourceArtifacts": [
+        "/tmp/dsh-goal-1008/dsh-live-comparison-3614556-1791516213216.json",
+        "/tmp/dsh-goal-1009/responses-600s-mlir-driver.txt",
+        "/tmp/dsh-goal-1008/dsh-live-comparison-3614556-1791516213216.stdout.log",
+        "/tmp/dsh-goal-1008/dsh-live-comparison-3614556-1791516213216.stderr.log"
+      ],
+      "limitations": [
+        "The CLI attempt timed out before it captured reportPath. A complete comparison report was recovered from disk and summarized as run 12. The full evaluation goal was not passed. Raw logs and Sessions remain local; raw contents are not included in this evidence artifact."
+      ],
+      "challengerObservations": [
+        {
+          "attemptIndex": 1,
+          "elapsedMs": 274808,
+          "terminalOutcome": "REVISE",
+          "findingCount": 8,
+          "dispatchRoute": "worker-secondary",
+          "usedFallback": false,
+          "sessionId": "b7bb5d5a-1b1e-4106-9ad5-248a44371d37",
+          "artifact": "session.v4.jsonl.zstd",
+          "roleTimeout": false
+        },
+        {
+          "attemptIndex": 1,
+          "elapsedMs": 442828,
+          "terminalOutcome": "REVISE",
+          "findingCount": 10,
+          "dispatchRoute": "worker-secondary",
+          "usedFallback": false,
+          "sessionId": "7685524b-bbbb-45c4-a306-805bfa9f64ab",
+          "artifact": "session.v4.jsonl.zstd",
+          "roleTimeout": false
+        },
+        {
+          "attemptIndex": 1,
+          "elapsedMs": 46980,
+          "terminalOutcome": "UNKNOWN",
+          "turnEndRecorded": false,
+          "dispatchRoute": "worker-secondary",
+          "usedFallback": false,
+          "sessionId": "754c9505-a0ce-46f8-9806-5e65d868238e",
+          "artifact": "session.v4.jsonl.zstd"
+        }
+      ],
+      "workflowObservation": "Each completed REVISE outcome left the task INVESTIGATED, so the automatic workflow began another Architect/Challenger cycle; only an ACCEPT decision freezes the plan. These are separate logical attempts (each attemptIndex 1), not provider retries. The third Challenger has no recorded turn-end outcome. The CLI timed out before capturing reportPath; the complete comparison report was recovered from disk and is recorded as run 12.",
+      "reviewFindingQuality": "NOT_ASSESSED",
+      "localSessionPathPattern": "/tmp/dsh-live-comparison-OzWHGM/home/sessions/*/{sessionId}/session.v4.jsonl.zstd",
+      "reportRecovered": true,
+      "reportArtifact": "dsh-engineering-comparison-271daedf-9ccb-4e1d-b521-5c8939cca903.json",
+      "runId": 12
+    },
+    {
+      "attemptId": "fixed-recovery-initial",
+      "mode": "LIVE_PROVIDER",
+      "caseId": "recovery-latch",
+      "status": "CLI_EXIT_1",
+      "diagnostic": "PI_AI_ERROR: provider servers overloaded",
+      "evaluationToolInvoked": false,
+      "strategyRequests": 0,
+      "comparisonReport": "NOT_AVAILABLE",
+      "goalStatus": "NOT_PASSED",
+      "sourceArtifacts": [
+        "/tmp/dsh-goal-1009/responses-fixed-recovery-driver.txt"
+      ],
+      "limitations": [
+        "Failure occurred in the outer coordinator before the evaluation tool ran; it is not strategy evidence or a configuration defect."
+      ]
+    },
+    {
+      "attemptId": "fixed-recovery-retry",
+      "mode": "LIVE_PROVIDER",
+      "caseId": "recovery-latch",
+      "status": "COMPLETED",
+      "cliTimeoutMs": 3600000,
+      "roleTimeoutMs": 600000,
+      "comparisonReport": "AVAILABLE",
+      "strategyResults": "REPORTED_IN_RUN_14",
+      "usageTotals": "REPORTED_IN_RUN_14",
+      "goalStatus": "PARTIAL_STRATEGY_ACCEPTANCE",
+      "sourceArtifacts": [
+        "/tmp/dsh-goal-1009/responses-fixed-recovery-retry-driver.txt",
+        "/tmp/dsh-engineering-comparison-8deef849-6044-48f3-bbdd-321b5690e2a8.json"
+      ],
+      "limitations": [
+        "Run 14 records D ACCEPTED after recovery; A/B/C were BLOCKED by the named injected failure. The run does not establish comparative savings, and cost remains UNKNOWN."
+      ],
+      "diagnostic": "CLI_EXITED",
+      "reportArtifact": "dsh-engineering-comparison-8deef849-6044-48f3-bbdd-321b5690e2a8.json",
+      "runId": 14
+    },
+    {
+      "attemptId": "fixed-mlir-current",
+      "mode": "LIVE_PROVIDER",
+      "caseId": "mlir-pass",
+      "status": "RUNNING",
+      "cliTimeoutMs": 3600000,
+      "roleTimeoutMs": 600000,
+      "comparisonReport": "NOT_AVAILABLE",
+      "strategyResults": "NOT_REPORTED",
+      "usageTotals": "NOT_REPORTED",
+      "goalStatus": "NOT_REPORTED",
+      "sourceArtifacts": [
+        "/tmp/dsh-goal-1009/responses-fixed-mlir-driver.txt"
+      ],
+      "limitations": [
+        "No comparison report was available when this evidence was updated."
+      ]
     }
   ]
 }
