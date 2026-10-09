@@ -11,7 +11,17 @@ import { runEngineeringReview } from './review-only.ts'
 import type { GitReviewTarget } from './git-evidence.ts'
 import type { TaskUsageReport } from './usage.ts'
 import { TaskRepository } from './repository.ts'
-import { RoleQuiescenceError } from './role-execution.ts'
+import { RoleInvocationError, RoleQuiescenceError } from './role-execution.ts'
+import { taskRequiresStopConfirmation } from './state-machine.ts'
+
+/** Named evaluation fault raised before an Implementer can mutate source. */
+export class InjectedBeforeWriteFailure extends RoleInvocationError {
+  /** Create the fixed, non-fallbackable before-write fixture failure. */
+  constructor() {
+    super('Deterministic fixture failure before implementation mutation', 'NON_FALLBACKABLE', false)
+    this.name = 'InjectedBeforeWriteFailure'
+  }
+}
 
 /** Strategies supported by the evaluation harness. */
 export type EngineeringStrategyId = 'A_STRONG' | 'B_CHEAP' | 'C_FIXED' | 'D_ADAPTIVE'
@@ -343,6 +353,7 @@ export function createProductionEngineeringBindings(options: {
   deployment: HarnessConfig
   strongRouteId: string
   cheapRouteId: string
+  signal?: AbortSignal
   roleExecutorForCase(testCase: EngineeringBenchmarkCase): RoleExecutor
   direct: ProductionBenchmarkRoleInvoker
   verifySingle(testCase: EngineeringBenchmarkCase, root: string): Promise<EngineeringStageReceipt>
@@ -379,6 +390,7 @@ export function createProductionEngineeringBindings(options: {
       let confirmedStopped = true
       let firstPass: boolean | 'UNKNOWN' = 'UNKNOWN'
       let checkedFirstImplementation = false
+      let injectedFailure: { taskId: string; root: string; signal: AbortSignal } | undefined
       const productionRoleExecutor = options.roleExecutorForCase(testCase)
       const tracedExecutor: RoleExecutor = async invocation => {
         const startedAt = new Date().toISOString()
@@ -391,6 +403,12 @@ export function createProductionEngineeringBindings(options: {
           }
           return output
         } catch (error) {
+          if (error instanceof InjectedBeforeWriteFailure && invocation.role === 'implementer' && invocation.root === cwd
+            && testCase.id === 'recovery-latch' && testCase.kind === 'recovery'
+            && typeof testCase.failureInjection === 'object' && testCase.failureInjection !== null
+            && Reflect.get(testCase.failureInjection, 'id') === 'fail-first-implementer-before-write') {
+            injectedFailure = { taskId: invocation.taskId, root: invocation.root, signal: invocation.signal }
+          }
           if (error instanceof RoleQuiescenceError) confirmedStopped = false
           if (!checkedFirstImplementation && invocation.role === 'implementer') {
             checkedFirstImplementation = true
@@ -401,7 +419,7 @@ export function createProductionEngineeringBindings(options: {
         }
       }
       if (review) {
-        const result = await runEngineeringReview({ root: cwd, deployment: options.deployment, target: options.reviewTarget(testCase), executeRole: tracedExecutor })
+        const result = await runEngineeringReview({ root: cwd, deployment: options.deployment, target: options.reviewTarget(testCase), executeRole: tracedExecutor, ...(options.signal === undefined ? {} : { signal: options.signal }) })
         confirmedStopped = confirmedStopped && !result.state.requiresStopConfirmation
         durableRuns.set(cwd, {
           taskId: result.taskId, workflow: 'review-only', confirmedStopped,
@@ -409,18 +427,38 @@ export function createProductionEngineeringBindings(options: {
         })
         return roleReceipts
       }
-      const runTask = () => runEngineeringTask({ root: cwd, deployment: options.deployment, request: testCase.request, executeRole: tracedExecutor })
-      let result: Awaited<ReturnType<typeof runEngineeringTask>>
+      const runTask = () => runEngineeringTask({ root: cwd, deployment: options.deployment, request: testCase.request, executeRole: tracedExecutor, ...(options.signal === undefined ? {} : { signal: options.signal }) })
+      let result: Awaited<ReturnType<typeof runEngineeringTask>> | undefined
+      let executionError: unknown
       try {
         result = await runTask()
       } catch (error) {
+        executionError = error
         const tasks = (await getEngineeringStatus(cwd)).tasks
         const taskId = tasks.length === 1 ? tasks[0]!.task.id : undefined
         if (taskId !== undefined) durableRuns.set(cwd, { taskId, workflow: 'development', confirmedStopped, firstImplementationPass: firstPass, workflowStatus: confirmedStopped ? 'BLOCKED' : 'UNCERTAIN' })
-        if (testCase.id !== 'recovery-latch' || !confirmedStopped || taskId === undefined) throw error
-        await recoverEngineeringTask(cwd, taskId, true)
-        result = await runEngineeringTask({ root: cwd, deployment: options.deployment, taskId, request: '', executeRole: tracedExecutor })
       }
+      const marker = injectedFailure
+      injectedFailure = undefined
+      if (marker !== undefined && confirmedStopped && !marker.signal.aborted && options.signal?.aborted !== true
+        && (result === undefined || result.status === 'BLOCKED' && result.taskId === marker.taskId && result.requiresStopConfirmation !== true)) {
+        const state = await new TaskRepository(marker.root).readState(marker.taskId)
+        if (state.state === 'BLOCKED' && state.writer === null && !taskRequiresStopConfirmation(state)
+          && !marker.signal.aborted && !options.signal?.aborted) {
+          durableRuns.set(cwd, { taskId: marker.taskId, workflow: 'development', confirmedStopped, firstImplementationPass: firstPass, workflowStatus: 'BLOCKED' })
+          try {
+            await recoverEngineeringTask(marker.root, marker.taskId, true)
+            marker.signal.throwIfAborted()
+            options.signal?.throwIfAborted()
+            result = await runEngineeringTask({ root: marker.root, deployment: options.deployment, taskId: marker.taskId, request: '', executeRole: tracedExecutor, ...(options.signal === undefined ? {} : { signal: options.signal }) })
+          } catch (error) {
+            if (error instanceof RoleQuiescenceError) confirmedStopped = false
+            durableRuns.set(cwd, { taskId: marker.taskId, workflow: 'development', confirmedStopped, firstImplementationPass: firstPass, workflowStatus: confirmedStopped ? 'BLOCKED' : 'UNCERTAIN' })
+            throw error
+          }
+        }
+      }
+      if (result === undefined) throw executionError
       confirmedStopped = confirmedStopped && !result.requiresStopConfirmation
       durableRuns.set(cwd, {
         taskId: result.taskId, workflow: 'development', confirmedStopped,

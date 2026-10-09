@@ -4,7 +4,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
-import { runEngineeringBenchmark, createProductionEngineeringBindings } from '../src/benchmark.ts'
+import { runEngineeringBenchmark, createProductionEngineeringBindings, InjectedBeforeWriteFailure } from '../src/benchmark.ts'
 import { createDirectEngineeringInvoker } from '../src/benchmark-direct.ts'
 import { createEngineeringEvaluationCases, engineeringEvaluationOracle, engineeringFirstImplementationOracle, evaluationReviewTarget, prepareEngineeringEvaluationRepository } from '../src/evaluation-fixtures.ts'
 import type { RoleExecutor } from '../src/automatic.ts'
@@ -38,7 +38,7 @@ export async function runProfileEngineeringEvaluation(options: {
     }
     if (options.caseId === 'recovery-latch' && invocation.role === 'implementer' && !failures.has(invocation.root)) {
       failures.add(invocation.root)
-      throw new Error('Deterministic fixture failure before implementation mutation')
+      throw new InjectedBeforeWriteFailure()
     }
     const testCase = cases[0]!
     return options.executeRole({ ...invocation, context: { ...invocation.context,
@@ -50,6 +50,7 @@ export async function runProfileEngineeringEvaluation(options: {
   const direct = createDirectEngineeringInvoker({ deployment: options.deployment, executeRole, verify, reviewTarget: evaluationReviewTarget,
     ...(options.signal === undefined ? {} : { signal: options.signal }) })
   const bound = createProductionEngineeringBindings({
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
     deployment: options.deployment, strongRouteId: options.strongRouteId, cheapRouteId: options.cheapRouteId,
     roleExecutorForCase: () => executeRole, direct, reviewTarget: evaluationReviewTarget,
     firstImplementationOracle: verify,
