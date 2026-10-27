@@ -136,7 +136,12 @@ export class TeamRoster {
     }]
     for (const member of state.members) {
       const live = this.ctx.agents.get(member.id)
-      const model = live?.options.model ?? root.options.model
+      // The route belongs to the MEMBER. Falling back to the Lead's model here
+      // would report the Lead's route for a teammate on its own route (for
+      // example after the member went inactive or was cold-resumed elsewhere);
+      // an unknown model is better than a wrong one, and the spawn edge
+      // reports the member's own route while it is live.
+      const model = live?.options.model
       result.push({
         id: member.id,
         name: member.name,
@@ -269,6 +274,10 @@ export class TeamRoster {
         request: {
           prompt: request.prompt,
           parent: root,
+          // A per-member route reaches the subagent runtime as its ordinary
+          // start-time override, so visibility, permission and persistence
+          // behave exactly as for any other delegation.
+          ...request.agentOptions === undefined ? {} : { agentOptions: request.agentOptions },
         },
         signal,
       })

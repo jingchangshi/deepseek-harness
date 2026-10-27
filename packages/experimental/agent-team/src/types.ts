@@ -1,5 +1,6 @@
 /** Public Agent Teams identities, durable records, and service request values. */
 
+import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
@@ -168,6 +169,14 @@ export interface SpawnTeammateRequest {
   readonly prompt: ContentBlock[]
   readonly context: 'fresh' | 'fork'
   readonly provider: string
+  /**
+   * Optional child route (provider, model, reasoning effort, output budget).
+   * Omitted inherits the Team Lead's live route, which is the historical
+   * behaviour; the subagent runtime merges these over the parent options and
+   * records them on the child's descriptor, so a cold resume restores the same
+   * route without the Lead restating it.
+   */
+  readonly agentOptions?: AgentOptions
   readonly signal: AbortSignal
 }
 

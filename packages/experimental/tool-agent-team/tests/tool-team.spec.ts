@@ -779,3 +779,65 @@ describe('dsh-tool-team', () => {
     expect(ctx.agentTeams.listMembers(lead)[1]).toMatchObject({ provider: 'team-fresh' })
   })
 })
+
+describe('dsh-tool-team per-member route', () => {
+  it('forwards agent_options unchanged to the Team service', async () => {
+    const { ctx, lead } = await setup([])
+    const member = {
+      id: SessionId('private-route-session'), name: 'architect', role: 'teammate' as const,
+      status: 'running' as const, description: 'design', diagnostics: [],
+    }
+    const spawn = vi.spyOn(ctx.agentTeams, 'spawnTeammate').mockResolvedValue({ member })
+    const result = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'architect', description: 'design', prompt: 'design it',
+      agent_options: { provider: 'magpie', model: 'codex/gpt-6.1-sol', maxTokens: 128000 },
+    })
+    expect(result.isError, text(result)).toBe(false)
+    expect(spawn).toHaveBeenCalledWith(lead, expect.objectContaining({
+      agentOptions: { provider: 'magpie', model: 'codex/gpt-6.1-sol', maxTokens: 128000 },
+    }))
+  })
+
+  it('leaves the route untouched when agent_options is omitted', async () => {
+    const { ctx, lead } = await setup([])
+    const member = {
+      id: SessionId('private-inherit-session'), name: 'worker', role: 'teammate' as const,
+      status: 'running' as const, description: 'work', diagnostics: [],
+    }
+    const spawn = vi.spyOn(ctx.agentTeams, 'spawnTeammate').mockResolvedValue({ member })
+    await execute(ctx, lead, 'spawn_teammate', { name: 'worker', description: 'work', prompt: 'work' })
+    expect(spawn).toHaveBeenCalledWith(lead, expect.not.objectContaining({ agentOptions: expect.anything() }))
+  })
+
+  it('drops an empty agent_options object instead of sending a blank override', async () => {
+    const { ctx, lead } = await setup([])
+    const member = {
+      id: SessionId('private-empty-session'), name: 'worker', role: 'teammate' as const,
+      status: 'running' as const, description: 'work', diagnostics: [],
+    }
+    const spawn = vi.spyOn(ctx.agentTeams, 'spawnTeammate').mockResolvedValue({ member })
+    await execute(ctx, lead, 'spawn_teammate', {
+      name: 'worker', description: 'work', prompt: 'work', agent_options: {},
+    })
+    expect(spawn).toHaveBeenCalledWith(lead, expect.not.objectContaining({ agentOptions: expect.anything() }))
+  })
+})
+
+describe('dsh-tool-team reasoning effort route', () => {
+  it('forwards a declared reasoningEffort with the rest of the route', async () => {
+    const { ctx, lead } = await setup([])
+    const member = {
+      id: SessionId('private-effort-session'), name: 'architect', role: 'teammate' as const,
+      status: 'running' as const, description: 'design', diagnostics: [],
+    }
+    const spawn = vi.spyOn(ctx.agentTeams, 'spawnTeammate').mockResolvedValue({ member })
+    const result = await execute(ctx, lead, 'spawn_teammate', {
+      name: 'architect', description: 'design', prompt: 'design it',
+      agent_options: { provider: 'magpie', model: 'codex/gpt-6.1-sol', reasoningEffort: 'high' },
+    })
+    expect(result.isError, text(result)).toBe(false)
+    expect(spawn).toHaveBeenCalledWith(lead, expect.objectContaining({
+      agentOptions: { provider: 'magpie', model: 'codex/gpt-6.1-sol', reasoningEffort: 'high' },
+    }))
+  })
+})

@@ -5,6 +5,7 @@ import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { TeamTaskId } from '@deepseek-ai/dsh-experimental-agent-team'
 import type { TeamMemberView } from '@deepseek-ai/dsh-experimental-agent-team'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { InferValue, ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
 
@@ -201,17 +202,54 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
           enum: ['fresh', 'fork'],
           description: 'fresh starts without Lead history; fork inherits completed Lead turns. Defaults to fresh.',
         },
+        agent_options: {
+          type: 'object',
+          additionalProperties: false,
+          description: 'Model route for this teammate. Omit every field to inherit the Lead route.',
+          properties: {
+            provider: { type: 'string', description: 'Provider route name, e.g. "magpie" or "corp".' },
+            model: { type: 'string', description: 'Model id owned by that provider route.' },
+            maxTokens: { type: 'integer', description: 'Output-token budget for each of the teammate\'s requests.' },
+            // Open-ended on purpose: the level NAMES come from the model catalog,
+            // which changes with the profile, so the runtime rejects an unknown
+            // level with UNSUPPORTED_REASONING_EFFORT rather than this schema
+            // freezing a list that would rot. A model that declares no reasoning
+            // capability rejects every value, which is the honest answer.
+            reasoningEffort: {
+              type: 'string',
+              description: 'Thinking level for this model, e.g. "low", "medium", "high". Only models with a declared reasoning capability accept one.',
+            },
+          },
+        },
       },
       output: jsonOutput(SPAWN_VALUE_SCHEMA),
       async execute(args, exec) {
         const agent = callingAgent(exec.agent, 'spawn_teammate')
         const context = args.context ?? 'fresh'
+        // A partial route is still an override: the subagent runtime merges it
+        // over the parent options, so an omitted field keeps inheriting. An
+        // EMPTY object declares nothing and must not become a truthy override.
+        const route = args.agent_options
+        const requested = route === undefined
+          ? []
+          : [
+            ...route.provider === undefined ? [] : [['provider', route.provider] as const],
+            ...route.model === undefined ? [] : [['model', route.model] as const],
+            ...route.maxTokens === undefined ? [] : [['maxTokens', route.maxTokens] as const],
+            ...route.reasoningEffort === undefined
+              ? []
+              // Branded at the boundary: the level is validated against the model's
+              // declared capabilities when the first request resolves.
+              : [['reasoningEffort', ReasoningEffortId(route.reasoningEffort)] as const],
+          ]
+        const agentOptions = requested.length === 0 ? undefined : Object.fromEntries(requested)
         const result = await ctx.agentTeams.spawnTeammate(agent, {
           name: args.name,
           description: args.description,
           prompt: [{ type: 'text', text: args.prompt }],
           context,
           provider: context === 'fork' ? config.forkProvider : config.freshProvider,
+          ...agentOptions === undefined ? {} : { agentOptions },
           signal: exec.signal,
         })
         return { member: modelMember(result.member) }
