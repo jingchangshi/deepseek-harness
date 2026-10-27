@@ -22,6 +22,15 @@ import {
 } from './types.ts'
 import { assertTaskGraphCandidate } from './task-graph.ts'
 import { projectTaskView } from './task-view.ts'
+import {
+  assertCompletionAccepted,
+  assertCompletionRequirementsStrengthened,
+} from './completion.ts'
+import type {
+  TeamTaskCompletionEvidence,
+  TeamTaskCompletionReceipt,
+  TeamTaskCompletionRequirement,
+} from './completion.ts'
 
 const nonNegativeSafeInteger = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
 const positiveSafeInteger = nonNegativeSafeInteger.min(1)
@@ -74,6 +83,24 @@ const teamMemberSnapshotSchema = z.object({
   error: z.string().optional(),
 }).strict() as z.ZodType<TeamMemberSnapshot>
 
+const teamTaskCompletionRequirementSchema = z.object({
+  key: z.string(),
+  kind: z.string(),
+  payload: z.json(),
+}).strict() as z.ZodType<TeamTaskCompletionRequirement>
+
+const teamTaskCompletionEvidenceSchema = z.object({
+  key: z.string(),
+  reference: z.string(),
+}).strict() as z.ZodType<TeamTaskCompletionEvidence>
+
+const teamTaskCompletionReceiptSchema = z.object({
+  policy: z.string(),
+  requirementsDigest: z.string(),
+  evidence: z.array(teamTaskCompletionEvidenceSchema),
+  acceptedRevision: positiveSafeInteger,
+}).strict() as z.ZodType<TeamTaskCompletionReceipt>
+
 const teamTaskSnapshotSchema = z.object({
   id: teamTaskIdSchema,
   revision: positiveSafeInteger,
@@ -83,6 +110,10 @@ const teamTaskSnapshotSchema = z.object({
   ownerId: sessionIdSchema.optional(),
   blockedBy: z.array(teamTaskIdSchema),
   writeScopes: z.array(z.string()),
+  // Absent on every task persisted before completion requirements existed, so
+  // an old payload restores to exactly the snapshot it was written with.
+  completionRequirements: z.array(teamTaskCompletionRequirementSchema).optional(),
+  completion: teamTaskCompletionReceiptSchema.optional(),
 }).strict() as z.ZodType<TeamTaskSnapshot>
 
 const teamMessageSnapshotSchema = z.object({
@@ -105,7 +136,7 @@ const teamMemberEventSchema = z.object({
 }).strict() as z.ZodType<SessionEventMap['team/member']>
 
 const teamTaskEventSchema = z.object({
-  version: z.literal(2),
+  version: z.union([z.literal(2), z.literal(3)]),
   teamId: teamIdSchema,
   task: teamTaskSnapshotSchema,
 }).strict() as z.ZodType<SessionEventMap['team/task']>
@@ -196,6 +227,13 @@ export function isTeamEvent(event: SessionEvent): event is TeamSessionEvent {
     || event.type === 'team/message/delivered'
 }
 
+/**
+ * Event payload generations this reader accepts. Version 3 adds the optional
+ * `completionRequirements` and `completion` task members; version 2 payloads
+ * remain fully supported and describe exactly the same tasks they always did.
+ */
+const SUPPORTED_TEAM_EVENT_VERSIONS: ReadonlySet<number> = new Set([2, 3])
+
 /** Decode one persisted Team value and retain the schema failure as its cause. */
 function parsePersisted<T>(type: TeamEventType, schema: z.ZodType<T>, value: unknown): T {
   try {
@@ -228,7 +266,7 @@ function applyProjectionEvent(state: TeamProjectionState, event: SessionEvent): 
   try {
     const selector = parsePersisted(event.type, teamEventSelectorSchema, event.data)
     if (selector.teamId !== state.id) return state
-    if (selector.version !== 2) {
+    if (!SUPPORTED_TEAM_EVENT_VERSIONS.has(selector.version)) {
       throw new Error(`unsupported Agent Teams event version ${String(selector.version)}`)
     }
     return applyCurrentTeamEvent(state, parseCurrentTeamEvent(event))
@@ -277,6 +315,17 @@ function applyCurrentTeamEvent(state: TeamProjectionState, event: TeamSessionEve
       if (prior !== undefined && task.revision !== prior.revision + 1) {
         throw new Error(`team task "${task.id}" revision is not contiguous`)
       }
+      // Declared completion requirements may only be added or strengthened;
+      // removing or rewriting one is rejected at replay time as well as at the
+      // command boundary, so a hand-edited or foreign log cannot weaken a task.
+      assertCompletionRequirementsStrengthened(
+        prior?.completionRequirements ?? [],
+        task.completionRequirements ?? [],
+      )
+      // A requirement-bearing task reaches 'completed' only through a policy
+      // acceptance, so the durable record must carry that acceptance. This
+      // rejects a foreign or hand-edited log that fabricates a completion.
+      assertCompletionAccepted(task)
       assertTaskGraphCandidate(state.tasks, task)
       let nextTaskNumber = state.nextTaskNumber
       const match = numericTaskIdPattern.exec(task.id)
@@ -328,6 +377,8 @@ const teamTaskViewSchema = z.object({
   ownerName: z.string().optional(),
   ready: z.boolean(),
   writeScopeWarnings: z.array(z.string()),
+  completionRequirements: z.array(teamTaskCompletionRequirementSchema).optional(),
+  completion: teamTaskCompletionReceiptSchema.optional(),
 }).strict() as z.ZodType<TeamTaskView>
 
 const teamProjectionSchema = z.object({

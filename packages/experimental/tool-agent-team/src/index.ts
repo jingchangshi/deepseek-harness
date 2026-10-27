@@ -39,7 +39,7 @@ The Team Lead and all teammates share the same working directory and filesystem.
 
 Prefer read/edit/write for file changes. If a file operation returns FS_STALE_VERSION, read the current file, rebase your intended change onto the new content, and retry. Bash, formatters, code generators, and scripts are not fully protected by the filesystem version guard; coordinate them explicitly and have the Lead review the final diff and run tests.
 
-Use the target returned by spawn_teammate or list_agents for send_message${interrupt ? ' and interrupt_agent' : ''}, or as owner when assigning or filtering shared tasks. send_message steers a running target at its nearest step boundary and starts or resumes an inactive target. inactive means no turn is executing; it does not describe task completion, success, failure, or waiting for other agents. provisioning means member creation is in progress; failed means member creation failed. A peer message starts with its sender name. A successful send does not mean the recipient has processed it. Shared-task workflow is list, get, claim with the current revision, perform the work, then complete. Task readiness never starts an owner. Before wait_agent, use list_agents and make sure another required member is running or provisioning; use send_message first when the required member is inactive. wait_agent observes only changes after that call starts, never wakes a member, and returns noProgress immediately when no other member can produce a change. Re-list after wakeup or timeout. The Lead must wait for required teammates before giving the final answer.`
+Use the target returned by spawn_teammate or list_agents for send_message${interrupt ? ' and interrupt_agent' : ''}, or as owner when assigning or filtering shared tasks. send_message steers a running target at its nearest step boundary and starts or resumes an inactive target. inactive means no turn is executing; it does not describe task completion, success, failure, or waiting for other agents. provisioning means member creation is in progress; failed means member creation failed. A peer message starts with its sender name. A successful send does not mean the recipient has processed it. Shared-task workflow is list, get, claim with the current revision, perform the work, then complete. A task that declares completion requirements (team_task_create "requirements") completes only when you pass "evidence" for every declared key and an installed completion policy accepts it; without such a policy the refusal is TEAM_TASK_COMPLETION_UNAVAILABLE. Requirements may be added or strengthened by an edit but never removed or weakened. Task readiness never starts an owner. Before wait_agent, use list_agents and make sure another required member is running or provisioning; use send_message first when the required member is inactive. wait_agent observes only changes after that call starts, never wakes a member, and returns noProgress immediately when no other member can produce a change. Re-list after wakeup or timeout. The Lead must wait for required teammates before giving the final answer.`
 }
 
 const ACTIVE_WAIT_STATUSES: ReadonlySet<TeamMemberView['status']> = new Set(['running', 'provisioning'])
@@ -71,6 +71,45 @@ function modelMember(member: TeamMemberView): InferValue<typeof MEMBER_VIEW_SCHE
   return { target: name, ...details }
 }
 
+/**
+ * Shared guidance for the opaque completion requirement contract, so the two
+ * tools that accept or display it cannot drift apart.
+ */
+const COMPLETION_REQUIREMENTS_DESCRIPTION = 'Declared completion requirements. Each entry names a stable key, the completion policy kind that validates it, and an opaque JSON payload. A task that declares requirements completes only when a registered completion policy accepts the offered evidence; a task without requirements keeps the ordinary completion behaviour.'
+
+/** One declared completion requirement. */
+const COMPLETION_REQUIREMENT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    key: { type: 'string', required: true },
+    kind: { type: 'string', required: true },
+    payload: { type: 'json', required: true },
+  },
+} as const
+
+/** One opaque evidence reference offered for a declared requirement key. */
+const COMPLETION_EVIDENCE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    key: { type: 'string', required: true },
+    reference: { type: 'string', required: true },
+  },
+} as const
+
+/** Durable receipt recorded by the completion policies that accepted a task. */
+const COMPLETION_RECEIPT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    policy: { type: 'string', required: true },
+    requirementsDigest: { type: 'string', required: true },
+    evidence: { type: 'array', required: true, items: COMPLETION_EVIDENCE_SCHEMA },
+    acceptedRevision: { type: 'integer', required: true },
+  },
+} as const
+
 /** One shared task, matching the public `TeamTaskView`. */
 const TASK_VIEW_SCHEMA = {
   type: 'object',
@@ -86,6 +125,8 @@ const TASK_VIEW_SCHEMA = {
     writeScopes: { type: 'array', required: true, items: { type: 'string' } },
     ready: { type: 'boolean', required: true },
     writeScopeWarnings: { type: 'array', required: true, items: { type: 'string' } },
+    completionRequirements: { type: 'array', items: COMPLETION_REQUIREMENT_SCHEMA },
+    completion: COMPLETION_RECEIPT_SCHEMA,
   },
 } as const
 
@@ -345,6 +386,11 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
           items: { type: 'string' },
           description: 'Advisory workspace-relative file or directory prefixes this task expects to modify.',
         },
+        requirements: {
+          type: 'array',
+          items: COMPLETION_REQUIREMENT_SCHEMA,
+          description: COMPLETION_REQUIREMENTS_DESCRIPTION,
+        },
       },
       output: jsonOutput(TASK_VIEW_SCHEMA),
       async execute(args, exec) {
@@ -353,6 +399,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
           description: args.description,
           ...args.blocked_by === undefined ? {} : { blockedBy: args.blocked_by.map(TeamTaskId) },
           ...args.write_scopes === undefined ? {} : { writeScopes: args.write_scopes },
+          ...args.requirements === undefined ? {} : { completionRequirements: args.requirements },
         })
       },
     })))
@@ -421,6 +468,16 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
         blocked_by: { type: 'array', items: { type: 'string' }, description: 'Complete blocker list for set_dependencies.' },
         write_scopes: { type: 'array', items: { type: 'string' }, description: 'Replacement advisory write scopes for edit.' },
         owner: { type: 'string', description: 'Member target from spawn_teammate or list_agents for Lead-only reassign; omit to unassign.' },
+        completion_requirements: {
+          type: 'array',
+          items: COMPLETION_REQUIREMENT_SCHEMA,
+          description: 'Replacement completion requirements for edit. Requirements may only be added or strengthened; dropping or rewriting a declared requirement is refused.',
+        },
+        evidence: {
+          type: 'array',
+          items: COMPLETION_EVIDENCE_SCHEMA,
+          description: 'Evidence references for complete, one per declared requirement key. A task that declares completion requirements completes only when a registered completion policy accepts these references.',
+        },
       },
       output: jsonOutput(TASK_VIEW_SCHEMA),
       async execute(args, exec) {
@@ -433,6 +490,10 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
           ...args.blocked_by === undefined ? {} : { blockedBy: args.blocked_by.map(TeamTaskId) },
           ...args.write_scopes === undefined ? {} : { writeScopes: args.write_scopes },
           ...args.owner === undefined ? {} : { owner: args.owner },
+          ...args.completion_requirements === undefined
+            ? {}
+            : { completionRequirements: args.completion_requirements },
+          ...args.evidence === undefined ? {} : { evidence: args.evidence },
         })
       },
     })))

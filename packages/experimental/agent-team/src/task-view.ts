@@ -58,5 +58,9 @@ export function projectTaskView(state: TeamState, task: TeamTaskSnapshot): TeamT
     ...ownerName === undefined ? {} : { ownerName },
     ready: task.status === 'pending' && taskReady(state, task),
     writeScopeWarnings: [...warnings],
+    ...task.completionRequirements === undefined
+      ? {}
+      : { completionRequirements: [...task.completionRequirements] },
+    ...task.completion === undefined ? {} : { completion: task.completion },
   }
 }

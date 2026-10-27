@@ -7,6 +7,7 @@ import type {} from '@deepseek-ai/dsh-session-persistence'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { steerHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import { TeamActivity } from './activity.ts'
+import { TeamCompletionGate } from './completion.ts'
 import { errorMessage, TeamError } from './error.ts'
 import { TeamJournal } from './journal.ts'
 import { TeamRuntimeLifecycle } from './lifecycle.ts'
@@ -15,6 +16,10 @@ import { resolveActiveMember, TeamRoster } from './roster.ts'
 import type { TeamMembership } from './roster.ts'
 import { TeamTaskBoard } from './task-board.ts'
 import { TeamId, TeamTaskId } from './types.ts'
+import type {
+  TeamTaskCompletionPolicy,
+  TeamTaskCompletionPolicyOptions,
+} from './completion.ts'
 import type {
   Config,
   CreateTeamTaskRequest,
@@ -29,6 +34,17 @@ import type {
 } from './types.ts'
 
 export type * from './types.ts'
+export type {
+  TeamTaskCompletionAttempt,
+  TeamTaskCompletionDecision,
+  TeamTaskCompletionEvidence,
+  TeamTaskCompletionPolicy,
+  TeamTaskCompletionPolicyOptions,
+  TeamTaskCompletionReceipt,
+  TeamTaskCompletionRejection,
+  TeamTaskCompletionRequirement,
+  TeamTaskCompletionAcceptance,
+} from './completion.ts'
 export type { TeamMembership } from './roster.ts'
 export { TeamId, TeamMessageId, TeamTaskId } from './types.ts'
 export { TeamError } from './error.ts'
@@ -67,6 +83,7 @@ export class TeamService extends Service {
   private readonly config: Required<Config>
 
   private readonly activity: TeamActivity
+  private readonly completion: TeamCompletionGate
   private readonly lifecycle: TeamRuntimeLifecycle
   private readonly journal: TeamJournal
   private readonly roster: TeamRoster
@@ -86,9 +103,10 @@ export class TeamService extends Service {
 
     this.activity = new TeamActivity()
     this.lifecycle = new TeamRuntimeLifecycle(this.config.disposalTimeoutMs)
+    this.completion = new TeamCompletionGate({ signal: this.lifecycle.signal })
     this.journal = new TeamJournal(ctx, (root) => { this.activity.notify(TeamId(root.id)) })
     this.roster = new TeamRoster(ctx, this.journal, this.lifecycle, this.config.maxMembers)
-    this.tasks = new TeamTaskBoard(this.journal, this.config.maxTasks)
+    this.tasks = new TeamTaskBoard(this.journal, this.config.maxTasks, this.completion)
 
     ctx.on('agent/created', ({ agent }) => { this.scheduleRecovery(agent) })
     ctx.on('agent/status', ({ agent }) => {
@@ -187,6 +205,23 @@ export class TeamService extends Service {
    */
   async updateTask(caller: Agent, request: UpdateTeamTaskRequest): Promise<TeamTaskView> {
     return await this.tasks.update(caller, this.roster.membership(caller), request)
+  }
+
+  /**
+   * Register one generic completion policy for every shared task in this Team
+   * service that declares completion requirements. Registration is independent
+   * of any external product: the policy receives only the declared requirements,
+   * the offered evidence references, and a bounded cancellation signal.
+   * @param policy - named policy consulted before a requirement-bearing task may complete.
+   * @param options - per-policy timeout; the default is thirty seconds.
+   * @returns an idempotent disposer that unregisters this policy.
+   */
+  registerCompletionPolicy(
+    policy: TeamTaskCompletionPolicy,
+    options: TeamTaskCompletionPolicyOptions = {},
+  ): () => void {
+    if (this.lifecycle.disposed) throw new TeamError('Agent Teams service is disposing', 'TEAM_DISPOSED')
+    return this.completion.register(policy, options)
   }
 
   /**

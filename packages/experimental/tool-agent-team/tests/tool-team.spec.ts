@@ -841,3 +841,92 @@ describe('dsh-tool-team reasoning effort route', () => {
     }))
   })
 })
+
+describe('dsh-tool-team completion requirements', () => {
+  const REQUIREMENT = { key: 'run', kind: 'external-check', payload: { strict: true } }
+
+  /** Claim one created task and return its current revision. */
+  async function claimed(ctx: Context, lead: Agent, taskId: string, revision: number): Promise<number> {
+    const result = await execute(ctx, lead, 'team_task_update', {
+      task_id: taskId, expected_revision: revision, action: 'claim',
+    })
+    expect(result.isError, text(result)).toBe(false)
+    return (JSON.parse(text(result)) as { revision: number }).revision
+  }
+
+  it('creates a task with declared requirements and completes it with evidence', async () => {
+    const { ctx, lead } = await setup([])
+    const created = await execute(ctx, lead, 'team_task_create', {
+      subject: 'gated', description: 'requires external verification', requirements: [REQUIREMENT],
+    })
+    expect(created.isError, text(created)).toBe(false)
+    const task = JSON.parse(text(created)) as { id: string; revision: number; completionRequirements: unknown }
+    expect(task.completionRequirements).toEqual([REQUIREMENT])
+    const revision = await claimed(ctx, lead, task.id, task.revision)
+
+    // No policy installed: the requirement-bearing task must refuse completion.
+    const refused = await execute(ctx, lead, 'team_task_update', {
+      task_id: task.id, expected_revision: revision, action: 'complete',
+      evidence: [{ key: 'run', reference: 'run-42' }],
+    })
+    expect(refused.isError).toBe(true)
+    expect(refused.error?.info).toMatchObject({ code: 'TEAM_TASK_COMPLETION_UNAVAILABLE' })
+
+    ctx.agentTeams.registerCompletionPolicy({ name: 'tool-test', evaluate: () => ({ outcome: 'accepted' }) })
+    const completed = await execute(ctx, lead, 'team_task_update', {
+      task_id: task.id, expected_revision: revision, action: 'complete',
+      evidence: [{ key: 'run', reference: 'run-42' }],
+    })
+    expect(completed.isError, text(completed)).toBe(false)
+    expect(JSON.parse(text(completed))).toMatchObject({
+      status: 'completed',
+      completion: { policy: 'tool-test', evidence: [{ key: 'run', reference: 'run-42' }] },
+    })
+  })
+
+  it('edits requirements only in the strengthening direction and exposes both schemas', async () => {
+    const { ctx, lead } = await setup([])
+    const created = await execute(ctx, lead, 'team_task_create', {
+      subject: 'gated', description: 'requires external verification', requirements: [REQUIREMENT],
+    })
+    const task = JSON.parse(text(created)) as { id: string; revision: number }
+    const weakened = await execute(ctx, lead, 'team_task_update', {
+      task_id: task.id, expected_revision: task.revision, action: 'edit', completion_requirements: [],
+    })
+    expect(weakened.isError).toBe(true)
+    expect(weakened.error?.info).toMatchObject({ code: 'TEAM_TASK_COMPLETION_REQUIREMENT_WEAKENED' })
+    const strengthened = await execute(ctx, lead, 'team_task_update', {
+      task_id: task.id,
+      expected_revision: task.revision,
+      action: 'edit',
+      completion_requirements: [REQUIREMENT, { key: 'second', kind: 'external-check', payload: null }],
+    })
+    expect(strengthened.isError, text(strengthened)).toBe(false)
+
+    const scope = scopeOf(lead.ctx)
+    const create = JSON.stringify(ctx.tools.get('team_task_create', scope)?.parameters)
+    const update = JSON.stringify(ctx.tools.get('team_task_update', scope)?.parameters)
+    const view = JSON.stringify(ctx.tools.get('team_task_get', scope)?.output.schema)
+    expect(create).toContain('"requirements"')
+    expect(create).toContain('"payload"')
+    expect(update).toContain('"evidence"')
+    expect(update).toContain('"completion_requirements"')
+    expect(view).toContain('"completionRequirements"')
+    expect(view).toContain('"requirementsDigest"')
+  })
+
+  it('leaves a requirement-free task and its parameters unchanged', async () => {
+    const { ctx, lead } = await setup([])
+    const created = await execute(ctx, lead, 'team_task_create', {
+      subject: 'plain', description: 'plain task',
+    })
+    const task = JSON.parse(text(created)) as { id: string; revision: number }
+    expect(task).not.toHaveProperty('completionRequirements')
+    const revision = await claimed(ctx, lead, task.id, task.revision)
+    const completed = await execute(ctx, lead, 'team_task_update', {
+      task_id: task.id, expected_revision: revision, action: 'complete',
+    })
+    expect(completed.isError, text(completed)).toBe(false)
+    expect(JSON.parse(text(completed))).not.toHaveProperty('completion')
+  })
+})

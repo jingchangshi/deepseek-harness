@@ -1,6 +1,11 @@
 /** Public Agent Teams identities, durable records, and service request values. */
 
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
+import type {
+  TeamTaskCompletionEvidence,
+  TeamTaskCompletionReceipt,
+  TeamTaskCompletionRequirement,
+} from './completion.ts'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
@@ -82,6 +87,15 @@ export interface TeamTaskSnapshot {
   readonly ownerId?: SessionId
   readonly blockedBy: TeamTaskId[]
   readonly writeScopes: string[]
+  /**
+   * Explicit declared completion requirements. Absent on ordinary tasks and on
+   * every task persisted before this field existed, so those tasks behave
+   * exactly as they did. When present and non-empty, this task may only
+   * complete through a registered completion policy.
+   */
+  readonly completionRequirements?: TeamTaskCompletionRequirement[]
+  /** Durable policy receipt recorded by the completion that this revision committed. */
+  readonly completion?: TeamTaskCompletionReceipt
 }
 
 /** Runtime-enriched task view returned to tools and hosts. */
@@ -96,6 +110,10 @@ export interface TeamTaskView {
   readonly ownerName?: string
   readonly ready: boolean
   readonly writeScopeWarnings: string[]
+  /** Declared completion requirements, when this task declares any. */
+  readonly completionRequirements?: TeamTaskCompletionRequirement[]
+  /** Recorded acceptance receipt, only on a task completed through a policy. */
+  readonly completion?: TeamTaskCompletionReceipt
 }
 
 /** One durable roster row published through the `agentTeam` Session projection. */
@@ -203,6 +221,12 @@ export interface CreateTeamTaskRequest {
   readonly description: string
   readonly blockedBy?: readonly TeamTaskId[]
   readonly writeScopes?: readonly string[]
+  /**
+   * Explicit, generic completion requirements declared with the task. A task
+   * with any requirement may only complete through a registered completion
+   * policy; a task without requirements keeps the historical behaviour.
+   */
+  readonly completionRequirements?: readonly TeamTaskCompletionRequirement[]
 }
 
 /** Supported task mutation actions. */
@@ -226,6 +250,14 @@ export interface UpdateTeamTaskRequest {
   readonly blockedBy?: readonly TeamTaskId[]
   readonly writeScopes?: readonly string[]
   readonly owner?: string
+  /**
+   * `edit`: replacement completion requirements. Requirements may only be added
+   * or strengthened; dropping, weakening, or replacing a declared requirement is
+   * refused. `complete`: offered evidence references for the declared requirements.
+   */
+  readonly completionRequirements?: readonly TeamTaskCompletionRequirement[]
+  /** Evidence references offered by `complete`, one per declared requirement. */
+  readonly evidence?: readonly TeamTaskCompletionEvidence[]
 }
 
 /** Result of waiting for Team activity. */
@@ -237,8 +269,12 @@ declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /** Whole teammate lifecycle value, stored only in the Team Lead Session. */
     'team/member': { version: 2; teamId: TeamId; member: TeamMemberSnapshot }
-    /** Whole shared-task value, stored only in the Team Lead Session. */
-    'team/task': { version: 2; teamId: TeamId; task: TeamTaskSnapshot }
+    /**
+     * Whole shared-task value, stored only in the Team Lead Session. Version 3
+     * admits the optional `completionRequirements` and `completion` members;
+     * version 2 payloads remain readable and behave exactly as before.
+     */
+    'team/task': { version: 2 | 3; teamId: TeamId; task: TeamTaskSnapshot }
     /** Historical mailbox enqueue; new sends use the target Agent inbox. */
     'team/message/queued': { version: 2; teamId: TeamId; message: TeamMessageSnapshot }
     /** Historical acknowledgement that the target Session recorded a queued message. */
