@@ -60,12 +60,12 @@ declare module '@deepseek-ai/cordis' {
 
 /** Default business roles and their complete model routes. */
 export const DEFAULT_ROLES: readonly RoleSpec[] = [
-  { id: RoleId('architect'), description: 'Architecture and design', provider: 'magpie', model: 'codex/gpt-6.1-sol', maxConcurrent: 1 },
+  { id: RoleId('architect'), description: 'Architecture and design', provider: 'magpie', model: 'group/architect', maxConcurrent: 1 },
   { id: RoleId('explorer'), description: 'Explore and research', provider: 'corp', model: 'Qwen3.8-Flash', maxConcurrent: 2 },
   { id: RoleId('implementer'), description: 'Implement changes', provider: 'corp', model: 'DeepSeek-V4.1-Flash-1017', maxConcurrent: 2 },
   { id: RoleId('reviewer'), description: 'Review changes', provider: 'corp', model: 'GLM-5.3-Flash', maxConcurrent: 1 },
-  { id: RoleId('challenger'), description: 'Challenge assumptions', provider: 'magpie', model: 'codex/gpt-6.1-sol', maxConcurrent: 1 },
-  { id: RoleId('validator'), description: 'Validate outcomes', provider: 'magpie', model: 'auto/mimo-v2.6-flash', maxConcurrent: 1 },
+  { id: RoleId('challenger'), description: 'Challenge assumptions', provider: 'magpie', model: 'group/challenger', maxConcurrent: 1 },
+  { id: RoleId('validator'), description: 'Validate outcomes', provider: 'magpie', model: 'group/validator', maxConcurrent: 1 },
 ]
 
 /** Four retained core positions and four reusable flexible positions. */
