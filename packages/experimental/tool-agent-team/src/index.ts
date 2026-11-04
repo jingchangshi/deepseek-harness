@@ -3,9 +3,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { TeamTaskId } from '@deepseek-ai/dsh-experimental-agent-team'
+import { RoleId, TeamTaskId } from '@deepseek-ai/dsh-experimental-agent-team'
 import type { TeamMemberView } from '@deepseek-ai/dsh-experimental-agent-team'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { InferValue, ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
 
@@ -35,6 +34,8 @@ export const Config: z<Config> = z.object({
 function teamPolicy(interrupt: boolean): string {
   return `Agent Teams is available in this session
 
+Roles (role fixes the model route and its concurrency): architect (magpie/codex-gpt-6.1-sol, design + review, max 1) · explorer (corp/Qwen3.8-Flash, investigate, max 2) · implementer (corp/DeepSeek-V4.1-Flash-1017, write code, max 2) · reviewer (corp/GLM-5.3-Flash, verify, max 1) · challenger (magpie/codex-gpt-6.1-sol, adversarial review, max 1) · validator (magpie/mimo-v2.6-flash, validate, max 1). Dispatch by role: spawn_teammate({ role, task }). Reuse an idle teammate of the SAME role with send_message (pass expected_role to assert) before creating a new one. A task's required_role is enforced when claimed or reassigned. When capacity is full the runtime returns backpressure naming the blocked role: wait or reuse, and NEVER send a task to a mismatched role.
+
 The Team Lead and all teammates share the same working directory and filesystem. Edits are immediately visible to every member. Split write work into disjoint scopes, record expected write scopes on shared tasks, and use task dependencies when work must be ordered. Write-scope overlap is advisory, not a lock.
 
 Prefer read/edit/write for file changes. If a file operation returns FS_STALE_VERSION, read the current file, rebase your intended change onto the new content, and retry. Bash, formatters, code generators, and scripts are not fully protected by the filesystem version guard; coordinate them explicitly and have the Lead review the final diff and run tests.
@@ -56,7 +57,10 @@ const MEMBER_VIEW_SCHEMA = {
   properties: {
     target: { type: 'string', required: true },
     role: { type: 'string', required: true, enum: ['lead', 'teammate'] },
-    status: { type: 'string', required: true, enum: ['running', 'inactive', 'provisioning', 'failed'] },
+    status: { type: 'string', required: true, enum: ['running', 'inactive', 'provisioning', 'failed', 'retired'] },
+    roleId: { type: 'string' },
+    slotId: { type: 'string' },
+    generation: { type: 'integer' },
     description: { type: 'string' },
     provider: { type: 'string' },
     context: { type: 'string', enum: ['fresh', 'fork'] },
@@ -125,6 +129,7 @@ const TASK_VIEW_SCHEMA = {
     writeScopes: { type: 'array', required: true, items: { type: 'string' } },
     ready: { type: 'boolean', required: true },
     writeScopeWarnings: { type: 'array', required: true, items: { type: 'string' } },
+    requiredRole: { type: 'string' },
     completionRequirements: { type: 'array', items: COMPLETION_REQUIREMENT_SCHEMA },
     completion: COMPLETION_RECEIPT_SCHEMA,
   },
@@ -235,62 +240,25 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
       name: 'spawn_teammate',
       description: 'Create one named, durable teammate. Only the Team Lead may call this tool.',
       parameters: {
-        name: { type: 'string', required: true, description: 'Unique lower-kebab-case teammate name.' },
-        description: { type: 'string', required: true, description: 'Short description of the delegated responsibility.' },
-        prompt: { type: 'string', required: true, description: 'Complete initial task for the teammate.' },
+        role: { type: 'string', required: true, description: 'Declared role id to fill: architect, explorer, implementer, reviewer, challenger, or validator. The role fixes the model route and concurrency.' },
+        task: { type: 'string', required: true, description: 'Complete initial task for the teammate.' },
         context: {
           type: 'string',
           enum: ['fresh', 'fork'],
           description: 'fresh starts without Lead history; fork inherits completed Lead turns. Defaults to fresh.',
         },
-        agent_options: {
-          type: 'object',
-          additionalProperties: false,
-          description: 'Model route for this teammate. Omit every field to inherit the Lead route.',
-          properties: {
-            provider: { type: 'string', description: 'Provider route name, e.g. "magpie" or "corp".' },
-            model: { type: 'string', description: 'Model id owned by that provider route.' },
-            maxTokens: { type: 'integer', description: 'Output-token budget for each of the teammate\'s requests.' },
-            // Open-ended on purpose: the level NAMES come from the model catalog,
-            // which changes with the profile, so the runtime rejects an unknown
-            // level with UNSUPPORTED_REASONING_EFFORT rather than this schema
-            // freezing a list that would rot. A model that declares no reasoning
-            // capability rejects every value, which is the honest answer.
-            reasoningEffort: {
-              type: 'string',
-              description: 'Thinking level for this model, e.g. "low", "medium", "high". Only models with a declared reasoning capability accept one.',
-            },
-          },
-        },
+        slot: { type: 'string', description: 'Optional slot id to claim. Reserved slots belong to one role; flex slots are shared.' },
+        description: { type: 'string', description: 'Short description of the delegated responsibility.' },
       },
       output: jsonOutput(SPAWN_VALUE_SCHEMA),
       async execute(args, exec) {
         const agent = callingAgent(exec.agent, 'spawn_teammate')
-        const context = args.context ?? 'fresh'
-        // A partial route is still an override: the subagent runtime merges it
-        // over the parent options, so an omitted field keeps inheriting. An
-        // EMPTY object declares nothing and must not become a truthy override.
-        const route = args.agent_options
-        const requested = route === undefined
-          ? []
-          : [
-            ...route.provider === undefined ? [] : [['provider', route.provider] as const],
-            ...route.model === undefined ? [] : [['model', route.model] as const],
-            ...route.maxTokens === undefined ? [] : [['maxTokens', route.maxTokens] as const],
-            ...route.reasoningEffort === undefined
-              ? []
-              // Branded at the boundary: the level is validated against the model's
-              // declared capabilities when the first request resolves.
-              : [['reasoningEffort', ReasoningEffortId(route.reasoningEffort)] as const],
-          ]
-        const agentOptions = requested.length === 0 ? undefined : Object.fromEntries(requested)
         const result = await ctx.agentTeams.spawnTeammate(agent, {
-          name: args.name,
-          description: args.description,
-          prompt: [{ type: 'text', text: args.prompt }],
-          context,
-          provider: context === 'fork' ? config.forkProvider : config.freshProvider,
-          ...agentOptions === undefined ? {} : { agentOptions },
+          roleId: RoleId(args.role),
+          description: args.description ?? args.role,
+          task: [{ type: 'text', text: args.task }],
+          context: args.context ?? 'fresh',
+          ...args.slot === undefined ? {} : { slotId: args.slot },
           signal: exec.signal,
         })
         return { member: modelMember(result.member) }
@@ -303,12 +271,14 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
       parameters: {
         target: { type: 'string', required: true, description: 'Member target returned by spawn_teammate or list_agents, including lead.' },
         message: { type: 'string', required: true, description: 'Self-contained message for the target.' },
+        expected_role: { type: 'string', description: 'Assert the target role; a mismatch is refused instead of delivering. Omit to allow ordinary cross-role communication.' },
       },
       output: jsonOutput(SEND_VALUE_SCHEMA),
       async execute(args, exec) {
         await ctx.agentTeams.sendMessage(callingAgent(exec.agent, 'send_message'), {
           target: args.target,
           content: [{ type: 'text', text: args.message }],
+          ...args.expected_role === undefined ? {} : { expectedRole: RoleId(args.expected_role) },
           signal: exec.signal,
         })
         return { sent: true }
@@ -375,11 +345,25 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
     }
 
     register(scoped.tools.register(defineTool({
+      name: 'retire_teammate',
+      description: 'Retire one active or failed teammate, releasing its slot while keeping its name reserved forever. Team Lead only.',
+      parameters: {
+        target: { type: 'string', required: true, description: 'Teammate target returned by list_agents.' },
+      },
+      output: jsonOutput(MEMBER_VIEW_SCHEMA),
+      async execute(args, exec) {
+        const member = await ctx.agentTeams.retireTeammate(callingAgent(exec.agent, 'retire_teammate'), args.target)
+        return modelMember(member)
+      },
+    })))
+
+    register(scoped.tools.register(defineTool({
       name: 'team_task_create',
       description: 'Create one unowned pending task on the shared Team task board.',
       parameters: {
         subject: { type: 'string', required: true, description: 'Concise task title.' },
         description: { type: 'string', required: true, description: 'Complete task details and acceptance criteria.' },
+        required_role: { type: 'string', description: 'Required role id for whoever claims this task; a claim or reassignment by another role is refused.' },
         blocked_by: { type: 'array', items: { type: 'string' }, description: 'Task ids that must complete first.' },
         write_scopes: {
           type: 'array',
@@ -397,6 +381,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
         return await ctx.agentTeams.createTask(callingAgent(exec.agent, 'team_task_create'), {
           subject: args.subject,
           description: args.description,
+          ...args.required_role === undefined ? {} : { requiredRole: RoleId(args.required_role) },
           ...args.blocked_by === undefined ? {} : { blockedBy: args.blocked_by.map(TeamTaskId) },
           ...args.write_scopes === undefined ? {} : { writeScopes: args.write_scopes },
           ...args.requirements === undefined ? {} : { completionRequirements: args.requirements },

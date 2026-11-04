@@ -1,6 +1,5 @@
 /** Public Agent Teams identities, durable records, and service request values. */
 
-import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import type {
   TeamTaskCompletionEvidence,
   TeamTaskCompletionReceipt,
@@ -21,6 +20,38 @@ export type TeamId = Branded<'TeamId'>
  */
 export function TeamId(id: SessionId | string): TeamId {
   return id as TeamId
+}
+
+/** Declared business role identity. */
+export type RoleId = Branded<'RoleId'>
+
+/** Brand a role registry key. @param id - Registry key. @returns Role identity. */
+export function RoleId(id: string): RoleId { return id as RoleId }
+
+/** Deployment-owned role route and concurrency limit. */
+export interface RoleSpec {
+  readonly id: RoleId
+  readonly description: string
+  readonly provider: string
+  readonly model: string
+  readonly maxTokens?: number
+  readonly maxConcurrent: number
+  readonly persona?: string
+}
+
+/** Stable capacity position; an absent member leaves the generation counter intact. */
+export interface TeamSlotSnapshot {
+  readonly id: string
+  readonly roleId: RoleId | null
+  readonly pinned: boolean
+  readonly generation: number
+  readonly memberId?: SessionId
+}
+
+/** Initial reserved positions and flexible capacity. */
+export interface TeamSlotPlan {
+  readonly reserved: readonly { readonly id: string; readonly roleId: RoleId }[]
+  readonly flex: readonly string[]
 }
 
 /** Stable identifier for one task in a Team. */
@@ -48,10 +79,13 @@ export function TeamMessageId(id: string): TeamMessageId {
 }
 
 /** Durable teammate lifecycle. */
-export type TeamMemberPhase = 'provisioning' | 'active' | 'failed'
+export type TeamMemberPhase = 'provisioning' | 'active' | 'failed' | 'retired'
 
 /** Whole durable value written on every teammate lifecycle change. */
 export interface TeamMemberSnapshot {
+  readonly roleId: RoleId
+  readonly slotId: string
+  readonly generation: number
   readonly id: SessionId
   readonly name: string
   readonly description: string
@@ -66,7 +100,10 @@ export interface TeamMemberView {
   readonly id: SessionId
   readonly name: string
   readonly role: 'lead' | 'teammate'
-  readonly status: 'running' | 'inactive' | 'provisioning' | 'failed'
+  readonly status: 'running' | 'inactive' | 'provisioning' | 'failed' | 'retired'
+  readonly roleId?: RoleId
+  readonly slotId?: string
+  readonly generation?: number
   readonly description?: string
   readonly provider?: string
   readonly context?: 'fresh' | 'fork'
@@ -79,6 +116,7 @@ export type TeamTaskStatus = 'pending' | 'in_progress' | 'completed' | 'deleted'
 
 /** Whole durable task snapshot; every mutation increments {@link revision}. */
 export interface TeamTaskSnapshot {
+  readonly requiredRole?: RoleId
   readonly id: TeamTaskId
   readonly revision: number
   readonly subject: string
@@ -100,6 +138,7 @@ export interface TeamTaskSnapshot {
 
 /** Runtime-enriched task view returned to tools and hosts. */
 export interface TeamTaskView {
+  readonly requiredRole?: RoleId
   readonly id: TeamTaskId
   readonly revision: number
   readonly subject: string
@@ -118,6 +157,9 @@ export interface TeamTaskView {
 
 /** One durable roster row published through the `agentTeam` Session projection. */
 export interface TeamMemberProjection {
+  readonly roleId?: RoleId
+  readonly slotId?: string
+  readonly generation?: number
   readonly id: SessionId
   readonly name: string
   readonly role: 'lead' | 'teammate'
@@ -132,6 +174,7 @@ export interface TeamMemberProjection {
  * record; members and tasks then stay at the last valid state.
  */
 export interface TeamProjection {
+  readonly slots: readonly TeamSlotSnapshot[]
   readonly members: TeamMemberProjection[]
   readonly tasks: TeamTaskView[]
   readonly failure?: string
@@ -170,31 +213,26 @@ declare module '@deepseek-ai/dsh-llm' {
 
 /** Team-service deployment limits. */
 export interface Config {
-  /** Maximum immutable teammate names retained by one Team. */
+  readonly roles?: readonly RoleSpec[]
+  readonly slotPlan?: TeamSlotPlan
+  readonly memberIdleGraceMs?: number
+  /** Maximum non-retired teammate instances admitted by one Team. */
   readonly maxMembers?: number
   /** Maximum non-deleted tasks retained by one Team. */
   readonly maxTasks?: number
   /** Maximum UTF-8 bytes in one complete sender-framed delivery. */
   readonly maxMessageBytes?: number
-  /** Maximum milliseconds for shared operation settlement and for each Team child drain. */
+  /** Maximum milliseconds runtime disposal waits for shared work and child drains. */
   readonly disposalTimeoutMs?: number
 }
 
 /** Input for creating one durable teammate. */
 export interface SpawnTeammateRequest {
-  readonly name: string
-  readonly description: string
-  readonly prompt: ContentBlock[]
+  readonly roleId: RoleId
+  readonly description?: string
+  readonly task: ContentBlock[]
   readonly context: 'fresh' | 'fork'
-  readonly provider: string
-  /**
-   * Optional child route (provider, model, reasoning effort, output budget).
-   * Omitted inherits the Team Lead's live route, which is the historical
-   * behaviour; the subagent runtime merges these over the parent options and
-   * records them on the child's descriptor, so a cold resume restores the same
-   * route without the Lead restating it.
-   */
-  readonly agentOptions?: AgentOptions
+  readonly slotId?: string
   readonly signal: AbortSignal
 }
 
@@ -205,6 +243,8 @@ export interface SpawnTeammateResult {
 
 /** Input for one direct peer-message attempt. */
 export interface SendTeamMessageRequest {
+  /** Assert the target's declared role before inbox acceptance; omitted permits ordinary cross-role communication. */
+  readonly expectedRole?: RoleId
   readonly target: string
   readonly content: ContentBlock[]
   readonly signal: AbortSignal
@@ -217,6 +257,7 @@ export interface SendTeamMessageResult {
 
 /** Input for creating one shared task. */
 export interface CreateTeamTaskRequest {
+  readonly requiredRole?: RoleId
   readonly subject: string
   readonly description: string
   readonly blockedBy?: readonly TeamTaskId[]
@@ -267,14 +308,12 @@ export interface TeamWaitResult {
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
-    /** Whole teammate lifecycle value, stored only in the Team Lead Session. */
-    'team/member': { version: 2; teamId: TeamId; member: TeamMemberSnapshot }
-    /**
-     * Whole shared-task value, stored only in the Team Lead Session. Version 3
-     * admits the optional `completionRequirements` and `completion` members;
-     * version 2 payloads remain readable and behave exactly as before.
-     */
-    'team/task': { version: 2 | 3; teamId: TeamId; task: TeamTaskSnapshot }
+    /** Whole capacity slot value, stored only in the Team Lead Session. */
+    'team/slot': { version: 1; teamId: TeamId; slot: TeamSlotSnapshot }
+    /** Whole role-bound teammate lifecycle value, stored only in the Team Lead Session. */
+    'team/member': { version: 4; teamId: TeamId; member: TeamMemberSnapshot }
+    /** Whole shared-task value with optional required role and completion policy evidence. */
+    'team/task': { version: 4; teamId: TeamId; task: TeamTaskSnapshot }
     /** Historical mailbox enqueue; new sends use the target Agent inbox. */
     'team/message/queued': { version: 2; teamId: TeamId; message: TeamMessageSnapshot }
     /** Historical acknowledgement that the target Session recorded a queued message. */

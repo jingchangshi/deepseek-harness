@@ -7,6 +7,7 @@ import type { SessionEvent, SessionEventMap, SessionId } from '@deepseek-ai/dsh-
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type {
   TeamId,
+  TeamSlotSnapshot,
   TeamMemberProjection,
   TeamMemberSnapshot,
   TeamMessageId,
@@ -16,6 +17,7 @@ import type {
   TeamTaskView,
 } from './types.ts'
 import {
+  RoleId,
   TeamId as toTeamId,
   TeamMessageId as toTeamMessageId,
   TeamTaskId as toTeamTaskId,
@@ -73,13 +75,23 @@ const contentBlockSchema: z.ZodType<ContentBlock> = z.lazy(() => z.union([
   }),
 ])) as z.ZodType<ContentBlock>
 
+const roleIdSchema = z.string().min(1).transform(RoleId)
+const teamSlotSnapshotSchema = z.object({
+  id: z.string().min(1), roleId: roleIdSchema.nullable(), pinned: z.boolean(),
+  generation: nonNegativeSafeInteger, memberId: sessionIdSchema.optional(),
+}).strict() as z.ZodType<TeamSlotSnapshot>
+const teamSlotEventSchema = z.object({
+  version: z.literal(1), teamId: teamIdSchema, slot: teamSlotSnapshotSchema,
+}).strict() as z.ZodType<SessionEventMap['team/slot']>
+
 const teamMemberSnapshotSchema = z.object({
+  roleId: roleIdSchema, slotId: z.string().min(1), generation: positiveSafeInteger,
   id: sessionIdSchema,
   name: z.string(),
   description: z.string(),
   provider: z.string(),
   context: z.enum(['fresh', 'fork']),
-  phase: z.enum(['provisioning', 'active', 'failed']),
+  phase: z.enum(['provisioning', 'active', 'failed', 'retired']),
   error: z.string().optional(),
 }).strict() as z.ZodType<TeamMemberSnapshot>
 
@@ -102,6 +114,7 @@ const teamTaskCompletionReceiptSchema = z.object({
 }).strict() as z.ZodType<TeamTaskCompletionReceipt>
 
 const teamTaskSnapshotSchema = z.object({
+  requiredRole: roleIdSchema.optional(),
   id: teamTaskIdSchema,
   revision: positiveSafeInteger,
   subject: z.string(),
@@ -130,13 +143,13 @@ const teamEventSelectorSchema = z.object({
 }).loose()
 
 const teamMemberEventSchema = z.object({
-  version: z.literal(2),
+  version: z.literal(4),
   teamId: teamIdSchema,
   member: teamMemberSnapshotSchema,
 }).strict() as z.ZodType<SessionEventMap['team/member']>
 
 const teamTaskEventSchema = z.object({
-  version: z.union([z.literal(2), z.literal(3)]),
+  version: z.literal(4),
   teamId: teamIdSchema,
   task: teamTaskSnapshotSchema,
 }).strict() as z.ZodType<SessionEventMap['team/task']>
@@ -161,6 +174,7 @@ const teamMessageDeliveredEventSchema = z.object({
  */
 export interface TeamState {
   readonly id: TeamId
+  readonly slots: readonly TeamSlotSnapshot[]
   readonly members: readonly TeamMemberSnapshot[]
   readonly tasks: readonly TeamTaskSnapshot[]
   readonly messages: readonly TeamMessageSnapshot[]
@@ -176,6 +190,7 @@ export interface TeamState {
 export function emptyTeamState(rootId: SessionId): TeamProjectionState {
   return {
     id: toTeamId(rootId),
+    slots: [],
     members: [],
     tasks: [],
     messages: [],
@@ -197,6 +212,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
 
 const teamProjectionEntrySchema = z.object({
   id: teamIdSchema,
+  slots: z.array(teamSlotSnapshotSchema),
   members: z.array(teamMemberSnapshotSchema),
   tasks: z.array(teamTaskSnapshotSchema),
   messages: z.array(teamMessageSnapshotSchema),
@@ -207,6 +223,7 @@ const teamProjectionEntrySchema = z.object({
 
 /** Whether one event belongs to the Team domain. */
 export type TeamEventType =
+  | 'team/slot'
   | 'team/member'
   | 'team/task'
   | 'team/message/queued'
@@ -221,18 +238,16 @@ type TeamSessionEvent = SessionEvent<TeamEventType>
  * @returns whether the event has a Team-owned type.
  */
 export function isTeamEvent(event: SessionEvent): event is TeamSessionEvent {
-  return event.type === 'team/member'
+  return event.type === 'team/slot' || event.type === 'team/member'
     || event.type === 'team/task'
     || event.type === 'team/message/queued'
     || event.type === 'team/message/delivered'
 }
 
 /**
- * Event payload generations this reader accepts. Version 3 adds the optional
- * `completionRequirements` and `completion` task members; version 2 payloads
- * remain fully supported and describe exactly the same tasks they always did.
+ * Event generations selected by each strict per-event schema.
  */
-const SUPPORTED_TEAM_EVENT_VERSIONS: ReadonlySet<number> = new Set([2, 3])
+const SUPPORTED_TEAM_EVENT_VERSIONS: ReadonlySet<number> = new Set([1, 2, 4])
 
 /** Decode one persisted Team value and retain the schema failure as its cause. */
 function parsePersisted<T>(type: TeamEventType, schema: z.ZodType<T>, value: unknown): T {
@@ -246,6 +261,8 @@ function parsePersisted<T>(type: TeamEventType, schema: z.ZodType<T>, value: unk
 /** Decode the complete current-version payload selected by one Team event type. */
 function parseCurrentTeamEvent(event: TeamSessionEvent): TeamSessionEvent {
   switch (event.type) {
+    case 'team/slot':
+      return { ...event, data: parsePersisted(event.type, teamSlotEventSchema, event.data) }
     case 'team/member':
       return { ...event, data: parsePersisted(event.type, teamMemberEventSchema, event.data) }
     case 'team/task':
@@ -285,6 +302,34 @@ function replaceAt<T>(items: readonly T[], index: number, item: T): T[] {
 
 function applyCurrentTeamEvent(state: TeamProjectionState, event: TeamSessionEvent): TeamProjectionState {
   switch (event.type) {
+    case 'team/slot': {
+      const slot = event.data.slot
+      const index = state.slots.findIndex(candidate => candidate.id === slot.id)
+      const prior = state.slots[index]
+      if (prior && (prior.pinned !== slot.pinned || (prior.pinned && prior.roleId !== slot.roleId))) {
+        throw new Error('reserved slot identity is immutable')
+      }
+      if (prior && slot.generation < prior.generation) throw new Error('slot generation decreased')
+      if (prior?.memberId === undefined && slot.memberId !== undefined && prior !== undefined
+        && slot.generation !== prior.generation + 1) throw new Error('new slot occupancy must increment generation')
+      if (prior?.memberId !== undefined && slot.memberId === prior.memberId
+        && (slot.generation !== prior.generation || slot.roleId !== prior.roleId)) throw new Error('occupied slot identity is immutable')
+      if (slot.memberId !== undefined && state.slots.some(other => other.id !== slot.id && other.memberId === slot.memberId)) {
+        throw new Error('member cannot occupy multiple slots')
+      }
+      if (slot.pinned && slot.roleId === null) throw new Error('reserved slot requires a role')
+      if (slot.memberId !== undefined) {
+        if (slot.roleId === null) throw new Error('occupied slot requires a role')
+        const member = state.members.find(candidate => candidate.id === slot.memberId)
+        if (member && (member.slotId !== slot.id || member.generation !== slot.generation
+          || member.roleId !== slot.roleId || member.phase === 'retired')) throw new Error('slot member binding mismatch')
+        if (prior?.memberId !== undefined && prior.memberId !== slot.memberId) throw new Error('occupied slot cannot be replaced')
+      } else if (prior?.memberId !== undefined) {
+        const member = state.members.find(candidate => candidate.id === prior.memberId)
+        if (member && member.phase !== 'retired') throw new Error('slot member must retire before release')
+      }
+      return { ...state, slots: replaceAt(state.slots, index, slot) }
+    }
     case 'team/member': {
       const member = event.data.member
       const index = state.members.findIndex(candidate => candidate.id === member.id)
@@ -293,13 +338,19 @@ function applyCurrentTeamEvent(state: TeamProjectionState, event: TeamSessionEve
       if (named !== undefined && named.id !== member.id) {
         throw new Error(`teammate name "${member.name}" is reused by another member`)
       }
+      const slot = state.slots.find(candidate => candidate.id === member.slotId)
+      if (!slot || slot.memberId !== member.id || slot.roleId !== member.roleId || slot.generation !== member.generation) {
+        throw new Error('member slot binding mismatch')
+      }
       if (prior === undefined) {
         if (member.phase !== 'provisioning') throw new Error(`teammate "${member.name}" must begin provisioning`)
       } else {
-        if (prior.name !== member.name || prior.provider !== member.provider || prior.context !== member.context) {
+        if (prior.name !== member.name || prior.provider !== member.provider || prior.context !== member.context
+          || prior.roleId !== member.roleId || prior.slotId !== member.slotId || prior.generation !== member.generation) {
           throw new Error(`teammate "${member.id}" changed immutable identity fields`)
         }
-        if (prior.phase !== 'provisioning' || member.phase === 'provisioning') {
+        if (!((prior.phase === 'provisioning' && (member.phase === 'active' || member.phase === 'failed'))
+          || ((prior.phase === 'active' || prior.phase === 'failed') && member.phase === 'retired'))) {
           throw new Error(`teammate "${member.name}" has an invalid ${prior.phase} -> ${member.phase} transition`)
         }
       }
@@ -359,14 +410,16 @@ function applyCurrentTeamEvent(state: TeamProjectionState, event: TeamSessionEve
 }
 
 const teamMemberProjectionSchema = z.object({
+  roleId: roleIdSchema.optional(), slotId: z.string().optional(), generation: positiveSafeInteger.optional(),
   id: sessionIdSchema,
   name: z.string(),
   role: z.enum(['lead', 'teammate']),
-  phase: z.enum(['provisioning', 'active', 'failed']),
+  phase: z.enum(['provisioning', 'active', 'failed', 'retired']),
   error: z.string().optional(),
 }).strict() as z.ZodType<TeamMemberProjection>
 
 const teamTaskViewSchema = z.object({
+  requiredRole: roleIdSchema.optional(),
   id: teamTaskIdSchema,
   revision: positiveSafeInteger,
   subject: z.string(),
@@ -382,13 +435,11 @@ const teamTaskViewSchema = z.object({
 }).strict() as z.ZodType<TeamTaskView>
 
 const teamProjectionSchema = z.object({
+  slots: z.array(teamSlotSnapshotSchema),
   members: z.array(teamMemberProjectionSchema),
   tasks: z.array(teamTaskViewSchema),
   failure: z.string().optional(),
 }).strict() as z.ZodType<TeamProjection>
-
-/** Client views keyed by the member and task collections they were derived from. */
-const teamProjectionViews = new WeakMap<readonly TeamMemberSnapshot[], WeakMap<readonly TeamTaskSnapshot[], TeamProjection>>()
 
 function buildTeamProjection(state: TeamProjectionState): TeamProjection {
   const rootId = brandString<SessionId>(state.id)
@@ -398,12 +449,14 @@ function buildTeamProjection(state: TeamProjectionState): TeamProjection {
       id: member.id,
       name: member.name,
       role: 'teammate',
+      roleId: member.roleId, slotId: member.slotId, generation: member.generation,
       phase: member.phase,
       ...member.error === undefined ? {} : { error: member.error },
     })
   }
   return {
     members,
+    slots: state.slots,
     tasks: state.tasks
       .filter(task => task.status !== 'deleted')
       .map(task => projectTaskView(state, task)),
@@ -412,32 +465,19 @@ function buildTeamProjection(state: TeamProjectionState): TeamProjection {
 }
 
 /**
- * Durable client view of one Team state. Mailbox-only state changes reuse the
- * previous view reference, so the live drive publishes nothing for them.
- * A failure is terminal: later events retain the failed state reference and
- * do not republish its view.
+ * Durable client view of one Team state, including empty capacity positions.
+ * A failed state retains the last valid members, tasks, and slots.
  * @param state - current Team state.
  * @returns the roster and non-deleted task board, plus any projection failure.
  */
 export function teamProjectionView(state: TeamProjectionState): TeamProjection {
-  if (state.failure !== undefined) return buildTeamProjection(state)
-  let byTasks = teamProjectionViews.get(state.members)
-  if (byTasks === undefined) {
-    byTasks = new WeakMap()
-    teamProjectionViews.set(state.members, byTasks)
-  }
-  let view = byTasks.get(state.tasks)
-  if (view === undefined) {
-    view = buildTeamProjection(state)
-    byTasks.set(state.tasks, view)
-  }
-  return view
+  return buildTeamProjection(state)
 }
 
 /** Team projection selected by the projected Session identity; the wire view carries durable roster and task state only. */
 export const teamProjectionDefinition = {
   key: 'agentTeam',
-  stateVersion: 4,
+  stateVersion: 6,
   stateSchema: teamProjectionEntrySchema,
   init: header => emptyTeamState(header.id),
   apply: applyProjectionEvent,

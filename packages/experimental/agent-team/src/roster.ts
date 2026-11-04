@@ -8,6 +8,7 @@ import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import { errorMessage, TeamError } from './error.ts'
+import type { TeamAdmission } from './admission.ts'
 import type { TeamJournal } from './journal.ts'
 import type { TeamRuntimeLifecycle } from './lifecycle.ts'
 import { readPersistedSession } from './persisted.ts'
@@ -15,6 +16,9 @@ import type { TeamState } from './projection.ts'
 import { messageAccepted } from './session-message.ts'
 import { TeamId } from './types.ts'
 import type {
+  Config,
+  RoleSpec,
+  TeamSlotSnapshot,
   SpawnTeammateRequest,
   SpawnTeammateResult,
   TeamMemberSnapshot,
@@ -55,17 +59,21 @@ export function resolveActiveMember(
 
 /** Owns Team identities and the lifecycle of rostered continuable children. */
 export class TeamRoster {
+  private readonly idleSince = new Map<SessionId, number>()
+  private readonly startedAt = Date.now()
   /**
    * @param ctx - Team service context with Agent, Session, persistence, and subagent services.
    * @param journal - authoritative Lead-log transaction owner.
    * @param lifecycle - shared Team runtime admission cutoff.
-   * @param maxMembers - maximum immutable roster entries per Team.
+   * @param config - Resolved role registry, slot plan, capacity, and idle grace.
+   * @param admission - Shared Team admission owner.
    */
   constructor(
     private readonly ctx: Context,
     private readonly journal: TeamJournal,
     private readonly lifecycle: TeamRuntimeLifecycle,
-    private readonly maxMembers: number,
+    private readonly config: Required<Config>,
+    private readonly admission: TeamAdmission,
   ) {}
 
   /**
@@ -146,7 +154,8 @@ export class TeamRoster {
         id: member.id,
         name: member.name,
         role: 'teammate',
-        status: member.phase === 'failed'
+        roleId: member.roleId, slotId: member.slotId, generation: member.generation,
+        status: member.phase === 'retired' ? 'retired' : member.phase === 'failed'
           ? 'failed'
           : member.phase === 'provisioning'
             ? 'provisioning'
@@ -162,9 +171,9 @@ export class TeamRoster {
   }
 
   /**
-   * Create one named, continuable direct child of the Team Lead.
+   * Create a role-bound continuation in one reserved or flexible slot.
    * @param caller - exact live Lead Agent.
-   * @param request - immutable name, description, prompt, context mode, provider, and cancellation.
+   * @param request - Role, task content, context mode, optional slot, and cancellation.
    * @returns the active roster row.
    */
   async spawn(caller: Agent, request: SpawnTeammateRequest): Promise<SpawnTeammateResult> {
@@ -180,7 +189,18 @@ export class TeamRoster {
   async recoverFor(agent: Agent, signal: AbortSignal): Promise<void> {
     signal.throwIfAborted()
     const membership = this.tryMembership(agent)
-    if (membership?.role === 'lead') await this.reconcileProvisioning(membership.root, signal)
+    if (membership?.role === 'lead') {
+      await this.admission.run(membership.root.id, async () => {
+        await this.reconcileProvisioning(membership.root, signal)
+        const state = this.journal.state(membership.root)
+        for (const slot of state.slots) {
+          if (slot.memberId === undefined) continue
+          const member = state.members.find(member => member.id === slot.memberId)
+          if (member === undefined || member.phase === 'retired') await this.releaseSlot(membership.root, slot)
+          else if (member.phase === 'failed') await this.retireMember(membership.root, member)
+        }
+      })
+    }
   }
 
   /**
@@ -230,6 +250,129 @@ export class TeamRoster {
     await this.lifecycle.withTimeout(this.ctx.subagents.drainChildren(root, childIds))
   }
 
+  /** Record member-local idle timing from lifecycle notifications. @param agent - Changed Agent. */
+  observeStatus(agent: Agent): void {
+    if (this.tryMembership(agent)?.role !== 'teammate') return
+    if (agent.status === 'running') this.idleSince.delete(agent.id)
+    else this.touch(agent.id)
+  }
+
+  /** Reset grace after an accepted delivery. @param id - Member Session identity. */
+  touch(id: SessionId): void { this.idleSince.set(id, Date.now()) }
+
+  /**
+   * Permanently retire a teammate after child drain succeeds.
+   * @param caller - Exact live Lead.
+   * @param target - Historical member name.
+   * @returns The retired roster row.
+   */
+  async retire(caller: Agent, target: string): Promise<TeamMemberView> {
+    if (this.lifecycle.disposed) throw new TeamError('Agent Teams service is disposing', 'TEAM_DISPOSED')
+    const membership = this.membership(caller)
+    if (membership.role !== 'lead') throw new TeamError('only the Team Lead can retire teammates', 'TEAM_LEAD_REQUIRED')
+    return await this.lifecycle.track(this.admission.run(membership.root.id, async () => {
+      const member = this.journal.state(membership.root).members.find(member => member.name === target)
+      if (!member) throw new TeamError(`teammate "${target}" not found`, 'TEAM_MEMBER_NOT_FOUND')
+      if (member.phase !== 'retired') {
+        this.assertRetirable(membership.root, member)
+        await this.retireMember(membership.root, member)
+      }
+      const view = this.list(membership).find(row => row.id === member.id)
+      if (view === undefined) throw new TeamError('retired member disappeared', 'TEAM_MEMBER_NOT_FOUND')
+      return view
+    }))
+  }
+
+  private plannedSlots(): TeamSlotSnapshot[] {
+    return [
+      ...this.config.slotPlan.reserved.map(slot => ({ ...slot, pinned: true, generation: 0 })),
+      ...this.config.slotPlan.flex.map(id => ({ id, roleId: null, pinned: false, generation: 0 })),
+    ]
+  }
+
+  private async initializeSlots(root: Agent): Promise<void> {
+    await this.journal.transact(root.id, async () => {
+      for (const slot of this.plannedSlots()) {
+        if (this.journal.state(root).slots.some(candidate => candidate.id === slot.id)) continue
+        await this.journal.appendAndFlush(root, 'team/slot', { version: 1, teamId: TeamId(root.id), slot })
+      }
+    })
+  }
+
+  private hasOpenTasks(root: Agent, member: TeamMemberSnapshot): boolean {
+    return this.journal.state(root).tasks.some(task => task.ownerId === member.id
+      && task.status !== 'completed' && task.status !== 'deleted')
+  }
+
+  private assertRetirable(root: Agent, member: TeamMemberSnapshot): void {
+    if (member.phase === 'provisioning' || this.memberBusy(member)) {
+      throw new TeamError('teammate is provisioning or running', 'TEAM_MEMBER_BUSY')
+    }
+    if (this.hasOpenTasks(root, member)) throw new TeamError('teammate owns unfinished tasks', 'TEAM_MEMBER_BUSY')
+  }
+
+  private memberBusy(member: TeamMemberSnapshot): boolean {
+    const live = this.ctx.agents.get(member.id)
+    return live?.status === 'running' || (live !== undefined
+      && (live.inbox.nextTurn.length > 0 || live.inbox.nextStep.length > 0))
+  }
+
+  private async reclaim(root: Agent, role: RoleSpec, explicitSlot?: string): Promise<void> {
+    const state = this.journal.state(root)
+    const candidates = state.members.filter((member) => {
+      if (member.phase !== 'active' && member.phase !== 'failed') return false
+      const slot = state.slots.find(slot => slot.id === member.slotId)
+      if (slot?.pinned || this.hasOpenTasks(root, member) || this.memberBusy(member)) return false
+      return member.phase === 'failed' || (this.config.memberIdleGraceMs > 0
+        && Date.now() - (this.idleSince.get(member.id) ?? this.startedAt) > this.config.memberIdleGraceMs)
+    }).sort((a, b) => (this.idleSince.get(a.id) ?? this.startedAt) - (this.idleSince.get(b.id) ?? this.startedAt))
+    const retiring = new Set(candidates.filter(member => member.phase === 'failed').map(member => member.id))
+    const occupied = state.members.filter(member => member.phase !== 'retired')
+    const roleCount = (): number => occupied.filter(member => member.roleId === role.id && !retiring.has(member.id)).length
+    while (roleCount() >= role.maxConcurrent) {
+      const candidate = candidates.find(member => member.roleId === role.id && !retiring.has(member.id))
+      if (!candidate) throw new TeamError(`role "${role.id}" concurrency limit reached`, 'TEAM_ROLE_FULL')
+      retiring.add(candidate.id)
+    }
+    const available = (): boolean => state.slots.some(slot =>
+      (explicitSlot === undefined ? (!slot.pinned || slot.roleId === role.id) : slot.id === explicitSlot)
+      && (slot.memberId === undefined || retiring.has(slot.memberId)))
+    while (!available() || occupied.filter(member => !retiring.has(member.id)).length >= this.config.maxMembers) {
+      const candidate = candidates.find(member => !retiring.has(member.id)
+        && (explicitSlot === undefined || member.slotId === explicitSlot))
+      if (!candidate) throw new TeamError(`no capacity for role "${role.id}"`, 'TEAM_NO_CAPACITY')
+      retiring.add(candidate.id)
+    }
+    for (const member of candidates) {
+      if (retiring.has(member.id)) await this.retireMember(root, member)
+    }
+  }
+
+  private async retireMember(root: Agent, member: TeamMemberSnapshot): Promise<void> {
+    // Retirement must retain admission until the child actually drains. A disposal
+    // deadline only bounds shutdown observation; it cannot reopen this member.
+    await this.ctx.subagents.drainChildren(root, [member.id])
+    await this.journal.transact(root.id, async () => {
+      const current = this.journal.state(root).members.find(candidate => candidate.id === member.id)
+      if (current === undefined) throw new TeamError('member disappeared', 'TEAM_MEMBER_NOT_FOUND')
+      if (current.phase !== 'retired') {
+        await this.journal.appendAndFlush(root, 'team/member', {
+          version: 4, teamId: TeamId(root.id), member: { ...current, phase: 'retired' },
+        })
+      }
+      const slot = this.journal.state(root).slots.find(slot => slot.memberId === member.id)
+      if (slot) await this.releaseSlot(root, slot)
+      this.idleSince.delete(member.id)
+    })
+  }
+
+  private async releaseSlot(root: Agent, slot: TeamSlotSnapshot): Promise<void> {
+    const { memberId: _memberId, ...empty } = slot
+    await this.journal.appendAndFlush(root, 'team/slot', {
+      version: 1, teamId: TeamId(root.id), slot: { ...empty, roleId: slot.pinned ? slot.roleId : null },
+    })
+  }
+
   /** Perform one creation admitted before the Team runtime disposal cutoff. */
   private async spawnAdmitted(
     caller: Agent,
@@ -242,42 +385,68 @@ export class TeamRoster {
     const signal = AbortSignal.any([request.signal, this.lifecycle.signal])
     signal.throwIfAborted()
     const root = membership.root
-    const name = this.memberName(request.name)
-    const description = requiredText(request.description, 'description', 200)
-    const childId = brandString<SessionId>(randomUUID())
-    const member: TeamMemberSnapshot = {
-      id: childId,
-      name,
-      description,
-      provider: requiredText(request.provider, 'provider', 200),
-      context: request.context,
-      phase: 'provisioning',
+    const role = this.config.roles.find(role => role.id === request.roleId)
+    if (!role) throw new TeamError(`unknown role "${request.roleId}"`, 'TEAM_UNKNOWN_ROLE')
+    const description = requiredText(request.description ?? role.description, 'description', 200)
+    const provider = request.context === 'fork' ? 'fork' : 'spawn'
+    if (!this.ctx.subagents.getProvider(provider)) throw new TeamError(`backend "${provider}" is unavailable`, 'TEAM_INVALID_ARGUMENT')
+    if (request.task.length === 0) throw new TeamError('task must contain content', 'TEAM_INVALID_ARGUMENT')
+    const planned = this.plannedSlots()
+    if (request.slotId !== undefined) {
+      const explicit = planned.find(slot => slot.id === request.slotId)
+      if (!explicit || (explicit.pinned && explicit.roleId !== role.id)) {
+        throw new TeamError('slot is absent or reserved for another role', 'TEAM_INVALID_SLOT')
+      }
     }
-
-    await this.journal.transact(root.id, async () => {
-      const state = this.journal.state(root)
-      if (state.members.some(member => member.name === name)) {
-        throw new TeamError(`teammate name "${name}" was already used in this Team`, 'TEAM_MEMBER_NAME_TAKEN')
-      }
-      if (state.members.length >= this.maxMembers) {
-        throw new TeamError(`Team member limit ${this.maxMembers} reached`, 'TEAM_MEMBER_LIMIT')
-      }
-      await this.journal.appendAndFlush(root, 'team/member', { version: 2, teamId: TeamId(root.id), member })
+    const member = await this.admission.run(root.id, async () => {
+      signal.throwIfAborted()
+      await this.initializeSlots(root)
+      await this.reclaim(root, role, request.slotId)
+      return await this.journal.transact(root.id, async () => {
+        signal.throwIfAborted()
+        const state = this.journal.state(root)
+        const occupied = state.members.filter(member => member.phase !== 'retired')
+        if (occupied.filter(member => member.roleId === role.id).length >= role.maxConcurrent) {
+          throw new TeamError(`role "${role.id}" concurrency limit reached`, 'TEAM_ROLE_FULL')
+        }
+        const slot = request.slotId === undefined
+          ? state.slots.find(slot => slot.pinned && slot.roleId === role.id && slot.memberId === undefined)
+            ?? state.slots.find(slot => !slot.pinned && slot.memberId === undefined)
+          : state.slots.find(slot => slot.id === request.slotId && slot.memberId === undefined)
+        if (!slot || occupied.length >= this.config.maxMembers) {
+          throw new TeamError(`no capacity for role "${role.id}"`, 'TEAM_NO_CAPACITY')
+        }
+        const generation = slot.generation + 1
+        if (!Number.isSafeInteger(generation)) throw new TeamError('slot generation exhausted', 'TEAM_NO_CAPACITY')
+        const childId = brandString<SessionId>(randomUUID())
+        const member: TeamMemberSnapshot = {
+          id: childId, roleId: role.id, slotId: slot.id, generation,
+          name: this.memberName(`${slot.id}-g${generation}`), description, provider,
+          context: request.context, phase: 'provisioning',
+        }
+        await this.journal.appendAndFlush(root, 'team/slot', {
+          version: 1, teamId: TeamId(root.id), slot: { ...slot, roleId: role.id, generation, memberId: childId },
+        })
+        await this.journal.appendAndFlush(root, 'team/member', { version: 4, teamId: TeamId(root.id), member })
+        return member
+      })
     })
+    const childId = member.id
+    const name = member.name
 
     try {
       const started = await this.ctx.subagents.startActivation({
         delivery: 'parent',
         childId,
-        provider: request.provider,
+        provider: member.provider,
         label: description,
         request: {
-          prompt: request.prompt,
+          prompt: role.persona === undefined ? request.task : [{ type: 'text', text: role.persona }, ...request.task],
           parent: root,
-          // A per-member route reaches the subagent runtime as its ordinary
-          // start-time override, so visibility, permission and persistence
-          // behave exactly as for any other delegation.
-          ...request.agentOptions === undefined ? {} : { agentOptions: request.agentOptions },
+          agentOptions: {
+            provider: role.provider, model: role.model,
+            ...role.maxTokens === undefined ? {} : { maxTokens: role.maxTokens },
+          },
         },
         signal,
       })
@@ -290,7 +459,9 @@ export class TeamRoster {
       }
       try {
         const phase = await this.settleProvisioning(root, failed)
-        await this.stopTeammates(root, [childId])
+        if (phase !== 'active') {
+          await this.admission.run(root.id, async () => this.retireMember(root, failed))
+        }
         if (phase === 'active') {
           throw new TeamError(
             `teammate "${name}" became active while its creator reported failure`,
@@ -367,7 +538,6 @@ export class TeamRoster {
       try {
         signal.throwIfAborted()
         await this.ctx.sessions.flush(session)
-        // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
         const suffix = session.snapshotEvents(session.inheritedEventCount)
         if (messageAccepted(suffix, message => message.id === messageId)) return
         if (this.ctx.sessions.get(childId) !== session) continue
@@ -417,7 +587,7 @@ export class TeamRoster {
           ...phase === 'failed' ? { error: failure } : {},
         }
         await this.journal.appendAndFlush(root, 'team/member', {
-          version: 2,
+          version: 4,
           teamId: TeamId(root.id),
           member: settled,
         })
@@ -432,6 +602,7 @@ export class TeamRoster {
       id: member.id,
       name: member.name,
       role: 'teammate',
+      roleId: member.roleId, slotId: member.slotId, generation: member.generation,
       status: availability(live),
       description: member.description,
       provider: member.provider,
@@ -463,9 +634,9 @@ export class TeamRoster {
       if (current === undefined) {
         throw new TeamError(`provisioned teammate "${terminal.id}" disappeared`, 'TEAM_PROVISIONING_CONFLICT')
       }
-      if (current.phase !== 'provisioning') return current.phase
+      if (current.phase !== 'provisioning') return current.phase === 'active' ? 'active' : 'failed'
       await this.journal.appendAndFlush(root, 'team/member', {
-        version: 2,
+        version: 4,
         teamId: TeamId(root.id),
         member: terminal,
       })
@@ -475,7 +646,6 @@ export class TeamRoster {
 
   /** Whether a Session's own suffix identifies a provider-owned subagent child. */
   private subagentDescriptor(agent: Agent): boolean {
-    // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
     return foldSubagentDescriptor(agent.session.snapshotEvents(agent.session.inheritedEventCount)) !== undefined
   }
 }

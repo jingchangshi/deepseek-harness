@@ -6,6 +6,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { steerHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
+import { TeamAdmission } from './admission.ts'
 import { TeamActivity } from './activity.ts'
 import { TeamCompletionGate } from './completion.ts'
 import { errorMessage, TeamError } from './error.ts'
@@ -15,13 +16,15 @@ import { teamProjectionDefinition } from './projection.ts'
 import { resolveActiveMember, TeamRoster } from './roster.ts'
 import type { TeamMembership } from './roster.ts'
 import { TeamTaskBoard } from './task-board.ts'
-import { TeamId, TeamTaskId } from './types.ts'
+import { RoleId, TeamId, TeamTaskId } from './types.ts'
 import type {
   TeamTaskCompletionPolicy,
   TeamTaskCompletionPolicyOptions,
 } from './completion.ts'
 import type {
   Config,
+  RoleSpec,
+  TeamSlotPlan,
   CreateTeamTaskRequest,
   SendTeamMessageRequest,
   SendTeamMessageResult,
@@ -46,7 +49,7 @@ export type {
   TeamTaskCompletionAcceptance,
 } from './completion.ts'
 export type { TeamMembership } from './roster.ts'
-export { TeamId, TeamMessageId, TeamTaskId } from './types.ts'
+export { RoleId, TeamId, TeamMessageId, TeamTaskId } from './types.ts'
 export { TeamError } from './error.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -55,7 +58,23 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-const DEFAULT_MAX_MEMBERS = 16
+/** Default business roles and their complete model routes. */
+export const DEFAULT_ROLES: readonly RoleSpec[] = [
+  { id: RoleId('architect'), description: 'Architecture and design', provider: 'magpie', model: 'codex/gpt-6.1-sol', maxConcurrent: 1 },
+  { id: RoleId('explorer'), description: 'Explore and research', provider: 'corp', model: 'Qwen3.8-Flash', maxConcurrent: 2 },
+  { id: RoleId('implementer'), description: 'Implement changes', provider: 'corp', model: 'DeepSeek-V4.1-Flash-1017', maxConcurrent: 2 },
+  { id: RoleId('reviewer'), description: 'Review changes', provider: 'corp', model: 'GLM-5.3-Flash', maxConcurrent: 1 },
+  { id: RoleId('challenger'), description: 'Challenge assumptions', provider: 'magpie', model: 'codex/gpt-6.1-sol', maxConcurrent: 1 },
+  { id: RoleId('validator'), description: 'Validate outcomes', provider: 'magpie', model: 'auto/mimo-v2.6-flash', maxConcurrent: 1 },
+]
+
+/** Four retained core positions and four reusable flexible positions. */
+export const DEFAULT_SLOT_PLAN: TeamSlotPlan = {
+  reserved: ['architect', 'reviewer', 'explorer', 'implementer'].map(id => ({ id, roleId: RoleId(id) })),
+  flex: ['flex-1', 'flex-2', 'flex-3', 'flex-4'],
+}
+const DEFAULT_MAX_MEMBERS = 8
+const DEFAULT_MEMBER_IDLE_GRACE_MS = 60_000
 const DEFAULT_MAX_TASKS = 256
 const DEFAULT_MAX_MESSAGE_BYTES = 65_536
 const DEFAULT_DISPOSAL_TIMEOUT_MS = 5_000
@@ -73,14 +92,24 @@ export class TeamService extends Service {
   static inject = ['agents', 'sessions', 'sessionPersistence', 'sessionProjections', 'subagents']
 
   static Config: z<Config> = z.object({
+    roles: z.array(z.object({
+      id: z.transform(z.string(), RoleId), description: z.string(), provider: z.string(), model: z.string(),
+      maxTokens: z.number().step(1).min(1), maxConcurrent: z.number().step(1).min(1), persona: z.string(),
+    })).default([...DEFAULT_ROLES]),
+    slotPlan: z.object({
+      reserved: z.array(z.object({ id: z.string(), roleId: z.transform(z.string(), RoleId) })),
+      flex: z.array(z.string()),
+    }).default({ reserved: [...DEFAULT_SLOT_PLAN.reserved], flex: [...DEFAULT_SLOT_PLAN.flex] }),
+    memberIdleGraceMs: z.number().step(1).min(0).default(DEFAULT_MEMBER_IDLE_GRACE_MS),
     maxMembers: z.number().step(1).min(1).default(DEFAULT_MAX_MEMBERS),
     maxTasks: z.number().step(1).min(1).default(DEFAULT_MAX_TASKS),
     maxMessageBytes: z.number().step(1).min(1).default(DEFAULT_MAX_MESSAGE_BYTES),
     disposalTimeoutMs: z.number().step(1).min(1).default(DEFAULT_DISPOSAL_TIMEOUT_MS),
-  })
+  }) as z<Config>
 
   /** Validated deployment limits used by every Team operation. */
   private readonly config: Required<Config>
+  private readonly admission = new TeamAdmission()
 
   private readonly activity: TeamActivity
   private readonly completion: TeamCompletionGate
@@ -92,6 +121,9 @@ export class TeamService extends Service {
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'agentTeams')
     this.config = {
+      roles: structuredClone(config.roles ?? DEFAULT_ROLES),
+      slotPlan: structuredClone(config.slotPlan ?? DEFAULT_SLOT_PLAN),
+      memberIdleGraceMs: config.memberIdleGraceMs ?? DEFAULT_MEMBER_IDLE_GRACE_MS,
       maxMembers: positiveLimit('maxMembers', config.maxMembers ?? DEFAULT_MAX_MEMBERS),
       maxTasks: positiveLimit('maxTasks', config.maxTasks ?? DEFAULT_MAX_TASKS),
       maxMessageBytes: positiveLimit('maxMessageBytes', config.maxMessageBytes ?? DEFAULT_MAX_MESSAGE_BYTES),
@@ -101,15 +133,17 @@ export class TeamService extends Service {
       ),
     }
 
+    this.validateTopology()
     this.activity = new TeamActivity()
     this.lifecycle = new TeamRuntimeLifecycle(this.config.disposalTimeoutMs)
     this.completion = new TeamCompletionGate({ signal: this.lifecycle.signal })
     this.journal = new TeamJournal(ctx, (root) => { this.activity.notify(TeamId(root.id)) })
-    this.roster = new TeamRoster(ctx, this.journal, this.lifecycle, this.config.maxMembers)
+    this.roster = new TeamRoster(ctx, this.journal, this.lifecycle, this.config, this.admission)
     this.tasks = new TeamTaskBoard(this.journal, this.config.maxTasks, this.completion)
 
     ctx.on('agent/created', ({ agent }) => { this.scheduleRecovery(agent) })
     ctx.on('agent/status', ({ agent }) => {
+      this.roster.observeStatus(agent)
       const membership = this.roster.tryMembership(agent)
       if (membership !== undefined) this.activity.notify(membership.id)
     })
@@ -145,13 +179,23 @@ export class TeamService extends Service {
   }
 
   /**
-   * Create one named, continuable direct child of the Team Lead.
+   * Create a role-bound continuation with a generated slot and generation identity.
    * @param caller - exact live Lead Agent.
-   * @param request - immutable name, description, prompt, context mode, provider, and cancellation.
+   * @param request - Role, task content, context mode, optional slot, and cancellation.
    * @returns the active roster row.
    */
   async spawnTeammate(caller: Agent, request: SpawnTeammateRequest): Promise<SpawnTeammateResult> {
     return await this.roster.spawn(caller, request)
+  }
+
+  /**
+   * Drain and permanently retire one active or failed teammate.
+   * @param caller - Exact live Team Lead.
+   * @param target - Generated member name.
+   * @returns The retired member view.
+   */
+  async retireTeammate(caller: Agent, target: string): Promise<TeamMemberView> {
+    return await this.roster.retire(caller, target)
   }
 
   /**
@@ -162,10 +206,10 @@ export class TeamService extends Service {
    */
   async sendMessage(caller: Agent, request: SendTeamMessageRequest): Promise<SendTeamMessageResult> {
     if (this.lifecycle.disposed) throw new TeamError('Agent Teams service is disposing', 'TEAM_DISPOSED')
-    return await this.lifecycle.track(this.sendAdmitted(caller, {
+    return await this.lifecycle.track(this.admission.run(this.roster.membership(caller).root.id, async () => this.sendAdmitted(caller, {
       ...request,
       signal: AbortSignal.any([request.signal, this.lifecycle.signal]),
-    }))
+    })))
   }
 
   /**
@@ -204,7 +248,14 @@ export class TeamService extends Service {
    * @returns the committed next task revision.
    */
   async updateTask(caller: Agent, request: UpdateTeamTaskRequest): Promise<TeamTaskView> {
-    return await this.tasks.update(caller, this.roster.membership(caller), request)
+    const operation = async (): Promise<TeamTaskView> => {
+      const membership = this.roster.membership(caller)
+      return await this.tasks.update(caller, membership, request)
+    }
+    if (request.action === 'claim' || request.action === 'reassign') {
+      return await this.admission.run(this.roster.membership(caller).root.id, operation)
+    }
+    return await operation()
   }
 
   /**
@@ -260,7 +311,17 @@ export class TeamService extends Service {
     const membership = this.roster.membership(caller)
     request.signal.throwIfAborted()
     const { root } = membership
-    const target = resolveActiveMember(root, this.journal.state(root), request.target)
+    const state = this.journal.state(root)
+    const target = resolveActiveMember(root, state, request.target)
+    if (request.expectedRole !== undefined) {
+      const actual = state.members.find(member => member.id === target.id)?.roleId
+      if (actual !== request.expectedRole) {
+        throw new TeamError(
+          `message target "${target.name}" is role "${actual ?? 'unassigned'}", expected "${request.expectedRole}"`,
+          'TEAM_ROLE_MISMATCH',
+        )
+      }
+    }
     if (target.id === caller.id) throw new TeamError('a Team member cannot message itself', 'TEAM_SELF_MESSAGE')
     const content = [
       { type: 'text' as const, text: `Team message from ${membership.name}:` },
@@ -278,8 +339,32 @@ export class TeamService extends Service {
     } else {
       messageId = await steerHostSubagentPrompt(this.ctx.subagents, root, target.id, content, source, request.signal)
     }
+    this.roster.touch(target.id)
     this.activity.notify(membership.id)
     return { messageId }
+  }
+
+  private validateTopology(): void {
+    const { roles, slotPlan, maxMembers, memberIdleGraceMs } = this.config
+    if (!Number.isSafeInteger(memberIdleGraceMs) || memberIdleGraceMs < 0) {
+      throw new TeamError('memberIdleGraceMs must be a nonnegative safe integer', 'TEAM_INVALID_CONFIG')
+    }
+    const ids = new Set<string>()
+    for (const role of roles) {
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(role.id) || role.id === 'lead' || ids.has(role.id)
+        || !role.description.trim() || !role.provider.trim() || !role.model.trim()) {
+        throw new TeamError('roles require unique identities, descriptions, and complete routes', 'TEAM_INVALID_CONFIG')
+      }
+      ids.add(role.id)
+      positiveLimit('maxConcurrent', role.maxConcurrent)
+      if (role.maxTokens !== undefined) positiveLimit('maxTokens', role.maxTokens)
+    }
+    const slots = [...slotPlan.reserved.map(slot => slot.id), ...slotPlan.flex]
+    if (slots.length > maxMembers || new Set(slots).size !== slots.length
+      || slots.some(id => !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(id) || id.length > 44)
+      || slotPlan.reserved.some(slot => !ids.has(slot.roleId))) {
+      throw new TeamError('slotPlan requires unique valid slots, declared reserved roles, and capacity <= maxMembers', 'TEAM_INVALID_CONFIG')
+    }
   }
 
   /** Queue one contained provisioning reconciliation after publication has unwound. */

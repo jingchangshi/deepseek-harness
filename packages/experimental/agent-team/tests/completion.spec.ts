@@ -12,7 +12,7 @@ import SubagentService from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { MockAdapter } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { mountWorkingDirectoryFixture } from '../../../subagent/subagent/tests/working-directory-fixture.ts'
-import TeamService, { TeamError, TeamId, TeamTaskId } from '../src/index.ts'
+import TeamService, { RoleId, TeamError, TeamId, TeamTaskId } from '../src/index.ts'
 import type {
   TeamTaskCompletionAttempt,
   TeamTaskCompletionDecision,
@@ -80,7 +80,10 @@ async function setup(script: ConstructorParameters<typeof MockAdapter>[0] = []) 
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(SubagentService)
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
-  await ctx.plugin(TeamService)
+  await ctx.plugin(TeamService, {
+    roles: [{ id: RoleId('outsider'), description: 'completion participant', provider: 'mock', model: 'mock', maxConcurrent: 1 }],
+    slotPlan: { reserved: [{ id: 'outsider', roleId: RoleId('outsider') }], flex: [] },
+  })
   ctx.llm.registerAdapter(['mock'], new MockAdapter(script))
   const lead = await ctx.agentLoop.create(SessionId('lead'), { provider: 'mock', model: 'mock' })
   return { ctx, lead, storageRoot }
@@ -106,15 +109,13 @@ async function teammate(
   ctx: Context,
   lead: Agent,
   name: string,
-  agentOptions?: { readonly provider?: string; readonly model?: string },
 ): Promise<Agent> {
   const spawned = await ctx.agentTeams.spawnTeammate(lead, {
-    name,
+    roleId: RoleId(name),
     description: `${name} responsibility`,
-    prompt: [{ type: 'text', text: `${name} initial` }],
+    task: [{ type: 'text', text: `${name} initial` }],
     context: 'fresh',
-    provider: 'spawn',
-    ...agentOptions === undefined ? {} : { agentOptions },
+
     signal: new AbortController().signal,
   })
   return vi.waitFor(() => {
@@ -540,7 +541,7 @@ describe('generic Team task completion policy', () => {
     const recovered = durable(lead).tasks.find(entry => entry.id === task.id)
     expect(recovered?.completionRequirements).toEqual([REQUIREMENT])
     expect(recovered?.completion).toEqual(completed.completion)
-    expect(teamProjectionDefinition.stateVersion).toBe(4)
+    expect(teamProjectionDefinition.stateVersion).toBe(6)
   })
 
   it('defaults the rejection code when a policy supplies none and allows adding requirements to a plain task', async () => {
@@ -581,7 +582,7 @@ describe('generic Team task completion policy', () => {
       writeScopes: [],
       completionRequirements: [REQUIREMENT],
     }
-    lead.session.append('team/task', { version: 3, teamId: TeamId(lead.id), task: forged })
+    lead.session.append('team/task', { version: 4, teamId: TeamId(lead.id), task: forged })
     await ctx.sessions.flush(lead.session)
     let projected = teamProjectionDefinition.init(lead.session.header)
     for (const event of lead.session.snapshotEvents()) projected = teamProjectionDefinition.apply(projected, event)
@@ -606,14 +607,14 @@ describe('generic Team task completion policy', () => {
         acceptedRevision: 1,
       },
     }
-    lead.session.append('team/task', { version: 3, teamId: TeamId(lead.id), task: mismatched })
+    lead.session.append('team/task', { version: 4, teamId: TeamId(lead.id), task: mismatched })
     await ctx.sessions.flush(lead.session)
     let projected = teamProjectionDefinition.init(lead.session.header)
     for (const event of lead.session.snapshotEvents()) projected = teamProjectionDefinition.apply(projected, event)
     expect(projected.failure).toContain('must match the declared completion requirements')
   })
 
-  it('restores a version-2 task event that predates completion requirements', async () => {
+  it('restores a plain task without completion requirements', async () => {
     const { ctx, lead } = await setup()
     const legacy: TeamTaskSnapshot = {
       id: TeamTaskId('task-legacy'),
@@ -624,7 +625,7 @@ describe('generic Team task completion policy', () => {
       blockedBy: [],
       writeScopes: [],
     }
-    lead.session.append('team/task', { version: 2, teamId: TeamId(lead.id), task: legacy })
+    lead.session.append('team/task', { version: 4, teamId: TeamId(lead.id), task: legacy })
     await ctx.sessions.flush(lead.session)
     expect(durable(lead).tasks).toEqual([legacy])
     // The legacy task completes exactly as it always did, with no policy installed.
@@ -650,14 +651,14 @@ describe('generic Team task completion policy', () => {
       writeScopes: [],
       completionRequirements: [REQUIREMENT],
     }
-    lead.session.append('team/task', { version: 3, teamId: TeamId(lead.id), task: base })
+    lead.session.append('team/task', { version: 4, teamId: TeamId(lead.id), task: base })
     await ctx.sessions.flush(lead.session)
     const weakened: TeamTaskSnapshot = {
       ...base,
       revision: 2,
       completionRequirements: [],
     }
-    lead.session.append('team/task', { version: 3, teamId: TeamId(lead.id), task: weakened })
+    lead.session.append('team/task', { version: 4, teamId: TeamId(lead.id), task: weakened })
     await ctx.sessions.flush(lead.session)
     let projected = teamProjectionDefinition.init(lead.session.header)
     for (const event of lead.session.snapshotEvents()) projected = teamProjectionDefinition.apply(projected, event)
@@ -668,7 +669,7 @@ describe('generic Team task completion policy', () => {
   it('refuses a non-Lead non-owner completion of a requirement-bearing task', async () => {
     const { ctx, lead } = await setup(['hang'])
     ctx.agentTeams.registerCompletionPolicy(recordingPolicy())
-    const worker = await teammate(ctx, lead, 'outsider', { provider: 'mock', model: 'mock' })
+    const worker = await teammate(ctx, lead, 'outsider')
     const task = await ctx.agentTeams.createTask(lead, {
       subject: 'gated', description: 'requires verification', completionRequirements: [REQUIREMENT],
     })
@@ -683,7 +684,7 @@ describe('generic Team task completion policy', () => {
       evidence: [{ key: 'run', reference: 'run-42' }],
     })).rejects.toMatchObject({ code: 'TEAM_TASK_UNAUTHORIZED' })
     expect(completedEvents(lead, task.id)).toBe(0)
-    ctx.agentTeams.interrupt(lead, 'outsider')
+    ctx.agentTeams.interrupt(lead, 'outsider-g1')
     await vi.waitFor(() => { expect(ctx.agents.get(worker.id)).toBeUndefined() }, { timeout: 5_000 })
   })
 

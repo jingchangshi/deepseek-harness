@@ -82,12 +82,13 @@ export class TeamTaskBoard {
         subject: requiredText(request.subject, 'subject', 200),
         description: requiredText(request.description, 'description', 16_384),
         status: 'pending',
+        ...request.requiredRole === undefined ? {} : { requiredRole: request.requiredRole },
         blockedBy: this.dependencies(request.blockedBy ?? [], state),
         writeScopes: this.writeScopes(request.writeScopes ?? []),
         ...requirements.length === 0 ? {} : { completionRequirements: requirements },
       }
       this.assertTaskGraph(state, task)
-      await this.journal.appendAndFlush(root, 'team/task', { version: 3, teamId: TeamId(root.id), task })
+      await this.journal.appendAndFlush(root, 'team/task', { version: 4, teamId: TeamId(root.id), task })
       return projectTaskView(state, task)
     })
   }
@@ -215,6 +216,7 @@ export class TeamTaskBoard {
     let next: TeamTaskSnapshot
     switch (request.action) {
       case 'claim':
+        this.assertRole(state, current, caller.id)
         if (current.ownerId !== undefined && current.ownerId !== caller.id) {
           throw new TeamError(`team task "${current.id}" is owned by another member`, 'TEAM_TASK_ALREADY_CLAIMED')
         }
@@ -293,6 +295,7 @@ export class TeamTaskBoard {
         }
         if (!taskReady(state, current)) throw new TeamError(`team task "${current.id}" is blocked`, 'TEAM_TASK_BLOCKED')
         const assignee = resolveActiveMember(root, state, request.owner)
+        this.assertRole(state, current, assignee.id)
         next = { ...current, status: 'in_progress', ownerId: assignee.id }
         break
       }
@@ -349,6 +352,13 @@ export class TeamTaskBoard {
     })
   }
 
+  private assertRole(state: TeamState, task: TeamTaskSnapshot, ownerId: Agent['id']): void {
+    if (task.requiredRole !== undefined
+      && state.members.find(member => member.id === ownerId && member.phase === 'active')?.roleId !== task.requiredRole) {
+      throw new TeamError(`task requires role "${task.requiredRole}"`, 'TEAM_ROLE_MISMATCH')
+    }
+  }
+
   /** Read one current task under the strict CAS and lifecycle preconditions. */
   private requireCurrent(state: TeamState, request: UpdateTeamTaskRequest): TeamTaskSnapshot {
     const current = state.tasks.find(task => task.id === request.taskId)
@@ -375,7 +385,7 @@ export class TeamTaskBoard {
       revision: current.revision + 1,
     }
     this.assertTaskGraph(state, task)
-    await this.journal.appendAndFlush(root, 'team/task', { version: 3, teamId: TeamId(root.id), task })
+    await this.journal.appendAndFlush(root, 'team/task', { version: 4, teamId: TeamId(root.id), task })
     return projectTaskView(state, task)
   }
 

@@ -49,6 +49,7 @@ export function projectTaskView(state: TeamState, task: TeamTaskSnapshot): TeamT
   }
   return {
     id: task.id,
+    ...task.requiredRole === undefined ? {} : { requiredRole: task.requiredRole },
     revision: task.revision,
     subject: task.subject,
     description: task.description,

@@ -24,7 +24,7 @@ export interface TeamActionInjected {
 }
 
 /** Durable lifecycle overlaid with the member Session's live turn activity. */
-type MemberStatus = 'running' | 'inactive' | 'provisioning' | 'failed'
+type MemberStatus = 'running' | 'inactive' | 'provisioning' | 'failed' | 'retired'
 
 /** Full props of the Team conversation-header action. */
 export type TeamActionProps =
@@ -46,6 +46,7 @@ function memberStatusKey(status: MemberStatus): TeamKey {
     case 'inactive': return 'memberStatus.inactive'
     case 'provisioning': return 'memberStatus.provisioning'
     case 'failed': return 'memberStatus.failed'
+    case 'retired': return 'memberStatus.retired'
   }
 }
 
@@ -54,6 +55,7 @@ function memberDotState(status: Exclude<MemberStatus, 'inactive'>): StateDotStat
     case 'running':
     case 'provisioning': return 'ongoing'
     case 'failed': return 'error'
+    case 'retired': return 'idle'
   }
 }
 
@@ -86,7 +88,7 @@ function TeamMemberRow({
     : member.phase
   const isCurrent = member.id === sessionId
   const highlightCurrent = isCurrent && memberCount > 1
-  const inert = isCurrent || status === 'failed' || status === 'provisioning'
+  const inert = isCurrent || status === 'failed' || status === 'provisioning' || status === 'retired'
 
   return (
     <Tooltip label={t('open')} side="bottom" gap={4} disabled={inert}>
@@ -114,6 +116,9 @@ function TeamMemberRow({
           </span>
           <small>
             {t(memberStatusKey(status))}
+            {member.roleId !== undefined && (
+              <span className={css.memberModel}>{` · ${t('role')}: ${member.roleId}`}</span>
+            )}
             {model !== undefined && (
               <span className={css.memberModel}>{` · ${t('model')}: ${model}`}</span>
             )}
