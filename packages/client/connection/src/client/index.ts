@@ -191,6 +191,7 @@ interface ConnectionOwner {
   readonly source: ConnectionGenerationSource
   readonly controller: ConnectionController
   readonly stopNetworkWatch: () => void
+  readonly stopVisibilityWatch: () => void
 }
 
 interface BrowserNetworkTarget {
@@ -212,6 +213,32 @@ function watchBrowserNetwork(controller: ConnectionController): () => void {
     browser.removeEventListener('online', online)
     browser.removeEventListener('offline', offline)
   }
+}
+
+interface BrowserVisibilityTarget {
+  readonly visibilityState?: string
+  addEventListener(type: 'visibilitychange', listener: () => void): void
+  removeEventListener(type: 'visibilitychange', listener: () => void): void
+}
+
+/**
+ * Retry as soon as the page becomes visible again. Hidden tabs throttle
+ * `setTimeout`, so without this an idle retry can wait out its whole backoff
+ * while the user is already looking at the page; `reconnect()` resets the
+ * attempt counter and skips that wait.
+ * @param controller - owned connection loop.
+ * @returns disposer removing the visibility listener.
+ */
+function watchBrowserVisibility(controller: ConnectionController): () => void {
+  const browser = (globalThis as { readonly document?: BrowserVisibilityTarget }).document
+  if (browser?.visibilityState === undefined) return () => {}
+  const wake = (): void => {
+    if (browser.visibilityState !== 'visible' || controller.connected) return
+    if ((globalThis as { readonly navigator?: { readonly onLine?: boolean } }).navigator?.onLine === false) return
+    controller.reconnect()
+  }
+  browser.addEventListener('visibilitychange', wake)
+  return () => { browser.removeEventListener('visibilitychange', wake) }
 }
 
 /**
@@ -258,6 +285,7 @@ export function installConnection(ctx: Context, options: ConnectionInstallOption
     if (owner !== current) return
     owner = undefined
     current.stopNetworkWatch()
+    current.stopVisibilityWatch()
     current.controller.stop()
     publishGeneration(undefined)
     publishState(undefined)
@@ -319,7 +347,13 @@ export function installConnection(ctx: Context, options: ConnectionInstallOption
           sinks.onStateChange?.(state)
         },
       }, { ...recovery, ...config })
-      const current = { token, source, controller, stopNetworkWatch: watchBrowserNetwork(controller) }
+      const current = {
+        token,
+        source,
+        controller,
+        stopNetworkWatch: watchBrowserNetwork(controller),
+        stopVisibilityWatch: watchBrowserVisibility(controller),
+      }
       owner = current
       controller.start()
       return {

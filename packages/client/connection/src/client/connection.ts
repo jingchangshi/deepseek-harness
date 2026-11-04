@@ -109,6 +109,11 @@ export class ConnectionController {
     this.retryDelay = null
   }
 
+  /** Whether the active generation has reported ready and remains established. */
+  get connected(): boolean {
+    return this.lastState === 'connected'
+  }
+
   /** Reset the retry sequence and replace the current generation or retry delay immediately. */
   reconnect(): void {
     if (!this.running) return
