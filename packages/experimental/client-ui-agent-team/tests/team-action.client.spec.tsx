@@ -42,7 +42,7 @@ const lead: TeamMemberProjection = { id: SESSION, name: 'lead', role: 'lead', ph
 const worker: TeamMemberProjection = {
   id: WORKER, name: 'worker', role: 'teammate', phase: 'active',
 }
-const team: TeamProjection = { members: [lead, worker], tasks: [task] }
+const team: TeamProjection = { slots: [], members: [lead, worker], tasks: [task] }
 
 type Projections = SessionListState['projectionsBySession']
 
@@ -133,6 +133,7 @@ describe('TeamAction', () => {
     expect(screen.queryByRole('button', { name: /刷新|Refresh/u })).toBeNull()
 
     setProjection(b.sessions, SESSION, {
+      slots: [],
       members: [lead, worker, { id: 'worker-b' as SessionId, name: 'worker-b', role: 'teammate', phase: 'provisioning' }],
       tasks: [task, { ...task, id: TASK_2, subject: 'Pushed task', status: 'pending', ready: true, writeScopeWarnings: [] }],
     })
@@ -198,7 +199,7 @@ describe('TeamAction', () => {
     expect(screen.queryByRole('status')).toBeNull()
     setProjectionSnapshot(b.sessions, SESSION, { state: 'idle', error: null, values: {} })
     expect(screen.getByRole('status').textContent).toBe(zh.unavailable)
-    setProjection(b.sessions, SESSION, { members: [lead], tasks: [] })
+    setProjection(b.sessions, SESSION, { slots: [], members: [lead], tasks: [] })
     expect(screen.getByText(zh.empty)).toBeTruthy()
   })
 
@@ -232,7 +233,7 @@ describe('TeamAction', () => {
         byId: { ...current.byId, ['unrelated' as SessionId]: summary('unrelated' as SessionId, true) },
         projectionsBySession: {
           ...projectionsBySession,
-          ['unrelated' as SessionId]: { state: 'ready', error: null, values: { agentTeam: { members: [], tasks: [] } } },
+          ['unrelated' as SessionId]: { state: 'ready', error: null, values: { agentTeam: { slots: [], members: [], tasks: [] } } },
         },
       })
       b.statuses.set(new Map([['unrelated' as SessionId, { running: true, pendingInteraction: undefined, completionUnread: false }]]))
@@ -274,6 +275,7 @@ describe('TeamAction', () => {
           state: 'ready', error: null,
           values: {
             agentTeam: {
+              slots: [],
               members: [
                 lead,
                 worker,
