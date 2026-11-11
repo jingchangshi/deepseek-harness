@@ -2893,3 +2893,225 @@ describe('defineTool presentation (presentCall / presentResult)', () => {
     expect(tool.presentResult?.({ wrong: 1 }, { content: [], isError: false })).toBeUndefined()
   })
 })
+
+describe('F9: caller cancellation vs wrapper deadline (content preservation)', () => {
+  /**
+   * These three tests pin the invariant that `dispatchToolBody` must honour.
+   * The distinction that matters: the FUSED dispatch signal aborts for two
+   * unrelated events, and only one of them makes a settled result worthless.
+   */
+
+  it('PRESERVES a cooperative tool settled content when a WRAPPER deadline fired', async () => {
+    const ctx = await setup()
+    // The tool observes its signal, returns the work it kept, and CLAIMS the
+    // content is deliberately partial — the contract a cooperative tool follows.
+    ctx.tools.register(defineContentToolFixture({
+      name: 'cooperative', description: 'returns what it kept', parameters: {},
+      execute(_args, exec) {
+        const done = [{ type: 'text' as const, text: 'PARTIAL REAL WORK' }]
+        const settle = (): { type: 'text'; text: string }[] => {
+          exec.declarePartial()
+          return done
+        }
+        if (exec.signal.aborted) return Promise.resolve(settle())
+        return new Promise((resolve) => {
+          exec.signal.addEventListener('abort', () => { resolve(settle()) }, { once: true })
+        })
+      },
+    }))
+    // A wrapper owning its OWN deadline signal, like timeout-policy does.
+    const deadlineSignal = new AbortController()
+    const entered = Promise.withResolvers<undefined>()
+    ctx.on('tools/execute', async (exec, next) => {
+      const upstream = exec.signal
+      exec.signal = deadlineSignal.signal
+      try {
+        entered.resolve(undefined)
+        return await next()
+      } finally {
+        exec.signal = upstream
+      }
+    })
+    // The caller never cancels; only the wrapper's deadline fires.
+    const caller = new AbortController()
+    const pending = ctx.tools.execute({
+      callId: ToolCallId('wrapper-deadline'), name: 'cooperative', arguments: {}, signal: caller.signal,
+    })
+    await entered.promise
+    deadlineSignal.abort('deadline elapsed')
+    const result = await pending
+    // The work survived: the tool reached quiescence holding it deliberately,
+    // and a deadline is not a reason to destroy it.
+    expect(result.isError).toBe(false)
+    expect(result.content).toEqual([{ type: 'text', text: 'PARTIAL REAL WORK' }])
+  })
+
+  it('DISCARDS content when the CALLER genuinely cancels (no misleading partials)', async () => {
+    const ctx = await setup()
+    ctx.tools.register(defineContentToolFixture({
+      name: 'cooperative', description: 'returns what it kept', parameters: {},
+      execute(_args, exec) {
+        const done = [{ type: 'text' as const, text: 'work nobody asked for' }]
+        if (exec.signal.aborted) return Promise.resolve(done)
+        return new Promise((resolve) => {
+          exec.signal.addEventListener('abort', () => { resolve(done) }, { once: true })
+        })
+      },
+    }))
+    const caller = new AbortController()
+    const entered = Promise.withResolvers<undefined>()
+    ctx.on('tools/execute', async (_exec, next) => { entered.resolve(undefined); return await next() })
+    const pending = ctx.tools.execute({
+      callId: ToolCallId('caller-cancel'), name: 'cooperative', arguments: {}, signal: caller.signal,
+    })
+    await entered.promise
+    // The user pressed stop: the turn is over and its work is worthless.
+    caller.abort('user pressed stop')
+    const result = await pending
+    // Presenting that content would mislead the model into believing an
+    // abandoned turn produced a usable result.
+    expect(result.isError).toBe(true)
+    expect(result.isError ? result.error.info?.code : undefined).toBe(TOOL_ABORTED)
+    expect(JSON.stringify(result.content)).not.toContain('work nobody asked for')
+  })
+
+  it('NEVER turns an aborted FAILED tool into a success, even on a wrapper deadline', async () => {
+    const ctx = await setup()
+    // A tool that fails, then sees its signal abort while it is settling.
+    ctx.tools.register(defineContentToolFixture({
+      name: 'failing', description: 'fails after observing its signal', parameters: {},
+      execute(_args, exec) {
+        const failure = new HarnessError('the operation genuinely failed', 'UPSTREAM_FAILED')
+        if (exec.signal.aborted) return Promise.reject(failure)
+        return new Promise((_resolve, reject) => {
+          exec.signal.addEventListener('abort', () => { reject(failure) }, { once: true })
+        })
+      },
+    }))
+    const deadlineSignal = new AbortController()
+    const entered = Promise.withResolvers<undefined>()
+    ctx.on('tools/execute', async (exec, next) => {
+      const upstream = exec.signal
+      exec.signal = deadlineSignal.signal
+      try {
+        entered.resolve(undefined)
+        return await next()
+      } finally {
+        exec.signal = upstream
+      }
+    })
+    const caller = new AbortController()
+    const pending = ctx.tools.execute({
+      callId: ToolCallId('failed-then-aborted'), name: 'failing', arguments: {}, signal: caller.signal,
+    })
+    await entered.promise
+    deadlineSignal.abort('deadline elapsed')
+    const result = await pending
+    // Preserving content must never launder a failure into a success. The
+    // `!result.isError` guard is what prevents that.
+    expect(result.isError).toBe(true)
+    expect(result.isError ? result.error.info?.code : undefined).toBe('UPSTREAM_FAILED')
+  })
+})
+
+describe('F9: declarePartial marker (opt-in survival of a deadline abort)', () => {
+  /**
+   * The marker is an explicit tool CLAIM, not a guess from content shape. A
+   * tool that does not set it keeps today's behaviour exactly: a deadline over
+   * its settled content is still a hard typed failure.
+   */
+
+  const cooperative = (opts: { partial?: boolean }): ToolDefinition => defineContentToolFixture({
+    name: 'paging', description: 'stops when its signal aborts', parameters: {},
+    execute(_args, exec) {
+      const done = [{ type: 'text' as const, text: 'kept work' }]
+      const settle = (): { type: 'text'; text: string }[] => {
+        if (opts.partial === true) exec.declarePartial()
+        return done
+      }
+      if (exec.signal.aborted) return Promise.resolve(settle())
+      return new Promise((resolve) => {
+        exec.signal.addEventListener('abort', () => { resolve(settle()) }, { once: true })
+      })
+    },
+  })
+
+  /** Drive a WRAPPER-owned deadline abort (not a caller cancel). */
+  const underWrapperDeadline = async (tool: ToolDefinition): Promise<ToolExecutionResult> => {
+    const ctx = await setup()
+    ctx.tools.register(tool)
+    const deadlineSignal = new AbortController()
+    const entered = Promise.withResolvers<undefined>()
+    ctx.on('tools/execute', async (exec, next) => {
+      const upstream = exec.signal
+      exec.signal = deadlineSignal.signal
+      try {
+        entered.resolve(undefined)
+        return await next()
+      } finally {
+        exec.signal = upstream
+      }
+    })
+    const caller = new AbortController()
+    const pending = ctx.tools.execute({
+      callId: ToolCallId('marker'), name: tool.name, arguments: {}, signal: caller.signal,
+    })
+    await entered.promise
+    deadlineSignal.abort('deadline elapsed')
+    return await pending
+  }
+
+  it('a MARKED partial success survives a deadline-induced abort', async () => {
+    const result = await underWrapperDeadline(cooperative({ partial: true }))
+    expect(result.isError).toBe(false)
+    // The claim rides the result so a policy can honour it without re-guessing.
+    expect(result.partial).toBe(true)
+    expect(result.content).toEqual([{ type: 'text', text: 'kept work' }])
+  })
+
+  it('an UNMARKED success is still replaced by ABORTED (opt-in only)', async () => {
+    const result = await underWrapperDeadline(cooperative({}))
+    // Non-empty text is NOT evidence of partiality: without the explicit claim
+    // a give-up placeholder must not be presented as a result.
+    expect(result.isError).toBe(true)
+    expect(result.isError ? result.error.info?.code : undefined).toBe(TOOL_ABORTED)
+    expect(JSON.stringify(result.content)).not.toContain('kept work')
+  })
+
+  it('a marked FAILURE never becomes a success', async () => {
+    const ctx = await setup()
+    ctx.tools.register(defineContentToolFixture({
+      name: 'failing', description: 'fails while marked', parameters: {},
+      execute(_args, exec) {
+        exec.declarePartial()
+        throw new HarnessError('the paging index is corrupt', 'SESSION_QUERY_INDEX_FAILED')
+      },
+    }))
+    const caller = new AbortController()
+    const result = await ctx.tools.execute({
+      callId: ToolCallId('marked-failure'), name: 'failing', arguments: {}, signal: caller.signal,
+    })
+    // `partial` is typed `never` on a failure, and the failure code survives.
+    expect(result.isError).toBe(true)
+    expect(result.isError ? result.error.info?.code : undefined).toBe('SESSION_QUERY_INDEX_FAILED')
+    expect((result as { partial?: unknown }).partial).toBeUndefined()
+  })
+
+  it('a genuine CALLER cancel still discards content, marked or not', async () => {
+    const ctx = await setup()
+    ctx.tools.register(cooperative({ partial: true }))
+    const caller = new AbortController()
+    const entered = Promise.withResolvers<undefined>()
+    ctx.on('tools/execute', async (_exec, next) => { entered.resolve(undefined); return await next() })
+    const pending = ctx.tools.execute({
+      callId: ToolCallId('caller-cancel-marked'), name: 'paging', arguments: {}, signal: caller.signal,
+    })
+    await entered.promise
+    // The marker never overrides an explicit cancellation: the turn is over.
+    caller.abort('user pressed stop')
+    const result = await pending
+    expect(result.isError).toBe(true)
+    expect(result.isError ? result.error.info?.code : undefined).toBe(TOOL_ABORTED)
+    expect(JSON.stringify(result.content)).not.toContain('kept work')
+  })
+})

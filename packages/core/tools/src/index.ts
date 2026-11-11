@@ -433,6 +433,20 @@ export interface ToolRunContext extends ToolExecution {
    * conclude the enclosing run.
    */
   concludeTurn(): void
+  /**
+   * Assert that this successful result's content is deliberately incomplete and
+   * must survive a deadline-induced abort.
+   *
+   * Use this when the tool OBSERVED its budget, stopped early by choice, kept
+   * the work it had, and labelled the result for the model. The marker rides
+   * this execution's own result exactly like {@link concludeTurn}: it is only
+   * meaningful on a success, so a composite that dispatches nested calls must
+   * not forward it from a nested result.
+   *
+   * A tool that does not call this keeps today's behaviour — a deadline over
+   * unmarked content stays a hard typed failure.
+   */
+  declarePartial(): void
 }
 
 /** Registry-owned live execution object; public pipeline views stay readonly. */
@@ -580,6 +594,18 @@ export interface ToolExecutionSuccess {
   readonly additionalContexts?: UserMessage[]
   /** The agent loop stops after committing this successful result batch. */
   readonly concludesTurn?: true
+  /**
+   * The tool asserts this content is DELIBERATELY INCOMPLETE and that preserving
+   * it is correct even though its own deadline fired.
+   *
+   * A tool sets this through {@link ToolRunContext.declarePartial} only when it
+   * kept real work, labelled it for the model, and can say honestly that more
+   * was left unread. It is a claim, not a guess from content shape: a policy
+   * that preserves partial content must never infer partiality from "the text is
+   * non-empty", because an unmarked give-up placeholder would then be presented
+   * as a result instead of a failure.
+   */
+  readonly partial?: true
 }
 
 /** Failed canonical tool execution; failures never carry a successful value. */
@@ -591,6 +617,8 @@ export interface ToolExecutionFailure {
   readonly meta?: JsonValue
   readonly additionalContexts?: UserMessage[]
   readonly concludesTurn?: never
+  /** A failure is never partial: preserved content must not launder a failure. */
+  readonly partial?: never
 }
 
 /** The discriminated, execution-local outcome of one tool call. */
@@ -825,6 +853,8 @@ export class ToolRuntime extends Service {
   private deferredContexts = new WeakMap<ToolRunContext, UserMessage[]>()
   /** Executions whose tool body declared the current turn complete. */
   private concludingExecutions = new WeakSet<ToolExecution>()
+  /** Executions whose tool asserted its success content is deliberately partial. */
+  private partialExecutions = new WeakSet<ToolExecution>()
   /** Original caller cancellation, kept outside the wrapper-mutable execution object. */
   private cancellationStates = new WeakMap<ToolRunContext, ToolCancellationState>()
   /** Definition-owned final content transform snapshotted before policy begins. */
@@ -1415,6 +1445,7 @@ export class ToolRuntime extends Service {
     const visible = this.get(name, agent)
     const collapsed = visible !== undefined && this.collapses(name, agent, parent !== undefined)
     const concludingExecutions = this.concludingExecutions
+    const partialExecutions = this.partialExecutions
     const base = {
       token,
       callId,
@@ -1429,6 +1460,9 @@ export class ToolRuntime extends Service {
       },
       concludeTurn(): void {
         concludingExecutions.add(this as unknown as ToolExecution)
+      },
+      declarePartial(): void {
+        partialExecutions.add(this as unknown as ToolExecution)
       },
     }
     // Capture the finalizer BEFORE argument materialization: the
@@ -1588,7 +1622,29 @@ export class ToolRuntime extends Service {
       state.bodyInvoked = true
       const returned = await tool.execute(exec.arguments, exec)
       const result = this.createSuccessResult(exec, tool, returned)
-      return isAborted(signal)
+      // Judge cancellation by the CALLER signal, not the fused one.
+      //
+      // The fused signal aborts for two very different events: the caller
+      // cancelled (user pressed stop, the turn was superseded) or an
+      // around-wrapper's own deadline fired. Only the first makes this settled
+      // result worthless — a wrapper deadline means the tool OBSERVED its budget
+      // and reached quiescence holding real, deliberately-returned work, and
+      // replacing that content destroys the partial result the tool preserved.
+      //
+      // The later stages already make exactly this distinction (see
+      // callerCancelled at the dispatch and finalize stages); this call site was
+      // the outlier reading the fused signal.
+      //
+      // A failed operation can never be laundered into a success here, and that
+      // is structural rather than a second condition: `createSuccessResult`
+      // returns a `ToolExecutionSuccess` by type, and a thrown failure leaves
+      // through the `catch` below before this line is reached.
+      //
+      // The marker is what makes a deadline abort survivable, and it is strictly
+      // opt-in: a tool that stayed silent keeps today's behaviour exactly, so an
+      // unmarked give-up placeholder is never presented as a usable result.
+      const survivesDeadline = !this.callerCancelled(exec) && result.partial === true
+      return isAborted(signal) && !survivesDeadline
         ? toolAbortedResult(result)
         : result
     } catch (error: unknown) {
@@ -1860,12 +1916,14 @@ export class ToolRuntime extends Service {
       meta = snapshotProjection(tool.name, 'presentationMeta', projected)
     }
     const concludesTurn = this.concludingExecutions.has(exec)
+    const partial = this.partialExecutions.has(exec)
     return this.markCanonical(exec, this.materializeFinalResult({
       isError: false,
       value,
       content,
       ...meta !== undefined ? { meta } : {},
       ...concludesTurn ? { concludesTurn: true as const } : {},
+      ...partial ? { partial: true as const } : {},
     }) as ToolExecutionSuccess)
   }
 
@@ -1904,6 +1962,7 @@ export class ToolRuntime extends Service {
       isError: false as const,
       ...presentation,
       ...result.concludesTurn === true ? { concludesTurn: true as const } : {},
+      ...result.partial === true ? { partial: true as const } : {},
     })
     return deepFreeze({ ...detached, value: result.value })
   }
