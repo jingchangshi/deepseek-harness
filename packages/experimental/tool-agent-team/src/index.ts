@@ -3,7 +3,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { RoleId, TeamTaskId } from '@deepseek-ai/dsh-experimental-agent-team'
+import { RoleId, TeamError, TeamTaskId } from '@deepseek-ai/dsh-experimental-agent-team'
 import type { RoleSpec, TeamMemberView } from '@deepseek-ai/dsh-experimental-agent-team'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { InferValue, ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
@@ -95,6 +95,109 @@ function modelMember(member: TeamMemberView): InferValue<typeof MEMBER_VIEW_SCHE
  * tools that accept or display it cannot drift apart.
  */
 const COMPLETION_REQUIREMENTS_DESCRIPTION = 'Declared completion requirements. Each entry names a stable key, the completion policy kind that validates it, and an opaque JSON payload. A task that declares requirements completes only when a registered completion policy accepts the offered evidence; a task without requirements keeps the ordinary completion behaviour.'
+
+/**
+ * The accepted write-scope form, stated once in the tool that owns the
+ * conversion, so every refusal names the rule and the workspace it was measured
+ * against instead of a bare "invalid scope".
+ */
+const WRITE_SCOPE_FORM = 'write scopes are session-relative file or directory prefixes inside the session workspace (e.g. "targets/ascend/plan"), never another tree'
+
+/** The one directory capability this tool reads, declared structurally like Team routing's preset roster. */
+interface WorkingDirectoryProbe {
+  get(session: Agent['session']): string
+}
+
+/**
+ * Read the directory an absolute write scope is relative to.
+ *
+ * The working-directory projection is authoritative because a Session can move;
+ * the durable header is the fallback for a Session created without that service.
+ * @param ctx - context that may contain the working-directory service.
+ * @param agent - calling Agent whose Session owns the directory.
+ * @returns the effective absolute session directory, when one is known.
+ */
+export function sessionDirectory(ctx: Context, agent: Agent): string | undefined {
+  const workingDirectory = ctx.get('workingDirectory') as WorkingDirectoryProbe | undefined
+  const directory = workingDirectory?.get(agent.session) ?? agent.session.header.cwd
+  return directory === undefined || directory.trim().length === 0 ? undefined : directory
+}
+
+/**
+ * Lexically normalize one absolute path into comparable form.
+ *
+ * Collapses repeated separators, drops `.` segments, and resolves `..` against
+ * its parent, clamped at its root. Deliberately lexical: a write scope is
+ * advisory text compared component-wise, so it is never canonicalized against
+ * the filesystem and no I/O runs during a task mutation.
+ * @param value - absolute path, POSIX or drive-letter form.
+ * @returns the normalized path with a preserved root and no trailing separator.
+ */
+function absoluteForm(value: string): string {
+  const drive = /^([a-z]):/iu.exec(value)?.[1]?.toUpperCase()
+  const segments: string[] = []
+  for (const segment of (drive === undefined ? value : value.slice(2)).split('/')) {
+    if (segment.length === 0 || segment === '.') continue
+    if (segment === '..') segments.pop()
+    else segments.push(segment)
+  }
+  return drive === undefined ? `/${segments.join('/')}` : `${drive}:/${segments.join('/')}`
+}
+
+/**
+ * Convert one write-scope candidate into the form the Team service stores.
+ *
+ * A relative candidate passes through untouched, so the Team service stays the
+ * single authority on the accepted syntax. An absolute candidate INSIDE the
+ * session directory converts losslessly — the case that used to lose a whole
+ * batch of task creations. An absolute candidate OUTSIDE it is refused with that
+ * reason rather than silently kept: a verbatim absolute scope is not comparable
+ * with another task's scope, and a `../` rewrite would corrupt the component-wise
+ * overlap warnings the board derives from these values.
+ * @param cwd - effective absolute session directory, when one is known.
+ * @param value - model-authored scope, relative or absolute.
+ * @returns the scope to send to the Team service.
+ */
+export function sessionWriteScope(cwd: string | undefined, value: string): string {
+  const candidate = value.trim().replaceAll('\\', '/')
+  if (!candidate.startsWith('/') && !/^[a-z]:/iu.test(candidate)) return value
+  if (cwd === undefined) {
+    throw new TeamError(
+      `invalid write scope ${JSON.stringify(value)}: it is an absolute path but this session records no working directory to make it relative to; `
+      + WRITE_SCOPE_FORM,
+      'TEAM_INVALID_WRITE_SCOPE',
+    )
+  }
+  const workspace = absoluteForm(cwd.replaceAll('\\', '/'))
+  const absolute = absoluteForm(candidate)
+  // A workspace that IS a filesystem root has no separator of its own to keep.
+  const atRoot = workspace === '/' || /^[a-z]:\/$/iu.test(workspace)
+  if (absolute === workspace) {
+    throw new TeamError(
+      `invalid write scope ${JSON.stringify(value)}: it resolves to the session workspace root ${JSON.stringify(workspace)} and names no path inside it; `
+      + 'name a file or directory instead, e.g. "src/feature"',
+      'TEAM_INVALID_WRITE_SCOPE',
+    )
+  }
+  if (!absolute.startsWith(atRoot ? workspace : `${workspace}/`)) {
+    throw new TeamError(
+      `invalid write scope ${JSON.stringify(value)}: it is outside the session workspace ${JSON.stringify(workspace)}, so it has no session-relative form `
+      + `and a scope from another tree cannot be stored; ${WRITE_SCOPE_FORM}; record the prefix inside the session workspace that the work changes, or omit this scope`,
+      'TEAM_INVALID_WRITE_SCOPE',
+    )
+  }
+  return absolute.slice(atRoot ? workspace.length : workspace.length + 1)
+}
+
+/**
+ * Convert every declared write scope before the Team service validates it.
+ * @param cwd - effective absolute session directory, when one is known.
+ * @param values - model-authored scopes.
+ * @returns the scope to send for each entry, in declaration order.
+ */
+export function sessionWriteScopes(cwd: string | undefined, values: readonly string[]): string[] {
+  return values.map(value => sessionWriteScope(cwd, value))
+}
 
 /** One declared completion requirement. */
 const COMPLETION_REQUIREMENT_SCHEMA = {
@@ -386,7 +489,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
         write_scopes: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Advisory workspace-relative file or directory prefixes this task expects to modify.',
+          description: 'Advisory file or directory prefixes this task expects to modify. Stored session-workspace-relative: pass either that relative form or an absolute path inside the session workspace, which is converted for you. An absolute path outside the session workspace is refused, because it has no relative form to compare with other tasks.',
         },
         requirements: {
           type: 'array',
@@ -396,12 +499,18 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
       },
       output: jsonOutput(TASK_VIEW_SCHEMA),
       async execute(args, exec) {
-        return await ctx.agentTeams.createTask(callingAgent(exec.agent, 'team_task_create'), {
+        const agent = callingAgent(exec.agent, 'team_task_create')
+        // Convert before the Team service validates, so an absolute path inside
+        // the session workspace succeeds instead of failing the whole call.
+        const writeScopes = args.write_scopes === undefined
+          ? undefined
+          : sessionWriteScopes(sessionDirectory(ctx, agent), args.write_scopes)
+        return await ctx.agentTeams.createTask(agent, {
           subject: args.subject,
           description: args.description,
           ...args.required_role === undefined ? {} : { requiredRole: RoleId(args.required_role) },
           ...args.blocked_by === undefined ? {} : { blockedBy: args.blocked_by.map(TeamTaskId) },
-          ...args.write_scopes === undefined ? {} : { writeScopes: args.write_scopes },
+          ...writeScopes === undefined ? {} : { writeScopes },
           ...args.requirements === undefined ? {} : { completionRequirements: args.requirements },
         })
       },
@@ -469,7 +578,11 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
         subject: { type: 'string', description: 'Replacement title for edit.' },
         description: { type: 'string', description: 'Replacement details for edit.' },
         blocked_by: { type: 'array', items: { type: 'string' }, description: 'Complete blocker list for set_dependencies.' },
-        write_scopes: { type: 'array', items: { type: 'string' }, description: 'Replacement advisory write scopes for edit.' },
+        write_scopes: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Replacement advisory write scopes for edit, stored session-workspace-relative. An absolute path inside the session workspace is converted; one outside it is refused because it has no relative form.',
+        },
         owner: { type: 'string', description: 'Member target from spawn_teammate or list_agents for Lead-only reassign; omit to unassign.' },
         completion_requirements: {
           type: 'array',
@@ -484,14 +597,20 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
       },
       output: jsonOutput(TASK_VIEW_SCHEMA),
       async execute(args, exec) {
-        return await ctx.agentTeams.updateTask(callingAgent(exec.agent, 'team_task_update'), {
+        const agent = callingAgent(exec.agent, 'team_task_update')
+        // Same conversion as create: an edit must not fail on a path form the
+        // model can legitimately produce, and must not store another tree's path.
+        const writeScopes = args.write_scopes === undefined
+          ? undefined
+          : sessionWriteScopes(sessionDirectory(ctx, agent), args.write_scopes)
+        return await ctx.agentTeams.updateTask(agent, {
           taskId: TeamTaskId(args.task_id),
           expectedRevision: args.expected_revision,
           action: args.action,
           ...args.subject === undefined ? {} : { subject: args.subject },
           ...args.description === undefined ? {} : { description: args.description },
           ...args.blocked_by === undefined ? {} : { blockedBy: args.blocked_by.map(TeamTaskId) },
-          ...args.write_scopes === undefined ? {} : { writeScopes: args.write_scopes },
+          ...writeScopes === undefined ? {} : { writeScopes },
           ...args.owner === undefined ? {} : { owner: args.owner },
           ...args.completion_requirements === undefined
             ? {}
