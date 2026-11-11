@@ -20,7 +20,22 @@ export const signal = new AbortController().signal
 export const text = (value: string) => [{ type: 'text' as const, text: value }]
 export const testRoles = DEFAULT_ROLES.map(role => ({ ...role, provider: 'mock', model: 'mock', maxConcurrent: 8 }))
 
-export async function stack(config: Config = {}, root?: string, script: ConstructorParameters<typeof MockAdapter>[0] = Array.from({ length: 30 }, () => textResponse('done')), resume = false) {
+/**
+ * @param config - Team-service configuration under test.
+ * @param root - reusable storage root, or a fresh temporary one.
+ * @param script - mock model responses.
+ * @param resume - resume a persisted Lead instead of creating one.
+ * @param composedPreset - stand-in for the optional preset roster: the Lead is
+ *   reported as composed under this preset id, which is how a deployment
+ *   selects a per-preset role table.
+ */
+export async function stack(
+  config: Config = {},
+  root?: string,
+  script: ConstructorParameters<typeof MockAdapter>[0] = Array.from({ length: 30 }, () => textResponse('done')),
+  resume = false,
+  composedPreset?: string,
+) {
   const ctx = new Context()
   const lifetime: { releaseLead?: () => Promise<void> } = {}
   const ownRoot = root === undefined
@@ -42,6 +57,17 @@ export async function stack(config: Config = {}, root?: string, script: Construc
   await ctx.plugin(TeamService, { roles: testRoles, ...config })
   const adapter = new MockAdapter(script)
   ctx.llm.registerAdapter(['mock'], adapter)
+  if (composedPreset !== undefined) {
+    // Structural stand-in for the optional preset roster. Team routing reads
+    // ONLY `composedPreset` through the documented `ctx.get` pattern; the
+    // in-process child composition also probes the roster, so this stand-in
+    // reports the preset id and declines to join children to it rather than
+    // mounting a real preset generation.
+    ctx.provide('agentPresets', {
+      composedPreset: () => composedPreset,
+      composeFrom: () => undefined,
+    } as never)
+  }
   const resumed = resume ? await ctx.agents.resume({ resumeSessionId: SessionId('lead'), agentOptions: { provider: 'mock', model: 'mock' } }) : undefined
   if (resumed !== undefined) lifetime.releaseLead = async () => { await resumed.dispose() }
   const lead = resumed?.agent ?? await ctx.agentLoop.create(SessionId('lead'), { provider: 'mock', model: 'mock' })

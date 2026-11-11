@@ -13,6 +13,7 @@ import type { TeamJournal } from './journal.ts'
 import type { TeamRuntimeLifecycle } from './lifecycle.ts'
 import { readPersistedSession } from './persisted.ts'
 import type { TeamState } from './projection.ts'
+import { resolveRoles } from './routes.ts'
 import { messageAccepted } from './session-message.ts'
 import { TeamId } from './types.ts'
 import type {
@@ -65,7 +66,7 @@ export class TeamRoster {
    * @param ctx - Team service context with Agent, Session, persistence, and subagent services.
    * @param journal - authoritative Lead-log transaction owner.
    * @param lifecycle - shared Team runtime admission cutoff.
-   * @param config - Resolved role registry, slot plan, capacity, and idle grace.
+   * @param config - Resolved base role table, per-preset role tables, slot plan, capacity, and idle grace.
    * @param admission - Shared Team admission owner.
    */
   constructor(
@@ -385,7 +386,9 @@ export class TeamRoster {
     const signal = AbortSignal.any([request.signal, this.lifecycle.signal])
     signal.throwIfAborted()
     const root = membership.root
-    const role = this.config.roles.find(role => role.id === request.roleId)
+    // The Lead's preset selects the Team's role table, so the route applied to
+    // this child comes from the same table the Lead's other spawns used.
+    const role = resolveRoles(this.config, root).find(role => role.id === request.roleId)
     if (!role) throw new TeamError(`unknown role "${request.roleId}"`, 'TEAM_UNKNOWN_ROLE')
     const description = requiredText(request.description ?? role.description, 'description', 200)
     const provider = request.context === 'fork' ? 'fork' : 'spawn'

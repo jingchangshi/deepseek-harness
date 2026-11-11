@@ -4,7 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { RoleId, TeamTaskId } from '@deepseek-ai/dsh-experimental-agent-team'
-import type { TeamMemberView } from '@deepseek-ai/dsh-experimental-agent-team'
+import type { RoleSpec, TeamMemberView } from '@deepseek-ai/dsh-experimental-agent-team'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { InferValue, ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
 
@@ -30,11 +30,26 @@ export const Config: z<Config> = z.object({
   forkProvider: z.string().default('fork'),
 })
 
+/**
+ * Render the role catalog one Team actually routes by.
+ *
+ * The rows come from the Team-service configuration the Lead's preset selects,
+ * so this text cannot drift from the routes a spawn really uses: it is the same
+ * table `spawn_teammate` resolves. No route is hardcoded here.
+ * @param roles - the Team's resolved role table.
+ * @returns one inline catalog line, or a table-free sentence when none is configured.
+ */
+function roleCatalog(roles: readonly RoleSpec[]): string {
+  if (roles.length === 0) return 'Roles (role fixes the model route and its concurrency): this deployment configures no roles, so spawn_teammate cannot create a teammate.'
+  const rows = roles.map(role => `${role.id} (${role.provider}/${role.model}, ${role.description}, max ${role.maxConcurrent})`)
+  return `Roles (role fixes the model route and its concurrency): ${rows.join(' · ')}.`
+}
+
 /** Model-facing collaboration guidance shared by Lead and teammates. */
-function teamPolicy(interrupt: boolean): string {
+function teamPolicy(interrupt: boolean, roles: readonly RoleSpec[]): string {
   return `Agent Teams is available in this session
 
-Roles (role fixes the model route and its concurrency): architect (magpie/group/architect, design + review, max 1) · explorer (corp/Qwen3.8-Flash, investigate, max 2) · implementer (corp/DeepSeek-V4.1-Flash-1017, write code, max 2) · reviewer (corp/GLM-5.3-Flash, verify, max 1) · challenger (magpie/group/challenger, adversarial review, max 1) · validator (magpie/group/validator, validate, max 1). Dispatch by role: spawn_teammate({ role, task }). Reuse an idle teammate of the SAME role with send_message (pass expected_role to assert) before creating a new one. A task's required_role is enforced when claimed or reassigned. When capacity is full the runtime returns backpressure naming the blocked role: wait or reuse, and NEVER send a task to a mismatched role.
+${roleCatalog(roles)} Dispatch by role: spawn_teammate({ role, task }). Reuse an idle teammate of the SAME role with send_message (pass expected_role to assert) before creating a new one. A task's required_role is enforced when claimed or reassigned. When capacity is full the runtime returns backpressure naming the blocked role: wait or reuse, and NEVER send a task to a mismatched role.
 
 The Team Lead and all teammates share the same working directory and filesystem. Edits are immediately visible to every member. Split write work into disjoint scopes, record expected write scopes on shared tasks, and use task dependencies when work must be ordered. Write-scope overlap is advisory, not a lock.
 
@@ -220,7 +235,10 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
     register(scoped.systemPrompt.section({
       name: 'team:policy',
       order: scoped.systemPrompt.getSectionOrder('TEAM_POLICY'),
-      text: teamPolicy(config.interrupt),
+      // Resolved per assembly from the Team's own role table, so the catalog
+      // always matches the routes spawn_teammate will apply — including after
+      // the Lead switches preset.
+      text: () => teamPolicy(config.interrupt, ctx.agentTeams.rolesFor(agent)),
     }))
     register(scoped.systemPrompt.context({
       name: 'team:identity',
@@ -240,7 +258,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
       name: 'spawn_teammate',
       description: 'Create one named, durable teammate. Only the Team Lead may call this tool.',
       parameters: {
-        role: { type: 'string', required: true, description: 'Declared role id to fill: architect, explorer, implementer, reviewer, challenger, or validator. The role fixes the model route and concurrency.' },
+        role: { type: 'string', required: true, description: 'Declared role id to fill. The role fixes the model route and concurrency; the role catalog in your Team policy lists the ids this deployment routes, and a route is deployment configuration that this tool cannot override.' },
         task: { type: 'string', required: true, description: 'Complete initial task for the teammate.' },
         context: {
           type: 'string',

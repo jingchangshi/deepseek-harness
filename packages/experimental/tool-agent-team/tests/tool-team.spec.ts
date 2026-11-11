@@ -36,7 +36,14 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-async function setup() {
+/**
+ * @param options - optional Team-service configuration plus the preset the Lead
+ *   is reported as composed under, so a test can exercise per-preset routing.
+ */
+async function setup(options: {
+  readonly roleConfig?: Record<string, unknown>
+  readonly composedPreset?: string
+} = {}) {
   const ctx = new Context()
   contexts.add(ctx)
   await mountAgentLoopTestDependencies(ctx)
@@ -49,10 +56,19 @@ async function setup() {
   await ctx.plugin(SubagentService)
   await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
   await ctx.plugin(SubagentFork, { providerName: 'fork' })
-  await ctx.plugin(TeamService)
+  await ctx.plugin(TeamService, options.roleConfig ?? {})
   await ctx.plugin(toolTeam)
   const adapter = new MockAdapter([])
   ctx.llm.registerAdapter(['mock'], adapter)
+  if (options.composedPreset !== undefined) {
+    // Team routing reads only `composedPreset` from the optional preset roster,
+    // and the in-process child composition probes the same service, so this
+    // stand-in reports an id and declines to join children to it.
+    ctx.provide('agentPresets', {
+      composedPreset: () => options.composedPreset,
+      composeFrom: () => undefined,
+    } as never)
+  }
   const lead = await ctx.agentLoop.create(SessionId('tool-team-lead'), { provider: 'mock', model: 'mock' })
   return { ctx, lead }
 }
@@ -135,5 +151,43 @@ describe('dsh-tool-team role API', () => {
     expect(prompt).toContain('Roles (role fixes the model route')
     expect(prompt).toContain('expected_role')
     expect(prompt).toContain('backpressure')
+  })
+
+  it('renders the role catalog from the configured table, not a hardcoded list', async () => {
+    const { ctx, lead } = await setup({
+      roleConfig: {
+        roles: [{
+          id: 'architect', description: 'Design only', provider: 'magpie',
+          model: 'group/architect', maxConcurrent: 3,
+        }],
+        slotPlan: { reserved: [{ id: 'architect', roleId: 'architect' }], flex: [] },
+        maxMembers: 2,
+      },
+    })
+    const scope = scopeOf(lead.ctx)
+    if (scope === undefined) throw new Error('expected scope')
+    const prompt = renderPrompt(await ctx.systemPrompt.assemble({ scope }))
+    expect(prompt).toContain('Roles (role fixes the model route and its concurrency): architect (magpie/group/architect, Design only, max 3).')
+    // The built-in explorer route must not survive as boilerplate.
+    expect(prompt).not.toContain('Qwen3.8-Flash')
+  })
+
+  it('renders the catalog of the table the Lead preset selects', async () => {
+    const { ctx, lead } = await setup({
+      composedPreset: 'ai-compiler-magpie',
+      roleConfig: {
+        roles: [{ id: 'architect', description: 'Design only', provider: 'corp', model: 'corp-architect', maxConcurrent: 1 }],
+        presetRoles: {
+          'ai-compiler-magpie': [{ id: 'architect', description: 'Design only', provider: 'magpie', model: 'group/architect', maxConcurrent: 1 }],
+        },
+        slotPlan: { reserved: [{ id: 'architect', roleId: 'architect' }], flex: [] },
+        maxMembers: 2,
+      },
+    })
+    const scope = scopeOf(lead.ctx)
+    if (scope === undefined) throw new Error('expected scope')
+    const prompt = renderPrompt(await ctx.systemPrompt.assemble({ scope }))
+    expect(prompt).toContain('architect (magpie/group/architect, Design only, max 1)')
+    expect(prompt).not.toContain('corp-architect')
   })
 })

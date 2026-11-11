@@ -48,10 +48,14 @@ With the tools installed, the model does the rest on request — for example, "c
 
 | Field | Default | Meaning |
 |---|---|---|
-| `maxMembers` | `16` | Maximum teammates a team may ever create, including failed ones |
-| `maxTasks` | `256` | Maximum active tasks on the board |
+| `roles` | built-in table | Base role table: every role's route and concurrency, used by any Lead whose preset has no `presetRoles` entry |
+| `presetRoles` | `{}` | Complete role tables keyed by preset id; a Lead composed under that preset uses that table *instead of* `roles`, never merged field by field |
+| `maxMembers` | `8` | Maximum non-retired teammate instances admitted by one Team |
+| `maxTasks` | `256` | Maximum non-deleted tasks retained by one Team |
 | `maxMessageBytes` | `65,536` | Maximum size of one sent message |
 | `disposalTimeoutMs` | `5,000` | Time allowed for shutdown cleanup |
+
+Role routing is deployment configuration, not a tool argument: `spawn_teammate` takes a role id only, and the Team resolves that id in its own table. One Team has one table — the one selected by the Lead's preset — and every reserved slot must name a role that exists in every configured table, because one `slotPlan` serves all of them.
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-experimental-agent-team) is the exhaustive source for every accepted field and its JSDoc.
 

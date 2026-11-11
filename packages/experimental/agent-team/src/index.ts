@@ -14,6 +14,7 @@ import { TeamJournal } from './journal.ts'
 import { TeamRuntimeLifecycle } from './lifecycle.ts'
 import { teamProjectionDefinition } from './projection.ts'
 import { resolveActiveMember, TeamRoster } from './roster.ts'
+import { resolveRoles } from './routes.ts'
 import type { TeamMembership } from './roster.ts'
 import { TeamTaskBoard } from './task-board.ts'
 import { RoleId, TeamId, TeamTaskId } from './types.ts'
@@ -50,6 +51,7 @@ export type {
 } from './completion.ts'
 export type { TeamMembership } from './roster.ts'
 export { RoleId, TeamId, TeamMessageId, TeamTaskId } from './types.ts'
+export { presetIdOf, resolveRoles } from './routes.ts'
 export { TeamError } from './error.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -79,6 +81,39 @@ const DEFAULT_MAX_TASKS = 256
 const DEFAULT_MAX_MESSAGE_BYTES = 65_536
 const DEFAULT_DISPOSAL_TIMEOUT_MS = 5_000
 
+/**
+ * One role row: identity, complete route, optional token cap and persona.
+ * Shared by `roles` and every `presetRoles` entry so a per-preset table is
+ * validated by exactly the same rules as the base table.
+ */
+const ROLE_ROW = z.object({
+  id: z.transform(z.string(), RoleId), description: z.string(), provider: z.string(), model: z.string(),
+  maxTokens: z.number().step(1).min(1), maxConcurrent: z.number().step(1).min(1), persona: z.string(),
+})
+
+/** One complete role table: the same row schema, applied to every table. */
+const ROLE_TABLE = z.array(ROLE_ROW)
+
+/**
+ * Validate one complete role table and return its role ids.
+ * @param label - configuration path used in the failure message.
+ * @param table - the table to validate.
+ * @returns the validated role ids, for slot-plan referential checks.
+ */
+function validateRoleTable(label: string, table: readonly RoleSpec[]): ReadonlySet<string> {
+  const ids = new Set<string>()
+  for (const role of table) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(role.id) || role.id === 'lead' || ids.has(role.id)
+      || !role.description.trim() || !role.provider.trim() || !role.model.trim()) {
+      throw new TeamError(`${label} require unique identities, descriptions, and complete routes`, 'TEAM_INVALID_CONFIG')
+    }
+    ids.add(role.id)
+    positiveLimit('maxConcurrent', role.maxConcurrent)
+    if (role.maxTokens !== undefined) positiveLimit('maxTokens', role.maxTokens)
+  }
+  return ids
+}
+
 /** Validate one positive safe-integer deployment limit. */
 function positiveLimit(name: string, value: number): number {
   if (!Number.isSafeInteger(value) || value < 1) {
@@ -92,10 +127,12 @@ export class TeamService extends Service {
   static inject = ['agents', 'sessions', 'sessionPersistence', 'sessionProjections', 'subagents']
 
   static Config: z<Config> = z.object({
-    roles: z.array(z.object({
-      id: z.transform(z.string(), RoleId), description: z.string(), provider: z.string(), model: z.string(),
-      maxTokens: z.number().step(1).min(1), maxConcurrent: z.number().step(1).min(1), persona: z.string(),
-    })).default([...DEFAULT_ROLES]),
+    roles: ROLE_TABLE.default([...DEFAULT_ROLES]),
+    /**
+     * Complete role tables keyed by preset id. A Lead whose preset has an entry
+     * replaces `roles` wholesale; see {@link Config.presetRoles}.
+     */
+    presetRoles: z.dict(ROLE_TABLE).default({}),
     slotPlan: z.object({
       reserved: z.array(z.object({ id: z.string(), roleId: z.transform(z.string(), RoleId) })),
       flex: z.array(z.string()),
@@ -122,6 +159,7 @@ export class TeamService extends Service {
     super(ctx, 'agentTeams')
     this.config = {
       roles: structuredClone(config.roles ?? DEFAULT_ROLES),
+      presetRoles: structuredClone(config.presetRoles ?? {}),
       slotPlan: structuredClone(config.slotPlan ?? DEFAULT_SLOT_PLAN),
       memberIdleGraceMs: config.memberIdleGraceMs ?? DEFAULT_MEMBER_IDLE_GRACE_MS,
       maxMembers: positiveLimit('maxMembers', config.maxMembers ?? DEFAULT_MAX_MEMBERS),
@@ -158,6 +196,20 @@ export class TeamService extends Service {
       }
     }, 'agentTeams.runtimeLifecycle()')
     for (const agent of ctx.agents.list()) this.scheduleRecovery(agent)
+  }
+
+  /**
+   * Resolve the role table that one Agent's Team uses.
+   *
+   * The table is selected by the Team Lead's preset, so a Team has exactly one
+   * route source and a teammate's own preset never overrides it. This is a
+   * read-only probe that runs during prompt assembly, so an Agent whose roster
+   * link is already gone resolves against itself instead of throwing.
+   * @param agent - any live member of the Team, or the Lead itself.
+   * @returns the Team's complete role table.
+   */
+  rolesFor(agent: Agent): readonly RoleSpec[] {
+    return resolveRoles(this.config, this.roster.tryMembership(agent)?.root ?? agent)
   }
 
   /**
@@ -345,24 +397,24 @@ export class TeamService extends Service {
   }
 
   private validateTopology(): void {
-    const { roles, slotPlan, maxMembers, memberIdleGraceMs } = this.config
+    const { roles, presetRoles, slotPlan, maxMembers, memberIdleGraceMs } = this.config
     if (!Number.isSafeInteger(memberIdleGraceMs) || memberIdleGraceMs < 0) {
       throw new TeamError('memberIdleGraceMs must be a nonnegative safe integer', 'TEAM_INVALID_CONFIG')
     }
-    const ids = new Set<string>()
-    for (const role of roles) {
-      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(role.id) || role.id === 'lead' || ids.has(role.id)
-        || !role.description.trim() || !role.provider.trim() || !role.model.trim()) {
-        throw new TeamError('roles require unique identities, descriptions, and complete routes', 'TEAM_INVALID_CONFIG')
-      }
-      ids.add(role.id)
-      positiveLimit('maxConcurrent', role.maxConcurrent)
-      if (role.maxTokens !== undefined) positiveLimit('maxTokens', role.maxTokens)
-    }
+    // The base table and every preset-specific replacement are validated by the
+    // same rules, because either one can become a Team's authoritative table.
+    const tableIds = [
+      validateRoleTable('roles', roles),
+      ...Object.entries(presetRoles).map(([presetId, table]) => validateRoleTable(`presetRoles.${presetId}`, table)),
+    ]
     const slots = [...slotPlan.reserved.map(slot => slot.id), ...slotPlan.flex]
+    // One slot plan serves every preset, so a reserved position must name a
+    // role that exists in EVERY configured table. A table that omits a reserved
+    // role would otherwise be unable to fill that position at all.
+    const unfillable = tableIds.some(ids => slotPlan.reserved.some(slot => !ids.has(slot.roleId)))
     if (slots.length > maxMembers || new Set(slots).size !== slots.length
       || slots.some(id => !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(id) || id.length > 44)
-      || slotPlan.reserved.some(slot => !ids.has(slot.roleId))) {
+      || unfillable) {
       throw new TeamError('slotPlan requires unique valid slots, declared reserved roles, and capacity <= maxMembers', 'TEAM_INVALID_CONFIG')
     }
   }

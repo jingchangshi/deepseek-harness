@@ -48,10 +48,14 @@ kind: "package-reference"
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
-| `maxMembers` | `16` | 一支团队最多可创建的 teammate 数，包括失败的 |
-| `maxTasks` | `256` | 任务板上最多的活动任务数 |
+| `roles` | 内置角色表 | 基础角色表：每个角色的路由与并发上限；preset 未在 `presetRoles` 中登记的 Lead 使用它 |
+| `presetRoles` | `{}` | 以 preset id 为键的**完整**角色表；该 preset 下的 Lead 使用这张表**替换** `roles`，不做字段级合并 |
+| `maxMembers` | `8` | 一支团队最多可容纳的非 retired teammate 实例数 |
+| `maxTasks` | `256` | 一支团队最多保留的非 deleted 任务数 |
 | `maxMessageBytes` | `65,536` | 单条发送消息的最大尺寸 |
 | `disposalTimeoutMs` | `5,000` | 关闭清理允许的时间 |
+
+角色路由是部署配置，不是工具参数：`spawn_teammate` 只接受角色 id，由 Team 在自己的角色表里解析。一支 Team 只有一张表——由 Lead 的 preset 选定；同一个 `slotPlan` 服务所有表，所以每个保留槽位引用的角色都必须在每一张表中存在。
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-experimental-agent-team)是每个受支持字段及其 JSDoc 的穷尽式真源。
 

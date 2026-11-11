@@ -86,6 +86,78 @@ describe('managed Team roles and slots', () => {
 })
 
 
+describe('per-preset role tables', () => {
+  // A replacement table must repeat every reserved role, so both fixtures below
+  // differ from the base table only in the model each role routes to.
+  const table = (suffix: string) => testRoles.map(role => ({ ...role, model: `preset-${suffix}-${role.id}` }))
+
+  it('routes a spawn through the table of the Lead preset', async () => {
+    const team = await stack({
+      presetRoles: { 'ai-compiler-magpie': table('magpie'), 'ai-compiler': table('corp') },
+    }, undefined, undefined, false, 'ai-compiler-magpie')
+    const spawned = await team.spawn('architect')
+    await team.idle(spawned.member.id)
+    expect(team.adapter.requests).toEqual(expect.arrayContaining([
+      expect.objectContaining({ provider: 'mock', model: 'preset-magpie-architect' }),
+    ]))
+    expect(team.adapter.requests).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ model: 'preset-corp-architect' }),
+    ]))
+  })
+
+  it('falls back to the base role table when the Lead preset has no entry', async () => {
+    const team = await stack({
+      presetRoles: { 'ai-compiler-magpie': table('magpie') },
+    }, undefined, undefined, false, 'some-other-preset')
+    const spawned = await team.spawn('architect')
+    await team.idle(spawned.member.id)
+    expect(team.adapter.requests).toEqual(expect.arrayContaining([
+      expect.objectContaining({ provider: 'mock', model: 'mock' }),
+    ]))
+    expect(team.adapter.requests).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ model: 'preset-magpie-architect' }),
+    ]))
+  })
+
+  it('keeps the base table when no preset is composed at all', async () => {
+    const team = await stack({ presetRoles: { 'ai-compiler-magpie': table('magpie') } })
+    const spawned = await team.spawn('architect')
+    await team.idle(spawned.member.id)
+    expect(team.adapter.requests).toEqual(expect.arrayContaining([
+      expect.objectContaining({ provider: 'mock', model: 'mock' }),
+    ]))
+  })
+
+  it('resolves the same table for a teammate as for its Lead', async () => {
+    const team = await stack({ presetRoles: { 'ai-compiler-magpie': table('magpie') } },
+      undefined, ['hang'], false, 'ai-compiler-magpie')
+    const spawned = await team.spawn('architect')
+    const teammate = team.ctx.agents.get(spawned.member.id)!
+    expect(team.ctx.agentTeams.rolesFor(teammate).map(role => role.model))
+      .toEqual(team.ctx.agentTeams.rolesFor(team.lead).map(role => role.model))
+  })
+
+  it('rejects a role table that cannot fill the shared reserved slots', async () => {
+    // `slotPlan` is deployment-wide, so a preset table omitting a reserved role
+    // could never staff that position.
+    await expect(stack({
+      presetRoles: { 'ai-compiler-magpie': [testRoles[0]!] },
+    })).rejects.toThrow(/slotPlan/)
+  })
+
+  it('validates every preset table by the same role rules as the base table', async () => {
+    await expect(stack({
+      presetRoles: { 'ai-compiler-magpie': [{ ...testRoles[0]!, model: '' }] },
+    })).rejects.toThrow(/presetRoles\.ai-compiler-magpie/)
+    await expect(stack({
+      presetRoles: { 'ai-compiler-magpie': testRoles.map(role => ({ ...role, maxConcurrent: 0 })) },
+    })).rejects.toThrow(/maxConcurrent/)
+    await expect(stack({
+      presetRoles: { 'ai-compiler-magpie': [...testRoles, testRoles[0]!] },
+    })).rejects.toThrow(/presetRoles\.ai-compiler-magpie/)
+  })
+})
+
 describe('role routes and capacity', () => {
   it.each(DEFAULT_ROLES)('records the $id role route in the child request header', async (role) => {
     const team = await stack({ roles: DEFAULT_ROLES })
