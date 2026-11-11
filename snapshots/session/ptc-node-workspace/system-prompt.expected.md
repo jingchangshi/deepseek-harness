@@ -40,7 +40,7 @@ Start independent delegations with `subagent` or `subagent_fork` together in one
 Inside the program:
 
 - Call tools as `await tools.name(args)` — quoted access for exotic names: `tools["my-tool"](args)`. Every call resolves to the tool's typed canonical JSON value. Tool arguments must be lossless JSON.
-- A FAILED tool call rejects with `ToolCallError`, whose `toolName` identifies the failed tool and whose `message` is human-readable — `try/catch` it to handle and continue.
+- A FAILED tool call rejects with `ToolCallError`, whose `toolName` identifies the failed tool and whose `message` is human-readable — `try/catch` it to handle and continue. A tool that reports a structured failure also sets `code`, a stable identifier such as `TOOL_TIMEOUT`; branch on it (`if (error.code === "TOOL_TIMEOUT")`) rather than parsing the message, and treat a missing `code` as "no structured identity".
 - Independent read-only calls MAY overlap under `Promise.all` (safe calls run concurrently; mutating calls run alone, in submission order). Sequence dependent work with `await`.
 - Emit results with `return` and/or `console.log(...)`. Only what you print or return is program output. A successful tool result containing an image is attached after the run so you can inspect it on the next step; every other intermediate result stays out of the conversation, so extract just what you need.
 
@@ -50,7 +50,7 @@ Program-only SDK bindings:
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
 interface ToolArgsMap {
-  /** Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell; pass `workdir` instead of using `cd`. Managed `$DSH_*` variables expose current harness environment facts. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Provide `description` before `command` in the arguments. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]`, a policy denial: do not retry another way. */
+  /** Execute a bash command (`bash -c`) and return its stdout/stderr. Every result carries `stdout.text` and `stderr.text` regardless of its `kind`, so read them without branching. For kind "foreground" they are the command's own split streams with exitCode/timedOut/aborted. For kind "promoted" (the call exceeded its timeout and the command moved to a background job) they carry the output sampled so far — the job merges both streams, so the text is reported as stdout and stderr is empty — and the same text is also in `output`; continue with job_output. For kind "background" both are empty because nothing has been read yet: collect output with job_output. Each call runs in a fresh shell; pass `workdir` instead of using `cd`. Managed `$DSH_*` variables expose current harness environment facts. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Provide `description` before `command` in the arguments. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]`, a policy denial: do not retry another way. */
   bash: {
     /** Clear, concise description of what this command does in active voice, 5-10 words (shown in the UI). Examples: "ls" → "List files in current directory"; "git status" → "Show working tree status"; "npm install" → "Install package dependencies". */
     description: string;
@@ -542,6 +542,7 @@ type ToolName = keyof ToolOutputMap
 declare class ToolCallError extends Error {
   readonly name: "ToolCallError";
   readonly toolName: ToolName;
+  readonly code?: string;
 }
 
 declare const tools: {
