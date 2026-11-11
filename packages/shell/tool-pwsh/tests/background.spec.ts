@@ -533,6 +533,64 @@ describe('foreground commands as jobs (pwsh)', () => {
   })
 })
 
+/**
+ * The pwsh mirror of the bash guard: a program that reads `result.stdout.text`
+ * must not throw on the slow commands. `pwsh` reuses the same result union, so
+ * its promoted and background members carry the stream views too.
+ */
+describe('uniform stream views across the pwsh result union', () => {
+  it('exposes the sampled output as stdout.text on a promoted result', async () => {
+    const { ctx, pwsh } = await setup()
+    // The process must be a single stable handle: the hand-over reads the SAME
+    // scripted execution it started, so a fresh handle per call reads nothing.
+    const scripted = observableProcess({ stdout: { text: 'promoted-line\n' }, stderr: { text: '' } })
+    pwsh.backgroundHandler = () => scripted.proc
+    const result = await call(ctx, { command: 'Get-Slow', description: 'test command', timeoutMs: 250 })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected a promoted result')
+    const value = result.value as unknown as {
+      kind: string
+      output?: string
+      stdout?: { text: string; truncated: boolean }
+      stderr?: { text: string; truncated: boolean }
+    }
+    expect(value.kind).toBe('promoted')
+    // The accessor the trap broke: present, and carrying the output so far.
+    expect(value.stdout?.text).toContain('promoted-line')
+    expect(value.stderr).toEqual({ text: '', truncated: false })
+    // The pre-existing field stays, so a caller that reads `output` keeps working.
+    expect(value.output).toContain('promoted-line')
+  })
+
+  it('exposes empty-text stream views on a background ack', async () => {
+    const { ctx, pwsh } = await setup()
+    const scripted = observableProcess()
+    pwsh.backgroundHandler = () => scripted.proc
+    const ack = await call(ctx, { command: 'Get-Slow', description: 'test command', run_in_background: true })
+    if (ack.isError) throw new Error('expected a background ack')
+    const value = ack.value as unknown as {
+      kind: string
+      stdout?: { text: string; truncated: boolean }
+      stderr?: { text: string; truncated: boolean }
+    }
+    expect(value.kind).toBe('background')
+    expect(value.stdout).toEqual({ text: '', truncated: false })
+    expect(value.stderr).toEqual({ text: '', truncated: false })
+  })
+
+  it('declares stdout and stderr on every pwsh union member', async () => {
+    const { ctx } = await setup()
+    const tool = ctx.tools.get('pwsh')
+    const declared = tool?.output?.schema as { oneOf: Array<{ properties: Record<string, unknown> }> }
+    expect(declared.oneOf).toHaveLength(3)
+    for (const member of declared.oneOf) {
+      expect(member.properties, 'every member declares stdout').toHaveProperty('stdout')
+      expect(member.properties, 'every member declares stderr').toHaveProperty('stderr')
+    }
+    expect(tool?.description).toContain('Every result carries')
+  })
+})
+
 describe('renderPwshPromoted', () => {
   it('pins the promoted text with and without pre-promotion output', () => {
     expect(renderPwshPromoted({ jobId: 'pwsh-7', timeoutMs: 120_000, output: '' })).toBe(

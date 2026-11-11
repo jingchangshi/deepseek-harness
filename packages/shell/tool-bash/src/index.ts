@@ -89,6 +89,12 @@ function validateBashArgs(args: BashToolArgs, effectiveMode: SandboxMode | undef
 
 function bashDescription(): string {
   return 'Execute a bash command (`bash -c`) and return its stdout/stderr. '
+    + 'Every result carries `stdout.text` and `stderr.text` regardless of its `kind`, so read them without branching. '
+    + 'For kind "foreground" they are the command\'s own split streams with exitCode/timedOut/aborted. '
+    + 'For kind "promoted" (the call exceeded its timeout and the command moved to a background job) '
+    + 'they carry the output sampled so far — the job merges both streams, so the text is reported as stdout and stderr is empty — '
+    + 'and the same text is also in `output`; continue with job_output. '
+    + 'For kind "background" both are empty because nothing has been read yet: collect output with job_output. '
     + 'Each call runs in a fresh shell; pass `workdir` instead of using `cd`. '
     + `Managed \`$${DSH_ENV_PREFIX}*\` variables expose current harness environment facts. `
     + 'Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. '
@@ -151,6 +157,25 @@ function resolveWorkdir(modelWorkdir: string | undefined, sessionCwd: string | u
   return modelWorkdir
 }
 
+/**
+ * One text-stream view, so every member of the bash output union carries the
+ * same `stdout`/`stderr` shape.
+ *
+ * The foreground member reports the process's real split streams; a promoted or
+ * background member reports what the call actually has, which is the output so
+ * far (or none yet). Rendering the SAME fields on every member is what lets a
+ * program read `result.stdout.text` without branching on `kind` first: a
+ * union whose members disagree forces every caller to know which of them exists,
+ * and a caller that guesses right for fast commands throws a TypeError on the
+ * slow ones — exactly the results whose output matters most.
+ * @param text - the text this stream has produced so far.
+ * @param truncated - whether earlier output was dropped from memory.
+ * @returns the model-facing stream view.
+ */
+function streamView(text: string, truncated = false): { text: string; truncated: boolean } {
+  return { text, truncated }
+}
+
 /** Detach the executor DTO from readonly Service Definition types into plain JSON data. */
 function canonicalBashResult(result: ShellRunResult, cwd: string) {
   const output = (stream: ShellRunResult['stdout']) => ({
@@ -192,11 +217,34 @@ interface StartedJob {
   readonly stopped: () => string | undefined
 }
 
+/**
+ * One text-stream view, declared once because EVERY member of the bash output
+ * union carries it.
+ *
+ * A caller may read `stdout.text` and `stderr.text` without first inspecting
+ * `kind`, so a program written against the common foreground case cannot throw
+ * on a promoted or background result.
+ */
+const STREAM_OUTPUT_PROPERTIES = {
+  type: 'object',
+  additionalProperties: false,
+  required: true,
+  properties: {
+    text: { type: 'string', required: true },
+    truncated: { type: 'boolean', required: true },
+    spillPath: { type: 'string' },
+  },
+} as const
+
 /** Canonical background-handle properties shared by the bash output union. */
 const BACKGROUND_OUTPUT_PROPERTIES = {
   kind: { type: 'string', required: true, const: 'background' },
   jobId: { type: 'string', required: true },
   cwd: { type: 'string', required: true },
+  // Present but empty: nothing has been read from the job yet. Declared so the
+  // stream accessors exist on every union member.
+  stdout: STREAM_OUTPUT_PROPERTIES,
+  stderr: STREAM_OUTPUT_PROPERTIES,
 } as const
 
 export function apply(ctx: Context, config: Config = {}): void {
@@ -342,14 +390,20 @@ export function apply(ctx: Context, config: Config = {}): void {
         // the result with the output so far, so `job_output` continues exactly
         // where this result stops.
         const read = registry.read(attached.id, owner)
+        const output = renderJobRead(
+          ringDelta(read.chunks), read.lossy, read.job.output.spillPaths ?? [], attached.process()?.sandbox, escalationModes,
+        )
         return {
           kind: 'promoted' as const,
           cwd: spec.workdir,
           jobId: attached.id,
           timeoutMs,
-          output: renderJobRead(
-            ringDelta(read.chunks), read.lossy, read.job.output.spillPaths ?? [], attached.process()?.sandbox, escalationModes,
-          ),
+          output,
+          // The job's ring merges both streams, so the sampled text is reported
+          // as stdout and stderr stays a present-but-empty view. Both fields
+          // exist, so a program that reads them unconditionally keeps working.
+          stdout: streamView(output, read.lossy),
+          stderr: streamView(''),
         }
       }
       // Settled while the call waited: the model never saw the id, so the
@@ -417,6 +471,10 @@ export function apply(ctx: Context, config: Config = {}): void {
                 jobId: { type: 'string', required: true },
                 timeoutMs: { type: 'number', required: true },
                 output: { type: 'string', required: true },
+                // The output so far, exposed under the same names the
+                // foreground member uses; continue with job_output.
+                stdout: STREAM_OUTPUT_PROPERTIES,
+                stderr: STREAM_OUTPUT_PROPERTIES,
               },
             },
             {
@@ -431,26 +489,8 @@ export function apply(ctx: Context, config: Config = {}): void {
                 aborted: { type: 'boolean', required: true },
                 stopped: { type: 'string' },
                 timeoutMs: { type: 'number', required: true },
-                stdout: {
-                  type: 'object',
-                  additionalProperties: false,
-                  required: true,
-                  properties: {
-                    text: { type: 'string', required: true },
-                    truncated: { type: 'boolean', required: true },
-                    spillPath: { type: 'string' },
-                  },
-                },
-                stderr: {
-                  type: 'object',
-                  additionalProperties: false,
-                  required: true,
-                  properties: {
-                    text: { type: 'string', required: true },
-                    truncated: { type: 'boolean', required: true },
-                    spillPath: { type: 'string' },
-                  },
-                },
+                stdout: STREAM_OUTPUT_PROPERTIES,
+                stderr: STREAM_OUTPUT_PROPERTIES,
                 sandbox: {
                   type: 'object',
                   additionalProperties: false,
@@ -506,7 +546,15 @@ export function apply(ctx: Context, config: Config = {}): void {
           // The caller owns cancellation until ctx.jobs commits detached ownership.
           if (exec.signal.aborted) throw toolAborted()
           const spec = ctx.shell.resolve({ ...request, onExpiry: 'none' })
-          return { kind: 'background' as const, jobId: startJob(jobs, args, exec, spec).id, cwd: spec.workdir }
+          // Nothing has been read from the job yet, so both stream views are
+          // present and empty rather than undefined: the union is uniform.
+          return {
+            kind: 'background' as const,
+            jobId: startJob(jobs, args, exec, spec).id,
+            cwd: spec.workdir,
+            stdout: streamView(''),
+            stderr: streamView(''),
+          }
         }
         // A foreground call is a job the tool waits on, so the command is
         // visible and killable from the moment it starts and outlives the wait

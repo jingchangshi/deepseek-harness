@@ -810,7 +810,13 @@ describe('background execution through the job runtime', () => {
     const started = await call(ctx, 'pwsh', { command: 'Write-Output bg-ok', description: 'test command', run_in_background: true })
     expect(started.isError).toBe(false)
     if (started.isError) throw new Error('expected background pwsh success')
-    expect(started.value).toEqual({ kind: 'background', jobId: currentId(ctx), cwd: process.cwd() })
+    // Every union member carries the stream views, so a program may read
+    // `stdout.text` without branching on `kind`. A background ack has read
+    // nothing yet, so both are present-and-empty rather than undefined.
+    expect(started.value).toEqual({
+      kind: 'background', jobId: currentId(ctx), cwd: process.cwd(),
+      stdout: { text: '', truncated: false }, stderr: { text: '', truncated: false },
+    })
     expect(text(started)).toBe(`started background job ${currentId(ctx)}`)
 
     const read = await callUntilText(ctx, 'job_output', { job_id: currentId(ctx) }, 'bg-ok')
