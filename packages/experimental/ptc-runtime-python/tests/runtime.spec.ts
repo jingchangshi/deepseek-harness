@@ -2512,6 +2512,25 @@ describe('PythonPtcRuntime — programs and bindings', () => {
     expect(result.value).toBe('ToolCallError:fail:typed-nope')
   })
 
+  it('carries a rejection code into the program so it can BRANCH instead of dying', async () => {
+    // The Python half of the same contract: a coded failure takes the DEGRADE
+    // branch, and an uncoded one reports None, exactly as the declaration says.
+    const { runtime } = await setup()
+    const result = await runtime.run(runtime.resolve({
+      program: "outcomes = []\ntry:\n    await tools.fail({})\nexcept ToolCallError as e:\n    outcomes.append(type(e).__name__)\n    outcomes.append(e.toolName)\n    # The F7 branch: before this fix the program could only re-raise and die.\n    outcomes.append('degraded' if e.code == 'TEAM_INVALID_WRITE_SCOPE' else 'would-die')\ntry:\n    await tools.plain({})\nexcept ToolCallError as e:\n    # Python's absence value, matching the declared `code: str | None`: it\n    # never raises AttributeError inside the handler.\n    outcomes.append(str(e.code))\nreturn outcomes",
+      bindings: [{
+        global: 'tools',
+        functions: {
+          fail: async () => { throw Object.assign(new Error('write scope rejected'), { code: 'TEAM_INVALID_WRITE_SCOPE' }) },
+          plain: async () => { throw new Error('no structured identity') },
+        },
+        errorClass: { name: 'ToolCallError', memberNameProperty: 'toolName' },
+      }],
+    }))
+    expect(result.error).toBeUndefined()
+    expect(result.value).toEqual(['ToolCallError', 'fail', 'degraded', 'None'])
+  })
+
   it('keeps the declared error class catching when Exception and setattr are rebound', async () => {
     // _make_error_class's minted __init__ def-time captures Exception and
     // setattr, so a program rebinding __main__.Exception/__main__.setattr

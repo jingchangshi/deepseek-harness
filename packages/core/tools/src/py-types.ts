@@ -735,7 +735,7 @@ const SDK_INSTRUCTIONS = `## Writing code for run_code
 \`run_code\` takes two required arguments: \`code\`, the program to execute, and \`description\`, a short summary of what the program does. At run time exactly two of the names declared below are bound: \`tools\` and \`ToolCallError\`. Everything else is a STATIC STUB describing argument and return types — in particular the \`TypedDict\` classes do NOT exist at run time, so build arguments as plain \`dict\`/\`list\` JSON values: \`await tools.name({"field": 1})\`, never \`FooArgs(field=1)\`, which raises \`NameError\`. Inside the program:
 
 - Call tools as \`await tools.name(args)\` — subscript access for exotic, reserved, or underscore-leading names: \`await tools["my-tool"](args)\`. Every call resolves to the tool's typed canonical JSON value (each method's return type below). Tool arguments must be lossless JSON.
-- A FAILED tool call raises \`ToolCallError\`, whose \`toolName\` identifies the failed tool and whose message is human-readable — wrap in \`try/except\` to handle and continue.
+- A FAILED tool call raises \`ToolCallError\`, whose \`toolName\` identifies the failed tool and whose message is human-readable — wrap in \`try/except\` to handle and continue. A tool that reports a structured failure also sets \`code\`, a stable identifier such as \`TOOL_TIMEOUT\`; branch on it (\`if e.code == "TOOL_TIMEOUT"\`) rather than parsing the message, and treat \`None\` as "no structured identity".
 - Independent read-only calls MAY overlap under \`asyncio.gather\` (safe calls run concurrently; mutating calls run alone, in submission order). Sequence dependent work with \`await\`.
 - Only values emitted as program output enter the conversation. A successful tool result containing an image is attached after the run so you can inspect it on the next step; every other intermediate result stays out of the conversation, so extract just what you need.
 
@@ -811,7 +811,11 @@ export function renderToolsSdkPy(schemas: ToolSdkSchema[]): string {
   const body = bodyLines.join('\n')
   const imports = TYPING_ORDER.filter(symbol => state.typing.has(symbol))
   const classBlock = state.classes.length > 0 ? `${state.classes.join('\n\n')}\n\n` : ''
-  const errorDeclaration = 'class ToolCallError(Exception):\n    toolName: str'
+  // `code` is the failing tool's stable error identity when it supplied one
+  // (mirrors the TypeScript declaration's `readonly code?: string`), so a
+  // program can branch on the failure class instead of matching its prose.
+  // `None` means the tool reported no structured code.
+  const errorDeclaration = 'class ToolCallError(Exception):\n    toolName: str\n    code: str | None'
   const declaration = `from typing import ${imports.join(', ')}\n\n${errorDeclaration}\n\n${classBlock}class Tools(Protocol):\n${body}\n\ntools: Tools`
   return `${SDK_INSTRUCTIONS}\n\n\`\`\`python\n${declaration}\n\`\`\``
 }

@@ -264,7 +264,7 @@ function renderSdkProgramInstructions(programFormat: 'function-body' | 'repl'): 
   return `Inside the program:
 
 - Call tools as \`await tools.name(args)\` — quoted access for exotic names: \`tools["my-tool"](args)\`. Every call resolves to the tool's typed canonical JSON value. Tool arguments must be lossless JSON.
-- A FAILED tool call rejects with \`ToolCallError\`, whose \`toolName\` identifies the failed tool and whose \`message\` is human-readable — \`try/catch\` it to handle and continue.
+- A FAILED tool call rejects with \`ToolCallError\`, whose \`toolName\` identifies the failed tool and whose \`message\` is human-readable — \`try/catch\` it to handle and continue. A tool that reports a structured failure also sets \`code\`, a stable identifier such as \`TOOL_TIMEOUT\`; branch on it (\`if (error.code === "TOOL_TIMEOUT")\`) rather than parsing the message, and treat a missing \`code\` as "no structured identity".
 - Independent read-only calls MAY overlap under \`Promise.all\` (safe calls run concurrently; mutating calls run alone, in submission order). Sequence dependent work with \`await\`.
 - ${outputInstruction} A successful tool result containing an image is attached after the run so you can inspect it on the next step; every other intermediate result stays out of the conversation, so extract just what you need.
 
@@ -324,7 +324,11 @@ export function renderToolsSdk(schemas: ToolSdkSchema[], programFormat: 'functio
     argsMap,
     outputMap,
     'type ToolName = keyof ToolOutputMap',
-    ['declare class ToolCallError extends Error {', '  readonly name: "ToolCallError";', '  readonly toolName: ToolName;', '}'].join('\n'),
+    // `code` is the failing tool's stable error identity when it supplied one,
+    // so a program can BRANCH on the failure class instead of matching its
+    // prose. Optional by contract: a tool with no structured code rejects with
+    // no `code` value at all, so absence is distinguishable from a value.
+    ['declare class ToolCallError extends Error {', '  readonly name: "ToolCallError";', '  readonly toolName: ToolName;', '  readonly code?: string;', '}'].join('\n'),
     ['declare const tools: {', '  [K in ToolName]: (args: ToolArgsMap[K]) => Promise<ToolOutputMap[K]>;', '}'].join('\n'),
   ].join('\n\n')
   const jsonValue = 'type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }'

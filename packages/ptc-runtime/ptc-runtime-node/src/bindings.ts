@@ -5,6 +5,21 @@ import { snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
 import { encodePtcJsonWire } from './json-wire.ts'
 import type { ReplyMessage } from './protocol.ts'
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
+/** One string-valued `code` field of a rejection value; anything else is absent. */
+function replyErrorCode(error: unknown): { code?: string } {
+  if (typeof error !== 'object' || error === null) return {}
+  // Read through a descriptor-safe access: a hostile or exotic rejection value
+  // may define `code` as a throwing getter, and a failed reply must still be
+  // sent. A non-string code is dropped rather than coerced, so a program never
+  // sees a fabricated identity.
+  let code: unknown
+  try {
+    code = (error as { code?: unknown }).code
+  } catch {
+    return {}
+  }
+  return typeof code === 'string' && code.length > 0 ? { code } : {}
+}
 /**
  * Reject unusable namespaces before starting a process.
  * @param request - Host-owned binding declarations.
@@ -67,6 +82,12 @@ export async function replyToBinding(id: number, binding: PtcBindingFunction | u
     if (value === undefined) throw new Error('binding resolution must be lossless JSON')
     return { type: 'reply', id, ok: true, value: encodePtcJsonWire(value) }
   } catch (error: unknown) {
-    return { type: 'reply', id, ok: false, message: error instanceof Error ? error.message : String(error) }
+    return {
+      type: 'reply',
+      id,
+      ok: false,
+      message: error instanceof Error ? error.message : String(error),
+      ...replyErrorCode(error),
+    }
   }
 }

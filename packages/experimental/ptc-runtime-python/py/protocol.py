@@ -116,11 +116,23 @@ class ReplyOk(TypedDict):
     value: Any
 
 
-class ReplyErr(TypedDict):
-    type: Literal["reply"]
-    id: int
-    ok: Literal[False]
-    message: str
+# The required part is declared functionally so the optional "code" below
+# cannot relax any field the wire always sends (mirrors the TS ReplyErr).
+_ReplyErrRequired = TypedDict(
+    "_ReplyErrRequired",
+    {"type": Literal["reply"], "id": int, "ok": Literal[False], "message": str},
+)
+
+
+class ReplyErr(_ReplyErrRequired, total=False):
+    """Host -> child: failed answer to one CallMessage.
+
+    The optional code is the failing tool's stable error identity when it
+    reported one (mirrors the TS code?); when absent the rejection carries no
+    code attribute at all, so absence stays distinguishable.
+    """
+
+    code: str
 
 
 ReplyMessage = Union[ReplyOk, ReplyErr]

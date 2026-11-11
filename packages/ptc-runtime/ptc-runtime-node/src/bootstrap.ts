@@ -229,11 +229,20 @@ export function prepareException(
 /** One awaited binding call's settlement handles, keyed by call id in the pending map. */
 export interface PendingCall {
   resolve(value: unknown): void
-  reject(error: Error): void
+  /**
+   * @param error - transport rejection carrying the host reply's message.
+   * @param code - the failing tool's optional stable error identity, forwarded
+   *   to the program-visible rejection so a program can branch on it.
+   */
+  reject(error: Error, code?: string): void
 }
 
-/** Constructor type for one program-visible binding rejection class. */
-export type BindingErrorConstructor = new (memberName: string, message: string) => Error
+/**
+ * Constructor type for one program-visible binding rejection class. `code` is
+ * the failing tool's stable error identity when it reported one; omitted means
+ * the rejection exposes no `code` property at all.
+ */
+export type BindingErrorConstructor = new (memberName: string, message: string, code?: string) => Error
 
 /**
  * Materialize the real error constructor declared by one namespace.
@@ -244,17 +253,32 @@ export function makeBindingErrorClass(
   descriptor: { name: string; memberNameProperty: string },
 ): BindingErrorConstructor {
   return class BindingCallError extends CapturedError {
-    constructor(memberName: string, message: string) {
+    constructor(memberName: string, message: string, code?: string) {
       super(message)
       defineBindingErrorField(this, 'name', descriptor.name)
       defineBindingErrorField(this, descriptor.memberNameProperty, memberName)
+      // Additive and optional: a rejection with no structured code defines no
+      // property, so `'code' in error` stays false exactly as before.
+      if (code !== undefined) defineBindingErrorField(this, 'code', code)
     }
   }
 }
 
 /** Create the namespace-specific rejection for one failed binding call. */
-function bindingFailure(errorClass: BindingErrorConstructor | undefined, memberName: string, message: string): Error {
-  return errorClass ? new errorClass(memberName, message) : new CapturedError(message)
+function bindingFailure(errorClass: BindingErrorConstructor | undefined, memberName: string, message: string, code?: string): Error {
+  return errorClass ? new errorClass(memberName, message, code) : rejectionWithCode(message, code)
+}
+
+/**
+ * Build the transport-level rejection carrying an optional code. A namespace
+ * that declared no error class still gets the code (a program that declared no
+ * class cannot catch by identity, but a plain `Error` with `code` is the
+ * ordinary Node convention and costs nothing).
+ */
+function rejectionWithCode(message: string, code: string | undefined): Error {
+  const error = new CapturedError(message)
+  if (code !== undefined) defineBindingErrorField(error, 'code', code)
+  return error
 }
 
 /**
@@ -291,7 +315,10 @@ export function wireReplies(port: BootstrapPort, pending: Map<number, PendingCal
       if (value === undefined) entry.reject(new CapturedError('binding resolution must be lossless JSON'))
       else entry.resolve(value)
     } else {
-      entry.reject(new CapturedError(message.message))
+      // A tool that reported a structured failure sends its stable code
+      // alongside the model-facing message; the namespace closure re-raises it
+      // on the declared rejection class.
+      entry.reject(new CapturedError(message.message), message.code)
     }
   })
 }
@@ -337,8 +364,10 @@ export function makeNamespaces(
             const id = nextId.value
             pending.set(id, {
               resolve,
-              reject: (error) => {
-                reject(bindingFailure(errorClass, name, error.message))
+              reject: (error, code) => {
+                // `wireReplies` forwards the host reply's optional stable code;
+                // re-raise it on the program-visible rejection class.
+                reject(bindingFailure(errorClass, name, error.message, code))
               },
             })
             try {

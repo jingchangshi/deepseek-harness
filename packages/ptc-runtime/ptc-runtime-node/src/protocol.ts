@@ -61,7 +61,14 @@ export interface DoneMessage {
 /** Every message the program sends. */
 export type ProgramToHost = CallMessage | LogMessage | OutputLimitMessage | DoneMessage
 
-/** Host → program: the answer to one {@link CallMessage}. */
+/**
+ * Host → program: the answer to one {@link CallMessage}. A failure may carry the
+ * failing tool's stable error code (the native `ToolErrorInfo.code`, e.g.
+ * `TOOL_TIMEOUT`) so the program can branch on identity instead of matching
+ * prose. Optional: a tool that reported no structured error sends no `code`
+ * key at all, and the program's rejection then has no `code` property — so
+ * absence stays distinguishable from a concrete value.
+ */
 export type ReplyMessage =
   | { type: 'reply'; id: number; ok: true; value: PtcJsonWire }
-  | { type: 'reply'; id: number; ok: false; message: string }
+  | { type: 'reply'; id: number; ok: false; message: string; code?: string }

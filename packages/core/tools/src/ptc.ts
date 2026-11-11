@@ -195,6 +195,20 @@ function jsonNormalizeArgs(value: unknown): { dispatched: unknown; logged: unkno
   return { dispatched: snapshot, logged }
 }
 
+/**
+ * The rejection one failed sub-call hands the bridged binding. The optional
+ * `code` is the tool's own stable failure identity (its `ToolErrorInfo.code`,
+ * e.g. `TOOL_TIMEOUT` or `TEAM_INVALID_WRITE_SCOPE`); the runtime forwards it
+ * to the program so `catch (error) { if (error.code === …) }` can DEGRADE
+ * instead of dying. Defined as an own property rather than a subclass so a
+ * custom code never changes `instanceof Error` or `error.name`.
+ */
+function bindingRejection(message: string, code: string | undefined): Error {
+  const error = new Error(message)
+  if (code !== undefined) Object.defineProperty(error, 'code', { enumerable: true, value: code })
+  return error
+}
+
 /** Two-space JSON presentation, matching the existing shallow `run_code` text contract. */
 const JSON_INDENT = '  '
 
@@ -554,7 +568,7 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
             parent: exec.token,
             signal: runController.signal,
           }
-          type DispatchOutcome = { isError: true; message: string } | { isError: false; value: JsonValue }
+          type DispatchOutcome = { isError: true; message: string; code?: string } | { isError: false; value: JsonValue }
           const scheduler = registry[TOOL_RUNTIME_SCHEDULER]
           const outcome = await new Promise<DispatchOutcome>((resolve, reject) => {
             // Set by the dispatch stage (or start() for a pre-settled result): what commit() finalizes in submission order.
@@ -569,7 +583,16 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
               // inside the open turn (shapeDispatchLog is contained, so this
               // chain cannot reject).
               resolve(result.isError
-                ? { isError: true, message: result.error.message }
+                ? {
+                  isError: true,
+                  message: result.error.message,
+                  // The structured failure class travels with the rejection so a
+                  // program can BRANCH on it (`error.code === 'TOOL_TIMEOUT'`)
+                  // instead of parsing the human-readable message. Optional: a
+                  // tool that reports no structured info rejects exactly as
+                  // before, with no `code` property at all.
+                  ...result.error.info?.code === undefined ? {} : { code: result.error.info.code },
+                }
                 : { isError: false, value: result.value })
               const agent = exec.agent
               if (agent === undefined) return
@@ -672,9 +695,10 @@ export function createRunCodeTool(registry: ToolRuntime, options: RunCodeBridgeO
             throw new Error(`run_code run is over (${String(runController.signal.reason)}); ${name} result discarded`)
           }
           // The worker turns a binding rejection into ToolCallError and adds
-          // only the binding name. Native content and internal error metadata
-          // stay outside the program-facing failure contract.
-          if (outcome.isError) throw new Error(outcome.message)
+          // only the binding name. Native content stays outside the
+          // program-facing failure contract; the tool's stable error CODE rides
+          // along so a program can branch on it (see bindingRejection).
+          if (outcome.isError) throw bindingRejection(outcome.message, outcome.code)
           return outcome.value
         }
 

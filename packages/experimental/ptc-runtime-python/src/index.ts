@@ -358,6 +358,31 @@ function messageOf(error: unknown): string {
 }
 
 /**
+ * Extract the optional stable error code from an unknown thrown value.
+ *
+ * A host binding may reject with a `HarnessError` (or any value) carrying a
+ * `code`; forwarding it lets the program branch on identity
+ * (`if e.code == "TOOL_TIMEOUT"`) instead of matching prose. The read is
+ * wrapped for the same reason as {@link messageOf}: `code` may be a throwing
+ * getter, and a failed reply must still be written. A non-string or empty code
+ * is dropped rather than coerced, so the program never sees a fabricated
+ * identity — and an absent code sends NO key, keeping absence distinguishable.
+ *
+ * @param error The thrown value, of unknown shape.
+ * @returns the wire field to merge, or an empty object when there is no code.
+ */
+function codeOf(error: unknown): { code?: string } {
+  if (typeof error !== 'object' || error === null) return {}
+  let code: unknown
+  try {
+    code = (error as { code?: unknown }).code
+  } catch {
+    return {}
+  }
+  return typeof code === 'string' && code.length > 0 ? { code } : {}
+}
+
+/**
  * A process's start time, as the identity half of (pid, started).
  *
  * A pid is reusable the moment the kernel reaps it, so signalling one that a
@@ -1914,7 +1939,7 @@ export class PythonPtcRuntime extends PtcRuntime {
                 /* v8 ignore next -- a rejection arriving after settlement is not schedulable from a test. */
                 if (settled) return
                 /* oxlint-enable typescript/no-unnecessary-condition */
-                sendReply({ type: 'reply', id: message.id, ok: false, message: messageOf(error) })
+                sendReply({ type: 'reply', id: message.id, ok: false, message: messageOf(error), ...codeOf(error) })
               } finally {
                 // Release the in-flight slot on every exit — reply written,
                 // resolution rejected, or the run settling mid-wait (the

@@ -103,6 +103,44 @@ describe('Node program process', () => {
     expect(result.value).toEqual({ value: { n: 42 }, rejected: [true, 'ToolCallError', 'fail', 'denied'] })
   })
 
+  it('carries a rejection\'s stable code so a program can BRANCH instead of dying', async () => {
+    const { run } = await setup()
+    // The original failure mode: a program could only read the message, so it
+    // could not discriminate a recoverable denial from a fatal fault and the
+    // whole program died. Here the program takes the DEGRADE path, and the
+    // fatal sibling still aborts — proving the branch is real, not decorative.
+    const program = [
+      'const outcomes: string[] = [];',
+      'const coded = Object.assign(new Error("write scope rejected"), { code: "TEAM_INVALID_WRITE_SCOPE" });',
+      'try { await tools.coded({}) } catch (error) {',
+      '  outcomes.push(error instanceof ToolCallError ? "typed" : "untyped");',
+      '  outcomes.push(String(error.toolName));',
+      '  if (error.code === "TEAM_INVALID_WRITE_SCOPE") outcomes.push("degraded");',
+      '  else outcomes.push("dying");',
+      '  outcomes.push(error.code === undefined ? "no-code-property" : "has-code-property");',
+      '}',
+      // The negative half: a tool that supplies NO structured code must expose
+      // no code at all, so absence stays distinguishable from a value.
+      'try { await tools.plain({}) } catch (error) {',
+      '  outcomes.push(String(error.code));',
+      '  outcomes.push(Object.hasOwn(error, "code") ? "own" : "absent");',
+      '}',
+      'return outcomes;',
+    ].join('\n')
+    const result = await run({
+      program,
+      bindings: bindings({
+        coded: async () => { throw Object.assign(new Error('write scope rejected'), { code: 'TEAM_INVALID_WRITE_SCOPE' }) },
+        plain: async () => { throw new Error('no structured identity') },
+      }),
+    })
+    expect(result.error).toBeUndefined()
+    expect(result.value).toEqual([
+      'typed', 'coded', 'degraded', 'has-code-property',
+      'undefined', 'absent',
+    ])
+  })
+
   it('retains raw native stdout and stderr separately from control frames', async () => {
     const { run } = await setup()
     const result = await run({ program: 'const fs = await import("node:fs"); fs.writeSync(1,"native-out你好"); fs.writeSync(2,"native-err🙂"); return 42;', bindings: [] })

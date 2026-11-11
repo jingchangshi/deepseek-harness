@@ -136,6 +136,10 @@ describe('renderToolsSdk', () => {
     expect(text).toContain('type ToolName = keyof ToolOutputMap')
     expect(text).toContain('declare class ToolCallError extends Error')
     expect(text).toContain('readonly toolName: ToolName;')
+    // A failed sub-call also carries the tool's stable error identity so a
+    // program can BRANCH on it; optional, so a tool reporting no structured
+    // code still rejects with no code value at all.
+    expect(text).toContain('readonly code?: string;')
     expect(text).toContain('declare const tools: {')
     expect(text).toContain('type JsonValue = null | boolean | number | string')
     expect(text.indexOf('bash: {')).toBeGreaterThan(0)

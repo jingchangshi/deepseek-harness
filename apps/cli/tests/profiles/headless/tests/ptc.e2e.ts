@@ -193,7 +193,11 @@ describe('PTC mode typed values: keyless real-process contracts', () => {
         name: 'ToolCallError',
         toolName: 'always_fail',
         message: 'expected failure',
-        exposesCode: false,
+        // F7 (session 757fa075): the code IS forwarded now, so a program can
+        // branch on error.code instead of dying. This assertion encoded the old
+        // defect and was flipped deliberately. content/info stay unexposed:
+        // only the stable code is part of the program-visible contract.
+        exposesCode: true,
         exposesContent: false,
         exposesInfo: false,
       },

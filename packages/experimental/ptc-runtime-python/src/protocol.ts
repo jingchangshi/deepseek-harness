@@ -149,12 +149,20 @@ interface ReplyOk {
   value: unknown
 }
 
-/** Host → Python: failed answer to one {@link CallMessage}. */
+/**
+ * Host → Python: failed answer to one {@link CallMessage}. `code` is the
+ * failing tool's stable error identity (the native `ToolErrorInfo.code`, e.g.
+ * `TOOL_TIMEOUT`) when it reported one, so the program can branch on identity
+ * instead of matching prose. Optional: an absent code sends no key and the
+ * program's exception then has no `code` attribute, keeping absence
+ * distinguishable from a concrete value.
+ */
 interface ReplyErr {
   type: 'reply'
   id: number
   ok: false
   message: string
+  code?: string
 }
 
 /** Host → Python: the answer to one {@link CallMessage}. */
@@ -239,7 +247,7 @@ const WIRE_FRAME_FIELD_ROLES = {
   DoneMessage: { type: 'required', value: 'optional', error: 'optional' },
   ErrorClass: { name: 'required', memberNameProperty: 'required' },
   ReplyOk: { type: 'required', id: 'required', ok: 'required', value: 'required' },
-  ReplyErr: { type: 'required', id: 'required', ok: 'required', message: 'required' },
+  ReplyErr: { type: 'required', id: 'required', ok: 'required', message: 'required', code: 'optional' },
 } as const satisfies { [K in keyof WireFrameShapes]: FrameFieldRoles<WireFrameShapes[K]> }
 
 /**

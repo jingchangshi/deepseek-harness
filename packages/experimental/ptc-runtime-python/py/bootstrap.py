@@ -891,12 +891,20 @@ def _make_error_class(
     ``PtcBindingErrorClass`` contract: instances carry the failed member name
     under ``member_name_property`` and render as their message."""
 
-    def __init__(self, member_name: str, message: str) -> None:  # noqa: N807
+    def __init__(self, member_name: str, message: str, code: Any = None) -> None:  # noqa: N807
         # Exception.__init__ and setattr are captured as defaults at def time:
         # the class constructor runs model-visible code paths, and a rebind of
         # `__main__.Exception`/`__main__.setattr` must not break a rejection.
         _Exception_init.__init__(self, message)
         _setattr(self, member_name_property, member_name)
+        # Additive and optional: the host forwards the failing tool's stable
+        # error identity when it reported one, so a program can branch on
+        # `e.code`. `None` is Python's absence value and matches the declared
+        # `code: str | None`; leaving the attribute OFF would make `e.code`
+        # raise AttributeError, which is a harder failure than the contract
+        # promises and would let `except ToolCallError: if e.code == ...`
+        # crash inside the handler.
+        _setattr(self, "code", code)
 
     return type(name, (Exception,), {"__init__": __init__})
 
@@ -994,6 +1002,11 @@ async def _run(channel: ProtocolChannel) -> None:
     # frame-shape check is bound the same way.
     _str = str
     _isinstance = isinstance
+    # `getattr` is bound for the same reason: dispatch reads the optional
+    # `code` off a rejection, and a program rebinding `__main__.getattr`
+    # must not turn a legitimate binding failure into a different exception.
+    _getattr_cls = getattr
+    _setattr_cls = setattr
     # dispatch's argument-validation, event-loop, and frame-send primitives are
     # bound here, before the program runs: a rebind of `__main__._lossless_json_violation`,
     # `__main__.asyncio`, or the channel's send method must not turn a legitimate
@@ -1131,13 +1144,19 @@ async def _run(channel: ProtocolChannel) -> None:
         nonlocal next_id
         error_class = error_classes.get(global_name)
 
-        def call_failure(message: str) -> BaseException:
+        def call_failure(message: str, code: str | None = None) -> BaseException:
             # The namespace's declared rejection contract (e.g. PTC mode's
             # ToolCallError with .toolName) when present; RuntimeError keeps
             # the pre-errorClass behavior for namespaces that declared none.
+            # The optional code is the failing tool's stable error identity,
+            # forwarded from the host so a program can branch on it.
             if error_class is not None:
-                return error_class(name, message)
-            return _RuntimeError_cls(message)
+                return error_class(name, message, code)
+            failure = _RuntimeError_cls(message)
+            # Same optional contract without a declared class: None means the
+            # tool reported no structured error identity.
+            _setattr_cls(failure, "code", code)
+            return failure
 
         # Validate the argument shape before claiming an id, so a rejected call
         # leaves no gap in the sequence the host checks. json.dumps would coerce
@@ -1186,7 +1205,9 @@ async def _run(channel: ProtocolChannel) -> None:
         try:
             return await fut
         except _BindingRejection_cls as exc:
-            raise call_failure(_str(exc)) from None
+            # `code` rides the rejection only when the host supplied one; the
+            # marker itself never reaches model code.
+            raise call_failure(_str(exc), _getattr_cls(exc, "code", None)) from None
 
     namespaces: dict[str, Any] = {}
     for entry in boot["namespaces"]:
@@ -1461,6 +1482,7 @@ async def _pump_replies(
     _BindingRejection: Any = _BindingRejection,
     _str: Any = str,
     _bool: Any = bool,
+    _isinstance: Any = isinstance,
 ) -> None:
     """Background task: read reply frames and settle pending futures.
 
@@ -1477,7 +1499,7 @@ async def _pump_replies(
     so a reply cannot race the claim that registers its id.
     """
 
-    def complete(fut: asyncio.Future[Any], ok: bool, value: Any, message: Any) -> None:
+    def complete(fut: asyncio.Future[Any], ok: bool, value: Any, message: Any, code: Any) -> None:
         # Runs on the Future's own loop. `done()` re-checked here because
         # cancellation or a duplicate reply may have settled it between the pop
         # and this callback.
@@ -1486,7 +1508,13 @@ async def _pump_replies(
         if ok:
             fut.set_result(value)
         else:
-            fut.set_exception(_BindingRejection(_str(message)))
+            rejection = _BindingRejection(_str(message))
+            # Only a string code forwarded by the host is meaningful; anything
+            # else (absent, forged) leaves the rejection without a `code`
+            # attribute so absence stays distinguishable.
+            if _isinstance(code, _str) and code:
+                rejection.code = code
+            fut.set_exception(rejection)
 
     while True:
         frame = await _read_frame()
@@ -1502,8 +1530,9 @@ async def _pump_replies(
         ok = _bool(frame.get("ok"))
         value = frame.get("value")
         message = frame.get("message")
+        code = frame.get("code")
         try:
-            loop.call_soon_threadsafe(complete, fut, ok, value, message)
+            loop.call_soon_threadsafe(complete, fut, ok, value, message, code)
         except _RuntimeError:  # `_RuntimeError` is a pre-program local, not a rebindable module global
             # The Future's loop has already closed — the thread that ran
             # `asyncio.run(tools.x(...))` finished (its coroutine was cancelled

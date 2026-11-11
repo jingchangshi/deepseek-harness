@@ -1277,6 +1277,57 @@ describe('the run_code dispatch bridge', () => {
     }
   })
 
+  it('a denied sub-call carries its stable code into the program so it can branch', async () => {
+    const { ctx, runtime } = await setup({ mode: 'ptc' })
+    registerEcho(ctx)
+    ctx.on('tools/pre-execute', (exec, next) => {
+      if (exec.name === 'echo') {
+        return Promise.resolve({
+          kind: 'deny' as const,
+          reason: 'write scope rejected',
+          info: { name: 'TeamError', code: 'TEAM_INVALID_WRITE_SCOPE' },
+        })
+      }
+      return next()
+    })
+    // A second tool fails with NO structured info: its rejection must expose no
+    // code at all, so a program can tell "recoverable, coded" from "unknown".
+    ctx.tools.register(defineTool({
+      name: 'plain_fail',
+      description: 'Fail with no structured error identity.',
+      parameters: {},
+      output: { schema: { type: 'null' }, render: () => [] },
+      execute: () => Promise.reject(new Error('unstructured')),
+    }))
+    const { agent } = fakeAgent()
+    runtime.behavior = async (request) => {
+      const bindings = request.bindings[0]!.functions
+      const observed: string[] = []
+      try {
+        await bindings.echo!({ value: 'x' })
+        observed.push('resolved')
+      } catch (error: unknown) {
+        // The original F7 defect: only `message` existed, so there was nothing
+        // to branch on and the program had to die. Now the code identifies the
+        // failure class and the program DEGRADES instead.
+        const code = (error as { code?: unknown }).code
+        observed.push(code === 'TEAM_INVALID_WRITE_SCOPE' ? 'degraded' : 'unknown-code')
+        observed.push(Object.hasOwn(error as object, 'code') ? 'own-code' : 'no-code-property')
+      }
+      try {
+        await bindings.plain_fail!({})
+      } catch (error: unknown) {
+        observed.push(String((error as { code?: unknown }).code))
+        observed.push(Object.hasOwn(error as object, 'code') ? 'own-code' : 'no-code-property')
+      }
+      return { logs: [], value: observed }
+    }
+    const result = await runCode(ctx, 'program', { agent })
+    expect(result.isError).toBe(false)
+    if (result.isError) throw new Error('expected success')
+    expect(result.value).toMatchObject({ result: ['degraded', 'own-code', 'undefined', 'no-code-property'] })
+  })
+
   it('an uncaught tools/pre-execute deny fails the program without changing the inner error identity', async () => {
     const { ctx, runtime } = await setup({ mode: 'ptc' })
     const calls = registerEcho(ctx)

@@ -160,6 +160,9 @@ describe('renderToolsSdkPy', () => {
     expect(text).toContain('never `FooArgs(field=1)`, which raises `NameError`')
     expect(text).toContain('ToolCallError')
     expect(text).toContain('class ToolCallError(Exception):')
+    // Mirrors the TypeScript optional code: the stable error identity when the
+    // tool reported one, None when it did not.
+    expect(text).toContain('code: str | None')
     expect(text).toContain('MAY overlap under `asyncio.gather`')
     expect(text).toContain('lossless JSON')
     expect(text).toContain('```python')
