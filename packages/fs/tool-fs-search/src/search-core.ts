@@ -104,6 +104,90 @@ export interface RipgrepRun {
   noMatches: boolean
   /** The resolved working directory the command ran in (the display-relativization base). */
   workdir: string
+  /**
+   * Non-empty only for a PARTIAL run: ripgrep exited 2 because it could not read
+   * some part of the target, yet still produced usable output. Each entry is one
+   * skipped location and its reason. Bounded by {@link PARTIAL_WARNING_LIMIT};
+   * an over-limit run ends with one summarized remainder entry.
+   */
+  warnings: string[]
+}
+
+/**
+ * Maximum skipped-location entries carried on one partial result. A search over
+ * a tree with thousands of unreadable directories must stay bounded: the model
+ * needs to know the result is incomplete and roughly where, not to be handed an
+ * unbounded diagnostic dump.
+ */
+export const PARTIAL_WARNING_LIMIT = 10
+
+/** One ripgrep per-location diagnostic: `rg: <location>: <reason>`. */
+const RG_DIAGNOSTIC = /^rg: (.+?): (.+)$/u
+
+/**
+ * The reasons ripgrep gives for a location it could not read. Requiring an
+ * actual OS failure keeps a usage error (`rg: usage: ...`) from being reported
+ * as a skipped location, because `usage` would otherwise parse as one.
+ */
+const UNREADABLE_LOCATION_REASON =
+  /os error \d+|IO error|Permission denied|No such file or directory|Not a directory|Too many levels of symbolic links/iu
+
+/**
+ * Convert ripgrep's stderr IO diagnostics into bounded, de-duplicated
+ * model-facing warning lines for a partial result.
+ *
+ * Every line ripgrep writes for a per-location failure has the
+ * `rg: <location>: <reason>` shape; anything else (a pattern rejection, a
+ * usage error) never reaches here because those runs fail instead. Duplicates
+ * are collapsed because ripgrep reports the same unreadable directory once per
+ * traversal that touches it.
+ * @param stderrText - the retained stderr tail.
+ * @param truncated - whether the seam dropped stderr bytes past the cap.
+ * @returns one warning line per distinct skipped location, bounded by {@link PARTIAL_WARNING_LIMIT}.
+ */
+export function partialRunWarnings(stderrText: string, truncated: boolean): string[] {
+  const seen = new Set<string>()
+  for (const line of stderrText.split('\n')) {
+    const match = RG_DIAGNOSTIC.exec(line.trim())
+    // Both groups are mandatory in the pattern, so a match always carries a
+    // location and a reason; only the reason is filtered further.
+    if (match === null) continue
+    const [, location, reason] = match as unknown as [string, string, string]
+    if (!UNREADABLE_LOCATION_REASON.test(reason)) continue
+    seen.add(`Skipped ${location} (${reason})`)
+  }
+  const warnings = [...seen]
+  // A partial run must never be silent: when ripgrep reported an error it did
+  // not attribute to one location, carry the report itself rather than return
+  // an empty warning list for a result that is known to be incomplete.
+  if (warnings.length === 0) {
+    const report = stderrText.split('\n').map(line => line.trim()).find(line => line.length > 0)
+    if (report !== undefined) {
+      return [truncated ? `${report} [stderr truncated]` : report]
+    }
+  }
+  if (warnings.length <= PARTIAL_WARNING_LIMIT) {
+    return truncated ? [...warnings, 'Further skipped locations were reported but not retained (stderr truncated).'] : warnings
+  }
+  const shown = warnings.slice(0, PARTIAL_WARNING_LIMIT)
+  shown.push(`${warnings.length - PARTIAL_WARNING_LIMIT} further skipped location(s) not listed.`)
+  return truncated ? [...shown, 'Further skipped locations were reported but not retained (stderr truncated).'] : shown
+}
+
+/**
+ * Render the partial-result warning block appended to a model-facing result.
+ *
+ * The block is a distinct, labelled trailer rather than a result row, so a
+ * warning line can never be mistaken for a discovered path or a matched line:
+ * the body above it stays exactly the items that really matched.
+ * @param warnings - the bounded warning lines from {@link partialRunWarnings}.
+ * @returns the trailer text, or an empty string for a complete result.
+ */
+export function formatPartialWarnings(warnings: readonly string[]): string {
+  if (warnings.length === 0) return ''
+  const noun = warnings.length === 1 ? 'location' : 'locations'
+  const rows = warnings.map(warning => `  - ${warning}`).join('\n')
+  return `\n\n(WARNING: PARTIAL results. Ripgrep could not read part of the search target, so nothing inside the ${warnings.length} skipped ${noun} below was searched and any match there is MISSING from the results above.\n${rows}\nNarrow the pattern or path to a readable subtree to get a complete result.)`
 }
 
 /**
@@ -120,13 +204,58 @@ function stderrExcerpt(stderrText: string, truncated: boolean): string {
  * Classify a nonzero-exit `rg` run into the search error vocabulary. There is
  * no shell layer, so an exit 127 or shell "command not found" text cannot
  * occur — a launch failure rejects at spawn (see {@link runRipgrep}).
+ *
+ * A pattern rejection is checked FIRST and independently of stdout: ripgrep
+ * refuses to search at all, so whatever bytes it happened to emit are framing,
+ * not results, and the run must never be reported as a partial success.
  */
 function classifyRunFailure(toolName: string, exitCode: number, stderrText: string, stderrTruncated: boolean): SearchError {
   const stderr = stderrExcerpt(stderrText, stderrTruncated)
-  if (/regex parse error|error parsing glob/i.test(stderr)) {
+  if (patternRejected(stderr)) {
     return new SearchError(`${toolName} pattern rejected by ripgrep: ${stderr}`, 'SEARCH_INVALID_PATTERN')
   }
   return new SearchError(`${toolName} search failed (exit ${exitCode})${stderr.length > 0 ? `: ${stderr}` : ''}`, 'SEARCH_FAILED')
+}
+
+/** Whether a stderr excerpt is ripgrep refusing the pattern or glob itself. */
+function patternRejected(stderrExcerpt: string): boolean {
+  return /regex parse error|error parsing glob/i.test(stderrExcerpt)
+}
+
+/**
+ * Decide whether a nonzero-exit run produced USABLE output, i.e. evidence that
+ * ripgrep searched something and reported it.
+ *
+ * Each tool supplies the probe because each owns its own output format: a
+ * `--files` listing is usable when it lists any path, while a `--json` stream
+ * carries a trailing `summary` record whose `stats.searches` count is the only
+ * way to tell "searched a readable part and matched nothing" from "could not
+ * read the target at all" — both of which print a summary record.
+ */
+export type UsableStdoutProbe = (stdout: string) => boolean
+
+/** The `--files` probe: a listing is usable when it lists at least one path. */
+export const listingIsUsable: UsableStdoutProbe = stdout => stdout.trim().length > 0
+
+/**
+ * The `--json` probe: usable when the trailing `summary` record reports at
+ * least one completed search.
+ *
+ * A summary is emitted even for a target ripgrep could not read at all, so
+ * presence of a summary is NOT sufficient; `stats.searches` (or, defensively,
+ * any retained search statistic) is what proves traversal reached a readable
+ * file. A stream with no parsable summary cannot prove anything was searched and
+ * is treated as unusable, which keeps an unreadable workspace root a hard
+ * failure instead of an empty partial success.
+ */
+export const jsonSummaryIsUsable: UsableStdoutProbe = (stdout) => {
+  for (const line of stdout.split('\n')) {
+    if (!line.includes('"summary"')) continue
+    const searches = /"searches":(\d+)/u.exec(line)
+    if (searches?.[1] !== undefined && Number(searches[1]) > 0) return true
+    if (/"bytes_searched":[1-9]/u.test(line)) return true
+  }
+  return false
 }
 
 /**
@@ -199,10 +328,15 @@ export function resolveRgPath(): Promise<string> {
  * spill path, and truncated stdout fails as `SEARCH_RAW_OUTPUT_OVERFLOW`.
  *
  * Exit semantics are tool-owned: exit 0 is success with results, exit 1 is
- * success with zero results (`noMatches`), anything else throws a
- * {@link SearchError} (abort/timeout → `SEARCH_ABORTED`, invalid pattern →
- * `SEARCH_INVALID_PATTERN`, the rest → `SEARCH_FAILED` /
- * `SEARCH_RAW_OUTPUT_OVERFLOW`). Both launch-time failure domains are
+ * success with zero results (`noMatches`), and exit 2 is a PARTIAL success when
+ * the run still produced usable output — ripgrep exits 2 to report that it
+ * could not read part of the target, and discarding the matches it did find
+ * loses exactly the discovery the caller needed. A partial run returns its
+ * output plus bounded {@link RipgrepRun.warnings}; the caller surfaces those, so
+ * a partial result is never silent. Anything else throws a {@link SearchError}
+ * (abort/timeout → `SEARCH_ABORTED`, invalid pattern →
+ * `SEARCH_INVALID_PATTERN`, unusable-output exit 2 and every other exit →
+ * `SEARCH_FAILED` / `SEARCH_RAW_OUTPUT_OVERFLOW`). Both launch-time failure domains are
  * classified: a synchronous throw at spawn CREATION (a NUL in argv, an abort
  * racing the pre-check, a rejected `@vscode/ripgrep` resolution) reports that
  * the command could not start, while a rejection of `handle.done` reports a
@@ -217,7 +351,11 @@ export function resolveRgPath(): Promise<string> {
  * @param rawOutputMaxBytes - cap on the complete raw stdout the tool will parse.
  * @param graceMs - the seam's terminate-escalation grace period.
  * @param stderrMaxBytes - cap on the retained stderr diagnostic tail.
- * @returns the complete stdout, the zero-result flag, and the resolved workdir.
+ * @param usable - decides whether a nonzero-exit run produced usable output; it
+ *   is what separates a partial success from a search that never ran. Defaults
+ *   to the `--files` listing probe.
+ * @returns the complete stdout, the zero-result flag, the resolved workdir, and
+ *   the bounded warnings of a partial run (empty for a complete one).
  */
 export async function runRipgrep(
   ctx: Context,
@@ -227,6 +365,7 @@ export async function runRipgrep(
   rawOutputMaxBytes: number,
   graceMs: number,
   stderrMaxBytes: number,
+  usable: UsableStdoutProbe = listingIsUsable,
 ): Promise<RipgrepRun> {
   if (exec.signal.aborted) {
     throw new SearchError(`${toolName} was aborted before completion (tool timeout or caller cancellation)`, 'SEARCH_ABORTED')
@@ -279,11 +418,21 @@ export async function runRipgrep(
   if (outcome.signal !== null || outcome.exitCode === null) {
     throw new SearchError(`${toolName} search command was killed by signal ${outcome.signal ?? '(unknown)'}`, 'SEARCH_FAILED')
   }
+  // A nonzero exit is only a failure when the run produced nothing usable. A
+  // refused pattern is checked FIRST: it never searched anything, so whatever
+  // framing it emitted is not a result and must not be reported as a partial
+  // success. After that, exit 2 with usable output is a PARTIAL success and
+  // every other nonzero exit stays a hard failure.
   if (outcome.exitCode !== 0 && outcome.exitCode !== 1) {
+    const text = completeStdout(toolName, stdout, rawOutputMaxBytes)
+    if (!patternRejected(stderrExcerpt(stderr.text, stderr.lossy))
+      && outcome.exitCode === 2 && usable(text)) {
+      return { stdout: text, noMatches: false, workdir, warnings: partialRunWarnings(stderr.text, stderr.lossy) }
+    }
     throw classifyRunFailure(toolName, outcome.exitCode, stderr.text, stderr.lossy)
   }
   const text = completeStdout(toolName, stdout, rawOutputMaxBytes)
-  return { stdout: text, noMatches: outcome.exitCode === 1, workdir }
+  return { stdout: text, noMatches: outcome.exitCode === 1, workdir, warnings: [] }
 }
 
 /**

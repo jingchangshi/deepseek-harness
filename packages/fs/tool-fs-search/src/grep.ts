@@ -17,7 +17,16 @@ import type { GenericCallView, SearchResultView, ToolResult } from '@deepseek-ai
 import type { RetainedItems } from '@deepseek-ai/dsh-output-retention'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
 import type { GrepMatch } from './search-core.ts'
-import { SearchError, previewLine, retainGrepMatches, runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
+import {
+  SearchError,
+  formatPartialWarnings,
+  jsonSummaryIsUsable,
+  previewLine,
+  retainGrepMatches,
+  runRipgrep,
+  toWorkdirRelative,
+  trySaveFormattedResult,
+} from './search-core.ts'
 import { grepSearchMeta, searchViewFromMeta } from './presentation.ts'
 import { acceptedDirectCallValue } from './direct-call.ts'
 
@@ -224,10 +233,26 @@ export function formatGrepOutput(retained: RetainedItems<GrepMatch>, spillRef: S
   return `${header}\n\n${body}\n\n(${recovery})`
 }
 
-/** Format one already-retained match list for the Native surface. */
-function formatRetainedGrep(retained: RetainedItems<GrepMatch>, spillRef?: SpillRef): string {
-  if (retained.seen === 0) return 'No matches found'
-  return formatGrepOutput(retained, spillRef)
+/**
+ * Format one already-retained match list for the Native surface, appending the
+ * partial-result warning block when the search could not read part of the
+ * target.
+ *
+ * The warning is a labelled trailer AFTER the grouped matches, so a skipped
+ * location can never be read as a matched line, and the found-count header keeps
+ * describing only the matches that were really found.
+ * @param retained - the retention outcome over every parsed match.
+ * @param spillRef - the saved complete-result reference, or `undefined` when unsaved.
+ * @param warnings - bounded skipped-location warnings from a partial run.
+ * @returns the model-facing text.
+ */
+function formatRetainedGrep(
+  retained: RetainedItems<GrepMatch>,
+  spillRef?: SpillRef,
+  warnings: readonly string[] = [],
+): string {
+  const body = retained.seen === 0 ? 'No matches found' : formatGrepOutput(retained, spillRef)
+  return `${body}${formatPartialWarnings(warnings)}`
 }
 
 /**
@@ -309,19 +334,28 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
               },
             },
           },
+          warnings: { type: 'array', items: { type: 'string' } },
         },
       },
       render: (_args, value) => [{
         type: 'text',
-        text: formatRetainedGrep(retainGrepMatches(value.matches, caps.maxMatches, caps.maxLineBytes)),
+        text: formatRetainedGrep(
+          retainGrepMatches(value.matches, caps.maxMatches, caps.maxLineBytes), undefined, value.warnings,
+        ),
       }],
       presentationMeta: (_args, value) =>
         grepSearchMeta(retainGrepMatches(value.matches, caps.maxMatches, caps.maxLineBytes), caps.maxMetaBytes),
     },
     async execute(args, exec) {
       const input = parseGrepArgs(args)
-      const run = await runRipgrep(ctx, exec, 'grep', buildGrepCommand(input), caps.rawOutputMaxBytes, caps.graceMs, caps.stderrMaxBytes)
-      if (run.noMatches) return { matches: [] }
+      const run = await runRipgrep(
+        ctx, exec, 'grep', buildGrepCommand(input), caps.rawOutputMaxBytes, caps.graceMs, caps.stderrMaxBytes, jsonSummaryIsUsable,
+      )
+      // The skipped locations ride on the canonical value, so the inline render,
+      // the post-execute re-render, and the card all state the same
+      // incompleteness instead of presenting a partial search as a full one.
+      const warnings = run.warnings.length === 0 ? {} : { warnings: run.warnings }
+      if (run.noMatches) return { matches: [], ...warnings }
 
       const all: GrepMatch[] = []
       for (const raw of parseGrepMatches(run.stdout)) {
@@ -332,7 +366,7 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
         }
         all.push(match)
       }
-      return { matches: all }
+      return { matches: all, ...warnings }
     },
     presentCall: presentGrepCall,
     presentResult: presentGrepResult,
@@ -341,7 +375,8 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
 
   ctx.on('tools/post-execute', async (exec, result, next) => {
     const decision = await next()
-    const value = acceptedDirectCallValue(ctx, tool, exec, result, decision) as { matches: GrepMatch[] } | undefined
+    const value = acceptedDirectCallValue(ctx, tool, exec, result, decision) as
+      { matches: GrepMatch[]; warnings?: string[] } | undefined
     if (value === undefined) return decision
     const matches = value.matches
     if (matches.length <= caps.maxMatches) return decision
@@ -358,7 +393,7 @@ export function applyGrepTool(ctx: Context, caps: GrepToolCaps): void {
       kind: 'accept',
       content: [{
         type: 'text',
-        text: formatRetainedGrep(retainGrepMatches(matches, caps.maxMatches, caps.maxLineBytes), spillRef),
+        text: formatRetainedGrep(retainGrepMatches(matches, caps.maxMatches, caps.maxLineBytes), spillRef, value.warnings),
       }],
       ...decision.additionalContexts !== undefined ? { additionalContexts: decision.additionalContexts } : {},
     }

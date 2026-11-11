@@ -14,7 +14,7 @@ import { sep } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, SearchResultView, ToolResult } from '@deepseek-ai/dsh-tools'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
-import { runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
+import { formatPartialWarnings, listingIsUsable, runRipgrep, toWorkdirRelative, trySaveFormattedResult } from './search-core.ts'
 import { globSearchMeta, searchViewFromMeta } from './presentation.ts'
 import { acceptedDirectCallValue } from './direct-call.ts'
 
@@ -227,8 +227,33 @@ function formatGlobPage(items: readonly string[], seen: number, spillRef: SpillR
   return `${body}\n\n(Showing ${items.length} of ${seen} paths${basis} ${recovery})`
 }
 
-/** Bound and format one canonical path list for the Native surface relative to its search root. */
-function renderGlobPaths(paths: string[], caps: GlobToolCaps, root: string, spillRef?: SpillRef): string {
+/**
+ * Bound and format one canonical path list for the Native surface relative to
+ * its search root, appending the partial-result warning block when the search
+ * could not read part of the target.
+ *
+ * The warning is appended AFTER the complete body and its recovery footer, so a
+ * skipped location is never rendered as if it were a discovered path and the
+ * page/overflow accounting above stays exactly the paths that were found.
+ * @param paths - the complete discovered path list, in modification-time order.
+ * @param caps - the resolved glob caps (the inline cap and the sampling switch).
+ * @param root - the search root in the same display-path space as `paths`.
+ * @param spillRef - the saved complete-result reference, or `undefined` when unsaved.
+ * @param warnings - bounded skipped-location warnings from a partial run.
+ * @returns the model-facing text.
+ */
+function renderGlobPaths(
+  paths: string[],
+  caps: GlobToolCaps,
+  root: string,
+  spillRef?: SpillRef,
+  warnings: readonly string[] = [],
+): string {
+  return `${renderGlobBody(paths, caps, root, spillRef)}${formatPartialWarnings(warnings)}`
+}
+
+/** The discovered-path body and its cap/recovery footer, without any partial-result warning. */
+function renderGlobBody(paths: string[], caps: GlobToolCaps, root: string, spillRef?: SpillRef): string {
   if (paths.length === 0) return 'No files found'
   // A result that fits is shown whole, untouched: modification-time order is the
   // tool's contract, and over a complete result it is what answers age questions.
@@ -325,9 +350,13 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
         properties: {
           root: { type: 'string', required: true },
           paths: { type: 'array', required: true, items: { type: 'string' } },
+          warnings: { type: 'array', items: { type: 'string' } },
         },
       },
-      render: (_args, value) => [{ type: 'text', text: renderGlobPaths(value.paths, caps, value.root) }],
+      render: (_args, value) => [{
+        type: 'text',
+        text: renderGlobPaths(value.paths, caps, value.root, undefined, value.warnings),
+      }],
       presentationMeta: (_args, value) => {
         const page = globCardPage(value.paths, caps, value.root)
         return globSearchMeta({ items: page.items, truncated: page.truncated, seen: value.paths.length }, caps.maxMetaBytes)
@@ -335,9 +364,15 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
     },
     async execute(args, exec) {
       const input = parseGlobArgs(args)
-      const run = await runRipgrep(ctx, exec, 'glob', buildGlobCommand(input), caps.rawOutputMaxBytes, caps.graceMs, caps.stderrMaxBytes)
+      const run = await runRipgrep(
+        ctx, exec, 'glob', buildGlobCommand(input), caps.rawOutputMaxBytes, caps.graceMs, caps.stderrMaxBytes, listingIsUsable,
+      )
       const root = input.path === undefined ? '.' : toWorkdirRelative(input.path, run.workdir)
-      if (run.noMatches) return { root, paths: [] }
+      // A partial run carries its skipped locations on the canonical value, so
+      // every surface (inline render, post-execute re-render, card) states the
+      // same incompleteness instead of reporting a full result.
+      const warnings = run.warnings.length === 0 ? {} : { warnings: run.warnings }
+      if (run.noMatches) return { root, paths: [], ...warnings }
 
       const all: string[] = []
       for (const line of run.stdout.split('\n')) {
@@ -345,7 +380,7 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
         const displayPath = toWorkdirRelative(line, run.workdir)
         all.push(displayPath)
       }
-      return { root, paths: all }
+      return { root, paths: all, ...warnings }
     },
     presentCall: presentGlobCall,
     presentResult: presentGlobResult,
@@ -354,14 +389,15 @@ export function applyGlobTool(ctx: Context, caps: GlobToolCaps): void {
 
   ctx.on('tools/post-execute', async (exec, result, next) => {
     const decision = await next()
-    const value = acceptedDirectCallValue(ctx, tool, exec, result, decision) as { root: string; paths: string[] } | undefined
+    const value = acceptedDirectCallValue(ctx, tool, exec, result, decision) as
+      { root: string; paths: string[]; warnings?: string[] } | undefined
     if (value === undefined) return decision
     const paths = value.paths
     if (paths.length <= caps.maxResults) return decision
     const spillRef = await trySaveFormattedResult(ctx, exec, 'glob-results.txt', paths.join('\n'))
     return {
       kind: 'accept',
-      content: [{ type: 'text', text: renderGlobPaths(paths, caps, value.root, spillRef) }],
+      content: [{ type: 'text', text: renderGlobPaths(paths, caps, value.root, spillRef, value.warnings) }],
       ...decision.additionalContexts !== undefined ? { additionalContexts: decision.additionalContexts } : {},
     }
   })

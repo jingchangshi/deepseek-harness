@@ -162,6 +162,98 @@ describe('search tools over the real subprocess service + the packaged rg', () =
     })
   })
 
+  // The defect from session 757fa075, step 1 (seq 29): ONE chmod-000 directory
+  // under the workspace made real ripgrep exit 2, and the tool discarded the
+  // complete, useful path list it had already printed. These cases use the REAL
+  // packaged binary against a REAL unreadable directory. A root user can read
+  // anything, so they are skipped there rather than asserted vacuously.
+  describe('a partial search over an unreadable subdirectory', () => {
+    const lockedDir = (): string => join(dir, 'locked')
+
+    beforeEach(async () => {
+      await mkdir(lockedDir(), { recursive: true })
+      await writeFile(join(lockedDir(), 'unreadable.txt'), 'secret needle\n')
+      const { chmod } = await import('node:fs/promises')
+      await chmod(lockedDir(), 0o000)
+    })
+
+    afterEach(async () => {
+      const { chmod } = await import('node:fs/promises')
+      await chmod(lockedDir(), 0o755)
+    })
+
+    /** Whether this process can actually be denied access (a root run cannot). */
+    const canBeDenied = async (): Promise<boolean> => {
+      const { readdir } = await import('node:fs/promises')
+      try {
+        await readdir(lockedDir())
+        return false
+      } catch {
+        return true
+      }
+    }
+
+    it('glob returns the readable paths AND the skipped-location warning', async () => {
+      if (!(await canBeDenied())) return
+      // '**/*.ts' matches files in the READABLE part, so ripgrep prints a real
+      // listing and then exits 2 because of the sibling locked directory. This
+      // is exactly the shape that lost the whole discovery call before.
+      const result = await call('glob', { pattern: '**/*.ts' }, agent())
+      expect(result.isError).toBe(false)
+      const value = result.value as { paths: string[]; warnings?: string[] }
+      expect(value.paths.length).toBeGreaterThan(0)
+      expect(value.paths.join('\n')).toContain('alpha')
+      // The skipped location is carried as a warning, never as a path.
+      expect(value.warnings?.join('\n')).toContain('locked')
+      expect(value.paths.join('\n')).not.toContain('Skipped')
+      expect(text(result)).toContain('WARNING: PARTIAL results')
+      expect(text(result)).toContain('Skipped')
+    })
+
+    it('glob over ONLY unreadable matches stays a hard failure, not an empty success', async () => {
+      if (!(await canBeDenied())) return
+      // Only the locked directory could match, so ripgrep prints nothing: there
+      // is no partial result to return and this must not look like a clean
+      // "no files found".
+      const result = await call('glob', { pattern: '**/*.txt' }, agent())
+      expect(result.isError).toBe(true)
+      expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
+    })
+
+    it('grep returns the readable matches AND the skipped-location warning', async () => {
+      if (!(await canBeDenied())) return
+      const result = await call('grep', { pattern: 'alpha' }, agent())
+      expect(result.isError).toBe(false)
+      // notes.md contains "alpha" and sits beside the locked directory.
+      expect(text(result)).toContain('notes.md')
+      const value = result.value as { matches: unknown[]; warnings?: string[] }
+      expect(value.matches.length).toBeGreaterThan(0)
+      expect(value.warnings?.join('\n')).toContain('locked')
+      expect(text(result)).toContain('WARNING: PARTIAL results')
+    })
+
+    it('an unreadable workspace ROOT is still SEARCH_FAILED, never an empty success', async () => {
+      if (!(await canBeDenied())) return
+      const { chmod } = await import('node:fs/promises')
+      // The whole session target becomes unreadable: nothing was searched.
+      await chmod(dir, 0o000)
+      try {
+        const result = await call('glob', { pattern: '*' }, agent())
+        expect(result.isError).toBe(true)
+        expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
+      } finally {
+        await chmod(dir, 0o755)
+      }
+    })
+
+    it('a bad regex stays SEARCH_INVALID_PATTERN with an unreadable sibling present', async () => {
+      if (!(await canBeDenied())) return
+      const result = await call('grep', { pattern: '(unclosed' }, agent())
+      expect(result.isError).toBe(true)
+      expect(result.error).toMatchObject({ info: { code: 'SEARCH_INVALID_PATTERN' } })
+    })
+  })
+
   describe('per-session cwd', () => {
     it('resolves the search in the SESSION workspace, not the process cwd', async () => {
       const sessionDir = await mkdtemp(join(tmpdir(), 'dsh-search-session-'))

@@ -33,6 +33,11 @@ import {
   parseGrepMatches,
   presentGlobCall,
   presentGlobResult,
+  PARTIAL_WARNING_LIMIT,
+  formatPartialWarnings,
+  jsonSummaryIsUsable,
+  listingIsUsable,
+  partialRunWarnings,
   presentGrepCall,
   presentGrepResult,
   previewLine,
@@ -240,6 +245,24 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 /** One rg --json match record line. */
 function matchLine(path: string, lineNumber: number, lineText: string): string {
   return JSON.stringify({ type: 'match', data: { path: { text: path }, lines: { text: lineText }, line_number: lineNumber, absolute_offset: 0, submatches: [] } })
+}
+
+/**
+ * One rg --json `summary` record line. ripgrep emits it even for a target it
+ * could not read at all, so `searches` is what proves traversal reached a
+ * readable file.
+ */
+function summaryLine(searches: number, bytesSearched = 6): string {
+  return JSON.stringify({
+    type: 'summary',
+    data: {
+      elapsed_total: { human: '0.001s', nanos: 1_000_000, secs: 0 },
+      stats: {
+        bytes_printed: 0, bytes_searched: bytesSearched, elapsed: { human: '0.000001s', nanos: 1000, secs: 0 },
+        matched_lines: 0, matches: 0, searches, searches_with_match: 0,
+      },
+    },
+  })
 }
 
 describe('registration', () => {
@@ -578,12 +601,98 @@ describe('exit semantics and failure classification', () => {
     expect(result.error).toMatchObject({ info: { code: 'SEARCH_INVALID_PATTERN' } })
   })
 
-  it('other nonzero exits are SEARCH_FAILED carrying the stderr excerpt', async () => {
+  // This case USED to assert "other nonzero exits are SEARCH_FAILED", which
+  // ENCODED the defect from session 757fa075: ripgrep exits 2 for a PARTIAL
+  // search (one unreadable subdirectory) and the whole discovery call failed.
+  // Exit 2 is now classified by its OUTPUT, so the same exit splits in two:
+  // usable stdout is a partial success, no usable stdout stays a hard failure.
+  it('exit 2 with NO usable stdout is SEARCH_FAILED carrying the stderr excerpt', async () => {
     const { ctx, subprocess } = await setup()
     subprocess.handler = () => runResult('', { exitCode: 2, stderr: { text: 'rg: missing.dir: IO error: no such file or directory' } })
     const result = await call(ctx, 'grep', { pattern: 'x', path: 'missing.dir' })
     expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
     expect(text(result)).toContain('IO error')
+  })
+
+  it('exit 2 with usable output is a PARTIAL success that still returns its matches', async () => {
+    const { ctx, subprocess } = await setup()
+    subprocess.handler = () => runResult(
+      [
+        JSON.stringify({ type: 'begin', data: { path: { text: 'ok/a.txt' } } }),
+        matchLine('ok/a.txt', 1, 'hello\n'),
+        summaryLine(1),
+      ].join('\n'),
+      { exitCode: 2, stderr: { text: 'rg: locked: Permission denied (os error 13)' } },
+    )
+    const result = await call(ctx, 'grep', { pattern: 'hello' })
+    // The defect was that this returned isError with zero matches. Now the
+    // discovered matches survive AND the incompleteness is stated.
+    expect(result.isError).toBe(false)
+    expect(result.value).toEqual({
+      matches: [{ path: 'ok/a.txt', lineNumber: 1, line: 'hello' }],
+      warnings: ['Skipped locked (Permission denied (os error 13))'],
+    })
+    expect(text(result)).toContain('Line 1: hello')
+    expect(text(result)).toContain('WARNING: PARTIAL results')
+    expect(text(result)).toContain('Skipped locked (Permission denied (os error 13))')
+  })
+
+  it('a rejected pattern stays SEARCH_INVALID_PATTERN even when the run emitted usable stdout', async () => {
+    // A refused pattern never searched anything: whatever framing it emitted is
+    // not a result, so the pattern rejection must win over the partial branch.
+    const { ctx, subprocess } = await setup()
+    subprocess.handler = () => runResult(summaryLine(4), {
+      exitCode: 2,
+      stderr: { text: 'rg: regex parse error:\n    (\nerror: unclosed group' },
+    })
+    const result = await call(ctx, 'grep', { pattern: '(' })
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_INVALID_PATTERN' } })
+  })
+
+  it('glob exit 2 with a usable listing is a PARTIAL success carrying its warning', async () => {
+    const { ctx, subprocess } = await setup()
+    subprocess.handler = () => runResult('ok/a.txt\nok/b.txt\n', {
+      exitCode: 2,
+      stderr: { text: 'rg: locked: Permission denied (os error 13)' },
+    })
+    const result = await call(ctx, 'glob', { pattern: '*' })
+    expect(result.isError).toBe(false)
+    expect(result.value).toEqual({
+      root: '.',
+      paths: ['ok/a.txt', 'ok/b.txt'],
+      warnings: ['Skipped locked (Permission denied (os error 13))'],
+    })
+    // The warning is a labelled trailer, never a row that looks like a path.
+    expect(text(result)).toContain('ok/a.txt')
+    expect(text(result)).toContain('WARNING: PARTIAL results')
+    expect(text(result)).toContain('any match there is MISSING')
+  })
+
+  it('glob exit 2 with an EMPTY listing (unreadable root) stays SEARCH_FAILED', async () => {
+    // An unreadable workspace root produces no listing at all: there is nothing
+    // to return, so this must remain a hard failure and never an empty success.
+    const { ctx, subprocess } = await setup()
+    subprocess.handler = () => runResult('', {
+      exitCode: 2,
+      stderr: { text: 'rg: .: Permission denied (os error 13)' },
+    })
+    const result = await call(ctx, 'glob', { pattern: '*' })
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
+    expect(text(result)).toContain('Permission denied')
+  })
+
+  it('grep exit 2 whose summary reports ZERO searches stays SEARCH_FAILED', async () => {
+    // ripgrep emits a summary even when it could not read the target at all, so
+    // a summary alone must not be read as evidence that anything was searched.
+    const { ctx, subprocess } = await setup()
+    subprocess.handler = () => runResult(summaryLine(0, 0), {
+      exitCode: 2,
+      stderr: { text: 'rg: .: Permission denied (os error 13)' },
+    })
+    const result = await call(ctx, 'grep', { pattern: 'x' })
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
   })
 
   it('a nonzero exit with EMPTY stderr still reports the exit code', async () => {
@@ -592,6 +701,16 @@ describe('exit semantics and failure classification', () => {
     const result = await call(ctx, 'glob', { pattern: '*' })
     expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
     expect(text(result)).toContain('exit 3')
+  })
+
+  it('only exit 2 is partial; exit 3 with usable stdout is still a hard failure', async () => {
+    // The partial branch is keyed to ripgrep's documented "some errors occurred"
+    // code, not to "any nonzero exit that happened to print something".
+    const { ctx, subprocess } = await setup()
+    subprocess.handler = () => runResult('ok/a.txt\n', { exitCode: 3, stderr: { text: 'rg: boom' } })
+    const result = await call(ctx, 'glob', { pattern: '*' })
+    expect(result.isError).toBe(true)
+    expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
   })
 
   it('truncated stderr gains a truncation note and stderr.spillPath is never read', async () => {
@@ -618,6 +737,95 @@ describe('exit semantics and failure classification', () => {
     const result = await call(ctx, 'glob', { pattern: '*' })
     expect(result.error).toMatchObject({ info: { code: 'SEARCH_FAILED' } })
     expect(text(result)).toContain('killed by signal (unknown)')
+  })
+})
+
+describe('partial-run warning shaping', () => {
+  it('turns rg IO diagnostics into one de-duplicated line per skipped location', () => {
+    const warnings = partialRunWarnings(
+      [
+        'rg: locked: Permission denied (os error 13)',
+        'rg: locked: Permission denied (os error 13)', // rg repeats per traversal
+        'rg: gone: No such file or directory (os error 2)',
+        'some unrelated noise',
+      ].join('\n'),
+      false,
+    )
+    expect(warnings).toEqual([
+      'Skipped locked (Permission denied (os error 13))',
+      'Skipped gone (No such file or directory (os error 2))',
+    ])
+    // 'some unrelated noise' is not an IO diagnostic and contributes nothing.
+  })
+
+  it('bounds the warning list and reports how many locations were dropped', () => {
+    const lines = Array.from({ length: PARTIAL_WARNING_LIMIT + 3 }, (_, index) => `rg: dir${index}: Permission denied (os error 13)`)
+    const warnings = partialRunWarnings(lines.join('\n'), false)
+    expect(warnings).toHaveLength(PARTIAL_WARNING_LIMIT + 1)
+    expect(warnings.at(-1)).toBe('3 further skipped location(s) not listed.')
+  })
+
+  it('reports both an over-limit remainder and a truncated list', () => {
+    const lines = Array.from({ length: PARTIAL_WARNING_LIMIT + 2 }, (_, index) => `rg: dir${index}: Permission denied (os error 13)`)
+    const warnings = partialRunWarnings(lines.join('\n'), true)
+    expect(warnings).toHaveLength(PARTIAL_WARNING_LIMIT + 2)
+    expect(warnings.at(-2)).toBe('2 further skipped location(s) not listed.')
+    expect(warnings.at(-1)).toBe('Further skipped locations were reported but not retained (stderr truncated).')
+  })
+
+  it('notes that the skipped-location list itself was truncated', () => {
+    const warnings = partialRunWarnings('rg: locked: Permission denied (os error 13)', true)
+    expect(warnings).toEqual([
+      'Skipped locked (Permission denied (os error 13))',
+      'Further skipped locations were reported but not retained (stderr truncated).',
+    ])
+  })
+
+  it('does not credit a non-IO stderr line as a skipped location', () => {
+    // `rg: usage: ...` parses as "location=usage" under the generic shape, but
+    // "something else entirely" is not an OS failure, so it is not a location.
+    const warnings = partialRunWarnings('rg: usage: something else entirely', false)
+    expect(warnings.some(warning => warning.startsWith('Skipped usage'))).toBe(false)
+  })
+
+  it('still carries a diagnostic when it cannot attribute one to a location', () => {
+    // The contract is that a partial result is never silent. An unattributable
+    // stderr report is passed through verbatim instead of yielding no warning.
+    expect(partialRunWarnings('rg: something unexpected happened', false))
+      .toEqual(['rg: something unexpected happened'])
+    expect(partialRunWarnings('rg: something unexpected happened', true))
+      .toEqual(['rg: something unexpected happened [stderr truncated]'])
+    // No stderr at all is the only case with nothing to say.
+    expect(partialRunWarnings('', false)).toEqual([])
+  })
+
+  it('renders no trailer for a complete result', () => {
+    expect(formatPartialWarnings([])).toBe('')
+  })
+
+  it('renders a labelled trailer naming each skipped location', () => {
+    const one = formatPartialWarnings(['Skipped locked (denied)'])
+    expect(one).toContain('WARNING: PARTIAL results')
+    expect(one).toContain('1 skipped location')
+    expect(one).toContain('  - Skipped locked (denied)')
+    expect(one).toContain('Narrow the pattern or path')
+    expect(formatPartialWarnings(['a', 'b'])).toContain('2 skipped locations')
+  })
+
+  it('the --files probe requires a non-blank listing', () => {
+    expect(listingIsUsable('a.txt\n')).toBe(true)
+    expect(listingIsUsable('')).toBe(false)
+    expect(listingIsUsable('   \n')).toBe(false)
+  })
+
+  it('the --json probe requires evidence that a search actually ran', () => {
+    // A summary record is emitted even for a target rg could not read at all.
+    expect(jsonSummaryIsUsable(summaryLine(0, 0))).toBe(false)
+    expect(jsonSummaryIsUsable(summaryLine(4))).toBe(true)
+    // bytes_searched alone is a defensive second signal.
+    expect(jsonSummaryIsUsable('{"type":"summary","stats":{"bytes_searched":12}}')).toBe(true)
+    expect(jsonSummaryIsUsable('')).toBe(false)
+    expect(jsonSummaryIsUsable('{"type":"match"}')).toBe(false)
   })
 })
 
