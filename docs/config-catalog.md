@@ -841,20 +841,74 @@ export interface Config {
 ## `@deepseek-ai/dsh-experimental-agent-team`
 
 - `inject`: `agents` · `sessions` · `sessionPersistence` · `sessionProjections` · `subagents`
-- `source`: [`packages/experimental/agent-team/src/types.ts:153`](../packages/experimental/agent-team/src/types.ts)
+- `refs`: [`Branded`](../packages/util/brand/src/index.ts)
+- `source`: [`packages/experimental/agent-team/src/types.ts:229`](../packages/experimental/agent-team/src/types.ts)
 
 ```ts config-catalog
 /** Team-service deployment limits. */
 export interface Config {
-  /** Maximum immutable teammate names retained by one Team. */
+  /**
+   * Base role table used by every Team whose Lead preset has no
+   * {@link Config.presetRoles} entry. Defaults to the built-in table.
+   */
+  readonly roles?: readonly RoleSpec[]
+  /**
+   * Complete role tables keyed by preset id — the preset's own `config.id`,
+   * such as `ai-compiler-magpie`. The Lead of a Team selects its Team's table:
+   * a Lead whose preset has an entry uses that entry *instead of*
+   * {@link Config.roles}. An entry replaces the base table wholesale and is
+   * never merged field by field, so it must repeat every role the Team needs —
+   * including every role `slotPlan.reserved` names. Defaults to `{}`, which
+   * leaves the base table authoritative.
+   */
+  readonly presetRoles?: Readonly<Record<string, readonly RoleSpec[]>>
+  /** Positions every Team publishes before its first spawn; one plan serves every role table. */
+  readonly slotPlan?: TeamSlotPlan
+  /** How long an idle, unowned teammate stays reclaimable before a spawn of its role may replace it; 0 disables reclaim. */
+  readonly memberIdleGraceMs?: number
+  /** Maximum non-retired teammate instances admitted by one Team. */
   readonly maxMembers?: number
   /** Maximum non-deleted tasks retained by one Team. */
   readonly maxTasks?: number
   /** Maximum UTF-8 bytes in one complete sender-framed delivery. */
   readonly maxMessageBytes?: number
-  /** Maximum milliseconds for shared operation settlement and for each Team child drain. */
+  /** Maximum milliseconds runtime disposal waits for shared work and child drains. */
   readonly disposalTimeoutMs?: number
 }
+
+/** Deployment-owned role route and concurrency limit. */
+export interface RoleSpec {
+  /** Lower-kebab-case registry key the Lead names in `spawn_teammate({ role })`; never "lead". */
+  readonly id: RoleId
+  /** Default description for a teammate in this role, used when the spawn omits one. */
+  readonly description: string
+  /** Route half one: the LLM provider the spawned child requests. */
+  readonly provider: string
+  /** Route half two: the model id that provider serves; sent with {@link RoleSpec.provider} as the child's route at spawn. */
+  readonly model: string
+  /** Output-token cap for the child's requests; omitted uses the model's own budget. */
+  readonly maxTokens?: number
+  /** How many members of THIS role may be on the roster at once; a further spawn is refused as role-full. */
+  readonly maxConcurrent: number
+  /** Text injected as the first block of the child's initial user message, ahead of its task. */
+  readonly persona?: string
+}
+
+/** Initial reserved positions and flexible capacity. */
+export interface TeamSlotPlan {
+  /** Pinned positions, each reserved for one role, that survive the departure of their occupant. */
+  readonly reserved: readonly {
+    /** Slot identity; also the name prefix of the member occupying it (`<id>-g<generation>`). */
+    readonly id: string
+    /** The one role allowed to occupy this position; a spawn of any other role cannot use it. */
+    readonly roleId: RoleId
+  }[]
+  /** Unpinned positions that any role may occupy when none of its own reserved positions is free. */
+  readonly flex: readonly string[]
+}
+
+/** Declared business role identity. */
+export type RoleId = Branded<'RoleId'>
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-experimental-agent-team -->
 
