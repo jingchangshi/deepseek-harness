@@ -148,7 +148,7 @@ describe('dsh-tool-team role API', () => {
     const scope = scopeOf(lead.ctx)
     if (scope === undefined) throw new Error('expected scope')
     const prompt = renderPrompt(await ctx.systemPrompt.assemble({ scope }))
-    expect(prompt).toContain('Roles (role fixes the model route')
+    expect(prompt).toContain('Team roles (preset:')
     expect(prompt).toContain('expected_role')
     expect(prompt).toContain('backpressure')
   })
@@ -167,7 +167,7 @@ describe('dsh-tool-team role API', () => {
     const scope = scopeOf(lead.ctx)
     if (scope === undefined) throw new Error('expected scope')
     const prompt = renderPrompt(await ctx.systemPrompt.assemble({ scope }))
-    expect(prompt).toContain('Roles (role fixes the model route and its concurrency): architect (magpie/group/architect, Design only, max 3).')
+    expect(prompt).toContain('architect (magpie/group/architect, Design only, max 3).')
     // The built-in explorer route must not survive as boilerplate.
     expect(prompt).not.toContain('Qwen3.8-Flash')
   })
