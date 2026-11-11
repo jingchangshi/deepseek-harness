@@ -13,7 +13,7 @@ import type { TeamJournal } from './journal.ts'
 import type { TeamRuntimeLifecycle } from './lifecycle.ts'
 import { readPersistedSession } from './persisted.ts'
 import type { TeamState } from './projection.ts'
-import { resolveRoles } from './routes.ts'
+import { resolveRoleTable } from './routes.ts'
 import { messageAccepted } from './session-message.ts'
 import { TeamId } from './types.ts'
 import type {
@@ -388,7 +388,7 @@ export class TeamRoster {
     const root = membership.root
     // The Lead's preset selects the Team's role table, so the route applied to
     // this child comes from the same table the Lead's other spawns used.
-    const role = resolveRoles(this.config, root).find(role => role.id === request.roleId)
+    const role = resolveRoleTable(this.config, root).roles.find(role => role.id === request.roleId)
     if (!role) throw new TeamError(`unknown role "${request.roleId}"`, 'TEAM_UNKNOWN_ROLE')
     const description = requiredText(request.description ?? role.description, 'description', 200)
     const provider = request.context === 'fork' ? 'fork' : 'spawn'

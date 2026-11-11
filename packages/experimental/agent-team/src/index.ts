@@ -14,7 +14,8 @@ import { TeamJournal } from './journal.ts'
 import { TeamRuntimeLifecycle } from './lifecycle.ts'
 import { teamProjectionDefinition } from './projection.ts'
 import { resolveActiveMember, TeamRoster } from './roster.ts'
-import { resolveRoles } from './routes.ts'
+import { resolveRoleTable } from './routes.ts'
+import type { ResolvedRoleTable } from './routes.ts'
 import type { TeamMembership } from './roster.ts'
 import { TeamTaskBoard } from './task-board.ts'
 import { RoleId, TeamId, TeamTaskId } from './types.ts'
@@ -51,7 +52,8 @@ export type {
 } from './completion.ts'
 export type { TeamMembership } from './roster.ts'
 export { RoleId, TeamId, TeamMessageId, TeamTaskId } from './types.ts'
-export { presetIdOf, resolveRoles } from './routes.ts'
+export { presetIdOf, presetSelectionOf, resolveRoleTable, resolveRoles } from './routes.ts'
+export type { PresetSelection, PresetSource, ResolvedRoleTable, RoleTableSource } from './routes.ts'
 export { TeamError } from './error.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -209,7 +211,21 @@ export class TeamService extends Service {
    * @returns the Team's complete role table.
    */
   rolesFor(agent: Agent): readonly RoleSpec[] {
-    return resolveRoles(this.config, this.roster.tryMembership(agent)?.root ?? agent)
+    return this.resolvedRoleTable(agent).roles
+  }
+
+  /**
+   * Resolve the role table that one Agent's Team uses, with its provenance.
+   *
+   * Model-facing surfaces render the observed preset id and the table it
+   * selected from this, so a fallback to the base table is visible instead of
+   * being inferred from prose that may contradict it. Reads the Lead alone, for
+   * the same reason as {@link TeamService.rolesFor}.
+   * @param agent - any live member of the Team, or the Lead itself.
+   * @returns the Team's role table, the observed preset, and the table used.
+   */
+  resolvedRoleTable(agent: Agent): ResolvedRoleTable {
+    return resolveRoleTable(this.config, this.roster.tryMembership(agent)?.root ?? agent)
   }
 
   /**
