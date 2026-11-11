@@ -50,6 +50,24 @@ interface EventReadArgs extends EventTargetArgs {
 interface SearchCollection<T> {
   readonly items: T[]
   readonly capped: boolean
+  /**
+   * Set when the collection stopped BEFORE the provider ran out of pages,
+   * because the caller's deadline fired. `items` still holds every match found
+   * up to that point. Absent on a complete or merely capped collection, so
+   * existing consumers read `true`/`undefined` exactly as before.
+   */
+  readonly partial?: PartialCollection
+}
+
+/**
+ * Why a search stopped early, rendered to the model. `reason` is a fixed
+ * vocabulary so the text stays stable; `deadlineMs` is only present when the
+ * timeout stack reported the budget, where naming it makes the result
+ * actionable.
+ */
+interface PartialCollection {
+  readonly reason: 'deadline'
+  readonly deadlineMs?: number
 }
 
 async function executeSessionSearch(
@@ -101,6 +119,19 @@ async function executeSessionSearch(
     hit => hit.header.id !== caller.id && workspaceAccess.recordAuthorized(hit, caller),
   )
 
+  // A PARTIAL collection must not pay for more service calls: its deadline has
+  // already fired, so every subsequent read would either reject on the aborted
+  // signal (discarding the hits we just rescued) or run past the budget. Skip
+  // the enrichment and degrade cosmetically — parents render as 'outside
+  // workspace' and titles as 'untitled' — while the warning trailer states
+  // plainly that the result is incomplete.
+  //
+  // The claim is what carries the pages past the registry's abort handling. It
+  // is made only here, where real matches exist and the trailer names the gap.
+  if (collected.partial !== undefined) {
+    exec.declarePartial()
+    return presentation.formatSessionSearch(collected, untitledViews(), new Set<SessionId>())
+  }
   const parentIds = collected.items
     .map(hit => hit.header.parentSession)
     .filter((id): id is SessionId => id !== undefined)
@@ -165,6 +196,9 @@ async function executeEventSearch(
     },
     () => true,
   )
+  // Same claim as the session branch: the trailer states the result is
+  // incomplete, so preserving these events is correct rather than misleading.
+  if (collected.partial !== undefined) exec.declarePartial()
   return presentation.formatEventSearch(sessionId, title, collected)
 }
 
@@ -241,6 +275,51 @@ async function executeEventRead(
   return presentation.formatEventRead(sessionId, title, window)
 }
 
+/**
+ * Titles for a PARTIAL search: nothing is known, so every session renders
+ * 'untitled'.
+ *
+ * A partial search cannot afford another service round trip — its deadline has
+ * already fired, and any further read would either fail on the aborted signal or
+ * run unbounded past the budget. Losing the titles is a cosmetic degradation;
+ * losing the sessions is the data loss this change exists to stop, and the
+ * warning trailer still tells the model the result is incomplete.
+ *
+ * A Map subclass (not a bare object) because the title map the formatter wants
+ * extends ReadonlyMap; answering 'untitled' for every id means there is no
+ * partial-population branch to get wrong.
+ *
+ * @returns a title view answering 'untitled' for any session id.
+ */
+function untitledViews(): Awaited<ReturnType<typeof workspaceAccess.readTitles>> {
+  return new class extends Map<SessionId, { readonly text: string }> {
+    override get(): { readonly text: string } {
+      return { text: 'untitled' }
+    }
+  }()
+}
+
+/**
+ * The elapsed deadline recovered from an aborted signal, when the timeout stack
+ * attached one. `TimeoutReason` carries the budget that fired, which is what
+ * makes the model-facing warning actionable ("after 30000ms") instead of vague.
+ *
+ * Read structurally rather than by import so this package keeps no dependency on
+ * the timeout implementation: any reason exposing a positive `timeoutMs` is
+ * accepted, and an unrecognised reason simply yields no number.
+ *
+ * @param signal - the signal the page request was cancelled by.
+ * @returns the deadline in milliseconds, or `undefined` when unknown.
+ */
+function elapsedDeadline(signal: AbortSignal): number | undefined {
+  const reason: unknown = signal.reason
+  if (typeof reason !== 'object' || reason === null) return undefined
+  const candidate: unknown = (reason as { timeoutMs?: unknown }).timeoutMs
+  return typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0
+    ? candidate
+    : undefined
+}
+
 async function collectPages<T>(
   maxResults: number,
   signal: AbortSignal,
@@ -253,26 +332,50 @@ async function collectPages<T>(
   const items: T[] = []
   const seen = new Set<SessionSearchCursor>()
   let cursor: SessionSearchCursor | undefined
+  /**
+   * The one way this loop stops early with work in hand.
+   *
+   * Reached only when at least one item was collected. An empty search is left
+   * to the HARD deadline on purpose: that path yields the canonical typed
+   * `TOOL_TIMEOUT`, so "nothing found before the budget" stays a failure rather
+   * than becoming a persuasive "no matches".
+   *
+   * @param deadlineMs - the budget to name in the warning, when known.
+   * @returns the partial collection.
+   */
+  const partialResult = (deadlineMs: number | undefined): SearchCollection<T> => ({
+    items,
+    capped: false,
+    partial: deadlineMs === undefined ? { reason: 'deadline' } : { reason: 'deadline', deadlineMs },
+  })
   while (true) {
-    signal.throwIfAborted()
-    const page = await request(cursor)
-    signal.throwIfAborted()
-    for (const item of page.items) {
-      if (!accept(item)) continue
-      if (items.length === maxResults) {
-        return { items, capped: true }
+    try {
+      signal.throwIfAborted()
+      const page = await request(cursor)
+      signal.throwIfAborted()
+      for (const item of page.items) {
+        if (!accept(item)) continue
+        if (items.length === maxResults) {
+          return { items, capped: true }
+        }
+        items.push(item)
       }
-      items.push(item)
+      if (page.nextCursor === undefined) return { items, capped: false }
+      if (seen.has(page.nextCursor)) {
+        throw new SessionQueryError(
+          'session-search provider repeated a continuation cursor',
+          'SESSION_QUERY_INVALID_CURSOR',
+        )
+      }
+      seen.add(page.nextCursor)
+      cursor = page.nextCursor
+    } catch (error: unknown) {
+      // `signal.aborted` is authoritative: it is what cut the page fetch short,
+      // so a provider fault that merely COINCIDED with an abort is still a
+      // fault. Anything else propagates untouched.
+      if (!signal.aborted || items.length === 0) throw error
+      return partialResult(elapsedDeadline(signal))
     }
-    if (page.nextCursor === undefined) return { items, capped: false }
-    if (seen.has(page.nextCursor)) {
-      throw new SessionQueryError(
-        'session-search provider repeated a continuation cursor',
-        'SESSION_QUERY_INVALID_CURSOR',
-      )
-    }
-    seen.add(page.nextCursor)
-    cursor = page.nextCursor
   }
 }
 

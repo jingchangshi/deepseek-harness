@@ -32,6 +32,8 @@ import SessionQueryEngine, {
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { type ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as ToolSessionQuery from '@deepseek-ai/dsh-tool-session-query'
+import { operations } from '@deepseek-ai/dsh-tool-session-query/src/operations.ts'
+import { presentation } from '@deepseek-ai/dsh-tool-session-query/src/presentation.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -2105,5 +2107,411 @@ describe('trace and exact read rendering', () => {
   ])('rejects invalid exact-read integers for %s', async (name, args, expected = 'SESSION_QUERY_INVALID_FILTER') => {
     const mounted = await mount()
     expect(errorCode(await mounted.call(name, args))).toBe(expected)
+  })
+})
+
+describe('partial collection on deadline (F5, session 757fa075 seq 573)', () => {
+  /**
+   * Drive executeSessionSearch directly: the collector's partial behaviour is
+   * what is under test, and going through ctx.tools.execute would layer the
+   * registry's own ABORTED replacement on top of it.
+   */
+  const runSearch = async (
+    mounted: Mounted,
+    signal: AbortSignal,
+    exec: Record<string, unknown> = {},
+  ): Promise<string> =>
+    await operations.executeSessionSearch(
+      mounted.ctx,
+      { query: 'needle' },
+      { agent: fakeAgent(mounted.caller), signal, declarePartial: () => {}, ...exec } as never,
+      100,
+    )
+
+  it('RETURNS the pages already collected, labelled PARTIAL, instead of losing them', async () => {
+    const mounted = await mount()
+    const controller = new AbortController()
+    let calls = 0
+    FakeQuery.sessionSearch = async () => {
+      calls += 1
+      if (calls === 1) {
+        return { items: [sessionHit('s1', '/work', 'first hit')], nextCursor: SessionSearchCursor('c1') }
+      }
+      // The deadline the timeout stack stamps: TimeoutReason carries the
+      // elapsed budget, which is what makes the warning actionable.
+      controller.abort(new TimeoutReason('TOOL_TIMEOUT', 30_000))
+      throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+    }
+    const result = await runSearch(mounted, controller.signal)
+    // The hit found before the deadline survives -- the data loss this fixes.
+    expect(result).toContain('s1')
+    expect(result).toContain('first hit')
+    // And the model is told plainly that the result is incomplete.
+    expect(result).toContain('WARNING: PARTIAL results')
+    expect(result).toContain('30000ms')
+    expect(result).toContain('MISSING')
+    expect(result).toContain('Session search results (1)')
+  })
+
+  it('a deadline that collected NOTHING stays a hard failure, never an empty success', async () => {
+    const mounted = await mount()
+    const controller = new AbortController()
+    FakeQuery.sessionSearch = async () => {
+      controller.abort(new TimeoutReason('TOOL_TIMEOUT', 30_000))
+      throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+    }
+    // 'we ran out of time before finding anything' must never read as 'there
+    // is nothing to find', so this rejects rather than returning an empty
+    // result the model would trust.
+    await expect(runSearch(mounted, controller.signal)).rejects.toThrow()
+  })
+
+  it('an UNRELATED provider failure during paging is never disguised as partial results', async () => {
+    const mounted = await mount()
+    let calls = 0
+    FakeQuery.sessionSearch = async () => {
+      calls += 1
+      if (calls === 1) {
+        return { items: [sessionHit('s1', '/work', 'first hit')], nextCursor: SessionSearchCursor('c1') }
+      }
+      throw new SessionQueryError('index exploded', 'SESSION_QUERY_INDEX_FAILED')
+    }
+    // A broken index must fail the call. Presenting its first page as 'partial
+    // results' would dress real breakage up as usable output.
+    await expect(runSearch(mounted, new AbortController().signal)).rejects.toThrow()
+  })
+
+  it('a COMPLETE search carries no partial warning', async () => {
+    const mounted = await mount()
+    FakeQuery.sessionSearch = async () => ({ items: [sessionHit('s1', '/work', 'only hit')] })
+    const result = await runSearch(mounted, new AbortController().signal)
+    expect(result).toContain('s1')
+    expect(result).not.toContain('PARTIAL')
+  })
+})
+
+describe('partial deadline: warning text and reason shapes', () => {
+  it('names the elapsed budget when the timeout reason carries one', () => {
+    const notice = presentation.formatPartialNotice({ partial: { deadlineMs: 30_000 } })
+    expect(notice).toContain('PARTIAL results')
+    expect(notice).toContain('30000ms')
+    expect(notice).toContain('MISSING')
+    expect(notice).toContain('Narrow the query')
+  })
+
+  it('falls back to a generic deadline phrase when the reason carries no budget', () => {
+    // An abort from a source that is not the timeout stack still cannot be
+    // presented as a complete result, so the warning must survive without a
+    // number rather than degrade to silence.
+    const notice = presentation.formatPartialNotice({ partial: {} })
+    expect(notice).toContain('PARTIAL results')
+    expect(notice).toContain('the search deadline')
+    expect(notice).not.toContain('undefined')
+  })
+
+  it('renders NO trailer for a complete collection', () => {
+    expect(presentation.formatPartialNotice({})).toBe('')
+  })
+
+  it('omits the budget when the abort reason is not a timeout reason', async () => {
+    const mounted = await mount()
+    const controller = new AbortController()
+    let calls = 0
+    FakeQuery.sessionSearch = async () => {
+      calls += 1
+      if (calls === 1) {
+        return { items: [sessionHit('s1', '/work', 'kept hit')], nextCursor: SessionSearchCursor('c1') }
+      }
+      // A plain cancellation: aborted, but with a non-timeout reason, so no
+      // budget is recoverable and the generic phrase must be used.
+      controller.abort('user cancelled')
+      throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+    }
+    const result = await operations.executeSessionSearch(
+      mounted.ctx,
+      { query: 'needle' },
+      { agent: fakeAgent(mounted.caller), signal: controller.signal, declarePartial: () => {} } as never,
+      100,
+    )
+    expect(result).toContain('kept hit')
+    expect(result).toContain('the search deadline')
+    expect(result).not.toContain('undefined')
+  })
+
+  it('ignores a timeout reason whose budget is not a positive finite number', async () => {
+    const mounted = await mount()
+    const controller = new AbortController()
+    let calls = 0
+    FakeQuery.sessionSearch = async () => {
+      calls += 1
+      if (calls === 1) {
+        return { items: [sessionHit('s1', '/work', 'kept hit')], nextCursor: SessionSearchCursor('c1') }
+      }
+      controller.abort({ timeoutMs: Number.POSITIVE_INFINITY })
+      throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+    }
+    const result = await operations.executeSessionSearch(
+      mounted.ctx,
+      { query: 'needle' },
+      { agent: fakeAgent(mounted.caller), signal: controller.signal, declarePartial: () => {} } as never,
+      100,
+    )
+    expect(result).toContain('kept hit')
+    expect(result).toContain('the search deadline')
+  })
+
+  it('treats a non-object abort reason as carrying no budget', async () => {
+    const mounted = await mount()
+    const controller = new AbortController()
+    let calls = 0
+    FakeQuery.sessionSearch = async () => {
+      calls += 1
+      if (calls === 1) {
+        return { items: [sessionHit('s1', '/work', 'kept hit')], nextCursor: SessionSearchCursor('c1') }
+      }
+      controller.abort(42)
+      throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+    }
+    const result = await operations.executeSessionSearch(
+      mounted.ctx,
+      { query: 'needle' },
+      { agent: fakeAgent(mounted.caller), signal: controller.signal, declarePartial: () => {} } as never,
+      100,
+    )
+    expect(result).toContain('kept hit')
+    expect(result).toContain('the search deadline')
+  })
+
+  it('preserves an event search partial result and labels it', async () => {
+    const mounted = await mount()
+    const controller = new AbortController()
+    let calls = 0
+    FakeQuery.eventSearch = async (request) => {
+      calls += 1
+      if (calls === 1) {
+        return {
+          session: header(request.sessionId, '/work'),
+          items: [eventHit(request.sessionId, SessionSeq(4), 'kept event')],
+          nextCursor: SessionSearchCursor('e1'),
+        }
+      }
+      controller.abort(new TimeoutReason('TOOL_TIMEOUT', 1000))
+      throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+    }
+    const result = await operations.executeEventSearch(
+      mounted.ctx,
+      { query: 'needle' },
+      { agent: fakeAgent(mounted.caller), signal: controller.signal, declarePartial: () => {} } as never,
+      100,
+    )
+    expect(result).toContain('kept event')
+    expect(result).toContain('WARNING: PARTIAL results')
+    expect(result).toContain('1000ms')
+  })
+})
+
+describe('empty timeout stays a hard failure through the REAL pipeline', () => {
+  afterEach(() => { vi.useRealTimers() })
+
+  it('session_search with a deadline and no matches reports TOOL_TIMEOUT, never empty success', async () => {
+    vi.useFakeTimers()
+    // enforceTimeout mounts the real timeout-policy, so this exercises the same
+    // path the model hits: registry -> policy -> tool -> registry.
+    const mounted = await mount({ searchTimeoutMs: 100 }, '/work', true)
+    // A provider that never answers: the deadline must be what ends the call.
+    // Cooperative: the provider observes the deadline signal and settles with
+    // nothing, which is exactly the shape that used to become a silent empty
+    // success. A provider that IGNORED the signal would hang, not time out.
+    FakeQuery.sessionSearch = (_request, exec) => new Promise((resolve) => {
+      const settle = (): void => { resolve({ items: [] }) }
+      if (exec?.signal?.aborted === true) { settle(); return }
+      exec?.signal?.addEventListener('abort', settle, { once: true })
+    })
+    const pending = mounted.call('session_search', { query: 'needle' })
+    await vi.advanceTimersByTimeAsync(150)
+    const result = await pending
+    // 'we ran out of time before finding anything' must never read as 'there is
+    // nothing to find': the model must see a typed failure it can branch on.
+    expect(result.isError).toBe(true)
+    expect(result.isError ? result.error.info?.code : undefined).toBe('TOOL_TIMEOUT')
+    expect(text(result)).toContain('timed out after 100ms')
+    expect(text(result)).not.toContain('No prior session matches found')
+  })
+})
+
+describe('a partial search reaches the MODEL, not just the collector (F5)', () => {
+  afterEach(() => { vi.useRealTimers() })
+
+  /** A provider that yields one page then stalls until the deadline. */
+  const onePageThenStall = (): void => {
+    let calls = 0
+    FakeQuery.sessionSearch = (_request, exec) => new Promise((resolve) => {
+      calls += 1
+      if (calls === 1) {
+        resolve({ items: [sessionHit('s1', '/work', 'hit before deadline')], nextCursor: SessionSearchCursor('c1') })
+        return
+      }
+      const settle = (): void => { resolve({ items: [] }) }
+      if (exec?.signal?.aborted === true) { settle(); return }
+      exec?.signal?.addEventListener('abort', settle, { once: true })
+    })
+  }
+
+  it('RETURNS the collected match with a PARTIAL warning through the real registry', async () => {
+    vi.useFakeTimers()
+    // enforceTimeout mounts the real timeout-policy, so this is the same
+    // registry -> policy -> tool path the model's call takes.
+    const mounted = await mount({ searchTimeoutMs: 1000 }, '/work', true)
+    onePageThenStall()
+    const pending = mounted.call('session_search', { query: 'needle' })
+    await vi.advanceTimersByTimeAsync(2000)
+    const result = await pending
+    // This is the assertion that failed before the marker fix: the
+    // registry replaced the successful result with ABORTED and the model saw
+    // only 'Error: tool call timed out'. Now the data survives.
+    expect(result.isError).toBe(false)
+    const body = text(result)
+    expect(body).toContain('hit before deadline')
+    expect(body).toContain('Session search results (1)')
+    expect(body).toContain('WARNING: PARTIAL results')
+    expect(body).toContain('1000ms')
+    expect(body).toContain('MISSING')
+  })
+
+  it('a search that finds NOTHING before its budget stays a hard TOOL_TIMEOUT', async () => {
+    vi.useFakeTimers()
+    const mounted = await mount({ searchTimeoutMs: 1000 }, '/work', true)
+    // Never yields a page: the deadline fires with nothing collected.
+    FakeQuery.sessionSearch = (_request, exec) => new Promise((resolve) => {
+      const settle = (): void => { resolve({ items: [] }) }
+      if (exec?.signal?.aborted === true) { settle(); return }
+      exec?.signal?.addEventListener('abort', settle, { once: true })
+    })
+    const pending = mounted.call('session_search', { query: 'needle' })
+    await vi.advanceTimersByTimeAsync(3000)
+    const result = await pending
+    // An empty timeout must never be dressed up as 'no matches found'.
+    expect(result.isError).toBe(true)
+    expect(result.isError ? result.error.info?.code : undefined).toBe('TOOL_TIMEOUT')
+    expect(text(result)).not.toContain('PARTIAL')
+    expect(text(result)).not.toContain('No prior session matches found')
+  })
+})
+
+describe('an abandoned page request cannot fail the call (F5 robustness)', () => {
+  afterEach(() => { vi.useRealTimers() })
+
+  it('a page that REJECTS after the deadline still returns the collected pages', async () => {
+    vi.useFakeTimers()
+    const mounted = await mount({ searchTimeoutMs: 1000 }, '/work', true)
+    let calls = 0
+    let lateReject: ((error: Error) => void) | undefined
+    FakeQuery.sessionSearch = (_request, _exec) => new Promise((resolve, reject) => {
+      calls += 1
+      if (calls === 1) {
+        resolve({ items: [sessionHit('s1', '/work', 'rescued hit')], nextCursor: SessionSearchCursor('c1') })
+        return
+      }
+      // Never resolves: the deadline abandons it. It rejects LATER, and
+      // that rejection must not escape as unhandled and kill the call after
+      // the pages were already rescued.
+      lateReject = reject
+    })
+    const pending = mounted.call('session_search', { query: 'needle' })
+    await vi.advanceTimersByTimeAsync(2000)
+    // The abandoned request now fails, well after the tool returned.
+    lateReject?.(new Error('late provider failure'))
+    await vi.advanceTimersByTimeAsync(10)
+    const result = await pending
+    expect(result.isError).toBe(false)
+    expect(text(result)).toContain('rescued hit')
+    expect(text(result)).toContain('WARNING: PARTIAL results')
+  })
+})
+
+describe('F9 end-to-end: the marker is what carries partials past the registry', () => {
+  afterEach(() => { vi.useRealTimers() })
+
+  /** A provider that yields one page then stalls until the deadline. */
+  const onePageThenStall = (): void => {
+    let calls = 0
+    FakeQuery.sessionSearch = (_request, exec) => new Promise((resolve) => {
+      calls += 1
+      if (calls === 1) {
+        resolve({ items: [sessionHit('s1', '/work', 'rescued by the claim')], nextCursor: SessionSearchCursor('c1') })
+        return
+      }
+      const settle = (): void => { resolve({ items: [] }) }
+      if (exec?.signal?.aborted === true) { settle(); return }
+      exec?.signal?.addEventListener('abort', settle, { once: true })
+    })
+  }
+
+  it('the collected match REACHES the model with a PARTIAL warning, past a real deadline', async () => {
+    vi.useFakeTimers()
+    // enforceTimeout mounts the REAL timeout-policy, and session_search runs
+    // through the REAL registry: this is the path the model's call takes.
+    const mounted = await mount({ searchTimeoutMs: 100 }, '/work', true)
+    onePageThenStall()
+    const pending = mounted.call('session_search', { query: 'needle' })
+    await vi.advanceTimersByTimeAsync(300)
+    const result = await pending
+    // Before F9 the registry replaced this with ABORTED and the hit was lost.
+    // Before the marker, the policy would only have preserved it by GUESSING
+    // from content shape. Now the tool CLAIMS it and both layers honour that.
+    expect(result.isError).toBe(false)
+    const body = text(result)
+    expect(body).toContain('rescued by the claim')
+    expect(body).toContain('WARNING: PARTIAL results')
+    expect(body).toContain('100ms')
+  })
+
+  it('claims partial ONLY when pages were actually kept', async () => {
+    // The claim promises the model that real work is inside the result, so both
+    // halves matter: a COMPLETE search must not claim (a normal result would be
+    // labelled incomplete), and a search that kept pages must claim.
+    const mounted = await mount({ searchTimeoutMs: 100 }, '/work', true)
+    let claims = 0
+
+    // A local driver: exec is a partial stand-in for the registry's context.
+    const drive = async (signal: AbortSignal): Promise<string> =>
+      await operations.executeSessionSearch(
+        mounted.ctx,
+        { query: 'needle' },
+        { agent: fakeAgent(mounted.caller), signal, declarePartial: () => { claims += 1 } } as never,
+        100,
+      )
+
+    // A complete search makes no claim.
+    FakeQuery.sessionSearch = async () => ({ items: [sessionHit('s1', '/work', 'complete hit')] })
+    await drive(new AbortController().signal)
+    expect(claims).toBe(0)
+
+    // A search that keeps a page and then hits its deadline claims exactly once.
+    onePageThenStall()
+    const controller = new AbortController()
+    const pending = drive(controller.signal)
+    await new Promise((resolve) => { setTimeout(resolve, 5) })
+    controller.abort(Object.assign(new Error('deadline'), { timeoutMs: 100 }))
+    await pending
+    expect(claims).toBe(1)
+  })
+
+  it('a deadline with NO results never claims partial and stays a typed failure', async () => {
+    vi.useFakeTimers()
+    const mounted = await mount({ searchTimeoutMs: 100 }, '/work', true)
+    FakeQuery.sessionSearch = (_request, exec) => new Promise((resolve) => {
+      const settle = (): void => { resolve({ items: [] }) }
+      if (exec?.signal?.aborted === true) { settle(); return }
+      exec?.signal?.addEventListener('abort', settle, { once: true })
+    })
+    const pending = mounted.call('session_search', { query: 'needle' })
+    await vi.advanceTimersByTimeAsync(300)
+    const result = await pending
+    // An empty timeout must never be dressed up as 'no matches found', and a
+    // claim on nothing must never be made.
+    expect(result.isError).toBe(true)
+    expect(result.isError ? result.error.info?.code : undefined).toBe('TOOL_TIMEOUT')
+    expect(text(result)).not.toContain('PARTIAL')
   })
 })

@@ -11,9 +11,9 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { ToolCallId, HarnessError } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { defineContentToolFixture, TOOL_ABORTED, type ToolExecutionInput, type PostToolDecision } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { defineContentToolFixture, TOOL_ABORTED, type ToolExecutionInput, type ToolExecutionResult, type PostToolDecision } from '@deepseek-ai/dsh-tools'
 import * as timeoutPolicy from '@deepseek-ai/dsh-tool-call-timeout-policy'
-import { TOOL_TIMEOUT } from '@deepseek-ai/dsh-tool-call-timeout-policy'
+import { TOOL_TIMEOUT, quiescentTimeoutOutcome } from '@deepseek-ai/dsh-tool-call-timeout-policy'
 
 const testToolSignal = new AbortController().signal
 
@@ -240,5 +240,141 @@ describe('dsh-tool-call-timeout-policy real-load-path guard', () => {
     const result = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c1'), name: 'fast', arguments: {} } satisfies ToolExecutionInput)
     expect(result.isError).toBe(false)
     await fiber.dispose()
+  })
+})
+
+describe('quiescentTimeoutOutcome (F5, session 757fa075 seq 573)', () => {
+  /**
+   * Build the success shape a tool returns after it stops at its deadline.
+   * `partial` models whether the tool called `exec.declarePartial()`.
+   */
+  const successWith = (text: string, partial = false): ToolExecutionResult => ({
+    isError: false,
+    value: text,
+    content: [{ type: 'text', text }],
+    ...partial ? { partial: true as const } : {},
+  })
+
+  it('PRESERVES a CLAIMED partial result instead of replacing it with TOOL_TIMEOUT', () => {
+    // The shape a real paging capability has after a deadline: it stopped, it
+    // KEPT what it collected, it labelled the result, and it CLAIMED the
+    // content is deliberately partial. Before the fix this was overwritten with
+    // a bare TOOL_TIMEOUT and every collected match was lost.
+    const partial = successWith('Session search results (3):\n1. Session alpha\n\n(WARNING: PARTIAL results.', true)
+    const outcome = quiescentTimeoutOutcome(partial, 100)
+    expect(outcome).toBe(partial)
+    expect(outcome.isError).toBe(false)
+    expect(JSON.stringify(outcome.content)).toContain('Session search results (3)')
+    expect(JSON.stringify(outcome.content)).toContain('PARTIAL')
+  })
+
+  it('REPLACES an UNCLAIMED success, so a give-up placeholder is never presented as a result', () => {
+    // The reason the claim exists. This is byte-identical to the preserved case
+    // above except that the tool never asserted its content was partial, so the
+    // plugin must not guess from content shape: a tool that gave up may have
+    // returned exactly this.
+    const unclaimed = successWith('Session search results (3):\n1. Session alpha')
+    const outcome = quiescentTimeoutOutcome(unclaimed, 100)
+    expect(outcome.isError).toBe(true)
+    expect(outcome.isError ? outcome.error.info?.code : undefined).toBe(TOOL_TIMEOUT)
+    expect(JSON.stringify(outcome.content)).not.toContain('Session alpha')
+  })
+
+  it('KEEPS an empty timeout a hard typed TOOL_TIMEOUT, never a silent empty success', () => {
+    // A cooperative tool that reached quiescence with nothing to show. "We ran
+    // out of time before finding anything" must never be reported as "there is
+    // nothing to find".
+    const empty: ToolExecutionResult = { isError: false, value: '', content: [] }
+    expect(quiescentTimeoutOutcome(empty, 100)).toEqual({
+      content: [{ type: 'text', text: 'Error: tool call timed out after 100ms' }],
+      isError: true,
+      error: {
+        message: 'tool call timed out after 100ms',
+        info: { name: 'ToolTimeoutError', code: TOOL_TIMEOUT },
+      },
+    })
+  })
+
+  it('does NOT treat a claim on an EMPTY result as a licence to succeed', () => {
+    // A claimed-but-empty success still has nothing to show, so the claim cannot
+    // rescue it: the model would learn nothing and "no matches" would be a lie.
+    const claimedEmpty: ToolExecutionResult = {
+      isError: false, value: '', content: [], partial: true as const,
+    }
+    const outcome = quiescentTimeoutOutcome(claimedEmpty, 250)
+    expect(outcome.isError).toBe(true)
+    expect(outcome.isError ? outcome.error.info?.code : undefined).toBe(TOOL_TIMEOUT)
+  })
+
+  it('does NOT treat a claim on WHITESPACE-only content as a licence to succeed', () => {
+    const claimedBlank = successWith('   \n\t ', true)
+    const outcome = quiescentTimeoutOutcome(claimedBlank, 250)
+    expect(outcome.isError).toBe(true)
+    expect(outcome.isError ? outcome.error.info?.code : undefined).toBe(TOOL_TIMEOUT)
+  })
+
+  it('replaces a tool\'s OWN error result, so an empty timeout stays typed', () => {
+    const failed: ToolExecutionResult = {
+      isError: true,
+      content: [{ type: 'text', text: 'Error: upstream refused' }],
+      error: { message: 'upstream refused', info: { name: 'HarnessError', code: 'WEB_REFUSED' } },
+    }
+    const outcome = quiescentTimeoutOutcome(failed, 100)
+    expect(outcome.isError).toBe(true)
+    expect(outcome.isError ? outcome.error.info?.code : undefined).toBe(TOOL_TIMEOUT)
+  })
+
+  it('counts NON-TEXT content as empty, because the model cannot see a block it cannot read', () => {
+    // An image-only success has nothing the model can act on as search results,
+    // so it must not masquerade as a preserved partial result.
+    const imageOnly: ToolExecutionResult = {
+      isError: false,
+      value: '',
+      // A well-formed image block; the attachment fields are irrelevant here
+      // because the assertion is about the BLOCK TYPE, so the fixture carries
+      // the minimum the type demands rather than faking image bytes.
+      content: [{
+        type: 'image',
+        attachment: {
+          attachmentId: 'img-1',
+          mediaType: 'image/png',
+          bytes: 4,
+          width: 1,
+          height: 1,
+        },
+      } as never],
+    }
+    const outcome = quiescentTimeoutOutcome(imageOnly, 100)
+    expect(outcome.isError).toBe(true)
+  })
+
+  it('a deadline that finds NOTHING still reports TOOL_TIMEOUT through the full registry pipeline', async () => {
+    // Integration-level proof of the empty half. The preserved half cannot be
+    // asserted here: the registry replaces ANY successful result with ABORTED
+    // before this wrapper sees it (see toolAbortedResult in core/tools), so the
+    // partial path is proved by the pure cases above plus the session-query
+    // suite, which drives the collector directly.
+    vi.useFakeTimers()
+    try {
+      const ctx = await setup()
+      ctx.tools.register(defineContentToolFixture({
+        name: 'empty', description: 'settles with nothing when aborted', parameters: {}, timeoutMs: 100,
+        execute(_args, exec): Promise<{ type: 'text'; text: string }[]> {
+          const done: { type: 'text'; text: string }[] = []
+          if (exec.signal.aborted) return Promise.resolve(done)
+          return new Promise((resolve) => {
+            exec.signal.addEventListener('abort', () => { resolve(done) }, { once: true })
+          })
+        },
+      }))
+      const pending = ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('c1'), name: 'empty', arguments: {} })
+      await vi.advanceTimersByTimeAsync(150)
+      const result = await pending
+      expect(result.isError).toBe(true)
+      expect(result.isError ? result.error.info?.code : undefined).toBe(TOOL_TIMEOUT)
+      expect(result.content).toEqual([{ type: 'text', text: 'Error: tool call timed out after 100ms' }])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -27,6 +27,35 @@ type AuthorizedDescendants = ReturnType<typeof workspaceAccess.authorizeDescenda
 interface SearchCollection<T> {
   readonly items: T[]
   readonly capped: boolean
+  /** Present when a deadline stopped the search early; see the collector. */
+  readonly partial?: {
+    readonly reason: 'deadline'
+    readonly deadlineMs?: number
+  }
+}
+
+/**
+ * The trailer that tells the model a search result is INCOMPLETE.
+ *
+ * This is the F3 principle applied to session search: a partial result must be
+ * returned AND clearly labelled, never silently presented as the whole answer.
+ * The block is a distinct trailer rather than a result row, so a warning can
+ * never be mistaken for a session hit, and the body above it stays exactly the
+ * sessions that really matched.
+ *
+ * An empty collection never reaches here — an empty timeout stays a hard
+ * `TOOL_TIMEOUT` failure upstream, because "no results" and "we ran out of time
+ * before finding any" are different facts and only one of them is true.
+ *
+ * @param collected - the collection that may be partial.
+ * @returns the warning trailer, or an empty string for a complete result.
+ */
+function formatPartialNotice(collected: { readonly partial?: { readonly deadlineMs?: number } }): string {
+  if (collected.partial === undefined) return ''
+  const budget = collected.partial.deadlineMs === undefined
+    ? 'the search deadline'
+    : `the ${collected.partial.deadlineMs}ms search deadline`
+  return `\n\n(WARNING: PARTIAL results. The search stopped at ${budget} before it finished paging, so more matches may exist that are MISSING from the results above. Narrow the query or add filters to get a complete result.)`
 }
 
 interface SessionSearchCallArgs {
@@ -75,7 +104,7 @@ function formatSessionSearch(
   if (collected.capped) {
     lines.push('', 'Result cap reached. Narrow the query or add filters to find additional matches.')
   }
-  return lines.join('\n')
+  return lines.join('\n') + formatPartialNotice(collected)
 }
 
 function formatEmptySessionSearch(): string {
@@ -102,7 +131,7 @@ function formatEventSearch(
   if (collected.capped) {
     lines.push('', 'Result cap reached. Narrow the query or add filters to find additional matches.')
   }
-  return lines.join('\n')
+  return lines.join('\n') + formatPartialNotice(collected)
 }
 
 function formatSessionTrace(
@@ -244,6 +273,7 @@ function presentEventTargetCall(
 export const presentation = {
   formatSessionSearch,
   formatEmptySessionSearch,
+  formatPartialNotice,
   formatEventSearch,
   formatSessionTrace,
   formatEventTrace,
