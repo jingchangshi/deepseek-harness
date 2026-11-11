@@ -4,7 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { RoleId, TeamError, TeamTaskId } from '@deepseek-ai/dsh-experimental-agent-team'
-import type { RoleSpec, TeamMemberView } from '@deepseek-ai/dsh-experimental-agent-team'
+import type { ResolvedRoleTable, TeamMemberView } from '@deepseek-ai/dsh-experimental-agent-team'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { InferValue, ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
 
@@ -31,25 +31,40 @@ export const Config: z<Config> = z.object({
 })
 
 /**
- * Render the role catalog one Team actually routes by.
+ * Render the role catalog one Team actually routes by, naming its provenance.
  *
  * The rows come from the Team-service configuration the Lead's preset selects,
  * so this text cannot drift from the routes a spawn really uses: it is the same
  * table `spawn_teammate` resolves. No route is hardcoded here.
- * @param roles - the Team's resolved role table.
- * @returns one inline catalog line, or a table-free sentence when none is configured.
+ *
+ * The catalog NAMES the preset that was observed and the table that answered.
+ * A silent substitution is the one failure a reader cannot detect: the base
+ * table and a preset table render identically otherwise, so a session whose
+ * preset was misread showed the built-in routes while its persona documented
+ * different ones. When resolution fell back, that is stated outright.
+ * @param resolution - the Team's table, the observed preset, and the table used.
+ * @returns the catalog line plus, when applicable, an explicit fallback warning.
  */
-function roleCatalog(roles: readonly RoleSpec[]): string {
-  if (roles.length === 0) return 'Roles (role fixes the model route and its concurrency): this deployment configures no roles, so spawn_teammate cannot create a teammate.'
+function roleCatalog(resolution: ResolvedRoleTable): string {
+  const { roles, presetId, presetSource, table, fellBack } = resolution
+  const rung = presetSource === 'composed'
+    ? 'the live composition'
+    : presetSource === 'projection' ? 'the session projection' : 'the creation-time session header'
+  const observed = presetId === undefined ? 'none observed' : `${presetId}, read from ${rung}`
+  const warning = !fellBack ? '' : presetId === undefined
+    ? '\n\nWARNING: no preset id could be observed, so roles fell back to the base "roles" table. If this session runs under a preset with its own team routes, those routes are NOT in effect: treat the table above as unconfirmed and say so before spawning.'
+    : `\n\nWARNING: preset "${presetId}" has no presetRoles entry in this deployment, so roles fell back to the base "roles" table. The routes above are therefore NOT that preset's routes: treat them as unconfirmed and say so before spawning.`
+  const head = `Team roles (preset: ${observed} -> ${table} table)`
+  if (roles.length === 0) return `${head}: this deployment configures no roles, so spawn_teammate cannot create a teammate.${warning}`
   const rows = roles.map(role => `${role.id} (${role.provider}/${role.model}, ${role.description}, max ${role.maxConcurrent})`)
-  return `Roles (role fixes the model route and its concurrency): ${rows.join(' · ')}.`
+  return `${head}: ${rows.join(' · ')}.${warning}`
 }
 
 /** Model-facing collaboration guidance shared by Lead and teammates. */
-function teamPolicy(interrupt: boolean, roles: readonly RoleSpec[]): string {
+function teamPolicy(interrupt: boolean, resolution: ResolvedRoleTable): string {
   return `Agent Teams is available in this session
 
-${roleCatalog(roles)} Dispatch by role: spawn_teammate({ role, task }). Reuse an idle teammate of the SAME role with send_message (pass expected_role to assert) before creating a new one. A task's required_role is enforced when claimed or reassigned. When capacity is full the runtime returns backpressure naming the blocked role: wait or reuse, and NEVER send a task to a mismatched role.
+${roleCatalog(resolution)} Dispatch by role: spawn_teammate({ role, task }). Reuse an idle teammate of the SAME role with send_message (pass expected_role to assert) before creating a new one. A task's required_role is enforced when claimed or reassigned. When capacity is full the runtime returns backpressure naming the blocked role: wait or reuse, and NEVER send a task to a mismatched role.
 
 The Team Lead and all teammates share the same working directory and filesystem. Edits are immediately visible to every member. Split write work into disjoint scopes, record expected write scopes on shared tasks, and use task dependencies when work must be ordered. Write-scope overlap is advisory, not a lock.
 
@@ -339,9 +354,10 @@ function install(agent: Agent, ctx: Context, config: Required<Config>): () => vo
       name: 'team:policy',
       order: scoped.systemPrompt.getSectionOrder('TEAM_POLICY'),
       // Resolved per assembly from the Team's own role table, so the catalog
-      // always matches the routes spawn_teammate will apply — including after
-      // the Lead switches preset.
-      text: () => teamPolicy(config.interrupt, ctx.agentTeams.rolesFor(agent)),
+      // names the preset actually observed and the table it produced — including
+      // when that is a fallback, which is stated as a warning rather than
+      // inferred from prose elsewhere in the prompt.
+      text: () => teamPolicy(config.interrupt, ctx.agentTeams.resolvedRoleTable(agent)),
     }))
     register(scoped.systemPrompt.context({
       name: 'team:identity',
