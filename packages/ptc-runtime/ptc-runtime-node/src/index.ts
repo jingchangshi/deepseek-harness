@@ -30,7 +30,55 @@ interface LiveRun { controller: AbortController; finished: Promise<void> }
 const STRIP_PREFIX = 'async function __dsh_program__() {\n'
 const STRIP_SUFFIX = '\n}'
 
-function messageOf(error: unknown): string { return error instanceof Error ? error.message : String(error) }
+/**
+ * Render a thrown value or an abort reason as a message that is never the
+ * useless "[object Object]".
+ *
+ * The abort branch passes `signal.reason` here, and an abort reason need not be
+ * an Error: `AbortController.abort()` accepts any value and a teardown may abort
+ * with a plain `{ name, message }` or an opaque object. `String()` on such a
+ * value yields "[object Object]", which once hid a teardown cause as
+ * `code run failed (abort): [object Object]`. Prefer a string `.message` (with
+ * `.name` when present), else the JSON body, else a shape label — so an ordinary
+ * object, including `{}` and a cyclic one, never degrades to "[object Object]".
+ * @param error - thrown value or abort reason.
+ * @returns a human-readable message; a preserved empty string or Error message stays as-is.
+ */
+function messageOf(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  if (Array.isArray(error)) return serializeReason(error, 'array')
+  if (record(error)) {
+    try {
+      const { name, message } = error
+      if (typeof message === 'string' && message.length > 0) {
+        return typeof name === 'string' && name.length > 0 ? `${name}: ${message}` : message
+      }
+    } catch {
+      // A throwing name/message getter must not break abort formatting.
+    }
+    return serializeReason(error, 'object')
+  }
+  return String(error)
+}
+
+/**
+ * Serialize an ordinary object/array reason, naming the shape when it cannot be
+ * serialized (a cyclic or otherwise opaque value) rather than yielding
+ * "[object Object]".
+ * @param value - object or array abort reason.
+ * @param kind - the shape label to use when serialization fails.
+ * @returns the JSON body, or a bracketed shape label.
+ */
+function serializeReason(value: object, kind: 'object' | 'array'): string {
+  try {
+    const serialized = JSON.stringify(value)
+    if (serialized !== undefined) return serialized
+  } catch {
+    // Cyclic or otherwise unserializable: fall through to the shape label.
+  }
+  return kind === 'array' ? '[unserializable array]' : '[unserializable object]'
+}
 function record(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value) }
 
 /** Node execution under file policy, with optional owner-scoped retained memory. */

@@ -203,6 +203,29 @@ describe('Node runtime host failures', () => {
     expect(h.resolveExecutable).not.toHaveBeenCalled()
   })
 
+  it('renders a non-Error abort reason meaningfully instead of [object Object]', async () => {
+    // A teardown may abort with a plain object reason (not an Error). The old
+    // messageOf used String(reason) and produced the useless '[object Object]',
+    // hiding the cause behind 'code run failed (abort): [object Object]'.
+    const h = await setup()
+    const reason = { name: 'TeardownError', message: 'ptc dispatch torn down' }
+    const result = await h.start({ ...request, signal: AbortSignal.abort(reason) }, NO_INITIAL_FRAME)
+    expect(result.error).toEqual({ kind: 'abort', message: 'TeardownError: ptc dispatch torn down' })
+    expect(result.error?.message).not.toContain('[object Object]')
+    expect(h.resolveExecutable).not.toHaveBeenCalled()
+  })
+
+  it('never renders an empty or cyclic object abort reason as [object Object]', async () => {
+    const empty = await setup()
+    expect((await empty.start({ ...request, signal: AbortSignal.abort({}) }, NO_INITIAL_FRAME)).error)
+      .toEqual({ kind: 'abort', message: '{}' })
+    const cyclic: Record<string, unknown> = {}
+    cyclic.self = cyclic
+    const looped = await setup()
+    expect((await looped.start({ ...request, signal: AbortSignal.abort(cyclic) }, NO_INITIAL_FRAME)).error)
+      .toEqual({ kind: 'abort', message: '[unserializable object]' })
+  })
+
   it('keeps a null-deadline run active past the numeric ceiling until cancellation', async () => {
     const h = await setup({ timeoutMs: 20, maxTimeoutMs: 40 })
     const booted = Promise.withResolvers<undefined>()
