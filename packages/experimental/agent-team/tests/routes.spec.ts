@@ -223,6 +223,30 @@ describe('role table provenance', () => {
     expect(ctx.agentTeams.resolvedRoleTable(lead)).toMatchObject({ table: 'roles', fellBack: false })
   })
 
+  it('distinguishes an observed preset from absent per-preset routing', async () => {
+    // The shape that shipped a broken fleet: a preset IS observed, yet the
+    // deployment reports no presetRoles at all. fellBack stays false because
+    // that is the honest reading of 'no per-preset routing is configured', so
+    // the catalog needs the separate fact to avoid implying the base table is
+    // that preset's own routing.
+    const { ctx, lead } = await setup({
+      composedPreset: 'ai-compiler-magpie',
+      config: { roles: table('corp'), slotPlan: SLOT_PLAN },
+    })
+    expect(ctx.agentTeams.resolvedRoleTable(lead)).toMatchObject({
+      presetId: 'ai-compiler-magpie', table: 'roles', fellBack: false, presetRoutingConfigured: false,
+    })
+  })
+
+  it('reports per-preset routing as configured once any table exists', async () => {
+    const { ctx, lead } = await setup({
+      headerPreset: 'standard',
+      selectedPreset: 'ai-compiler-magpie',
+      config: config({ 'ai-compiler-magpie': table('magpie') }),
+    })
+    expect(ctx.agentTeams.resolvedRoleTable(lead)).toMatchObject({ table: 'presetRoles', presetRoutingConfigured: true })
+  })
+
   it('keeps resolveRoles as the thin table-only wrapper existing callers use', async () => {
     // The provenance-bearing resolver is the authority; the original signature
     // stays supported so a caller that only needs routes does not have to

@@ -46,14 +46,25 @@ export const Config: z<Config> = z.object({
  * @returns the catalog line plus, when applicable, an explicit fallback warning.
  */
 function roleCatalog(resolution: ResolvedRoleTable): string {
-  const { roles, presetId, presetSource, table, fellBack } = resolution
+  const { roles, presetId, presetSource, table, fellBack, presetRoutingConfigured } = resolution
   const rung = presetSource === 'composed'
     ? 'the live composition'
     : presetSource === 'projection' ? 'the session projection' : 'the creation-time session header'
   const observed = presetId === undefined ? 'none observed' : `${presetId}, read from ${rung}`
-  const warning = !fellBack ? '' : presetId === undefined
-    ? '\n\nWARNING: no preset id could be observed, so roles fell back to the base "roles" table. If this session runs under a preset with its own team routes, those routes are NOT in effect: treat the table above as unconfirmed and say so before spawning.'
-    : `\n\nWARNING: preset "${presetId}" has no presetRoles entry in this deployment, so roles fell back to the base "roles" table. The routes above are therefore NOT that preset's routes: treat them as unconfirmed and say so before spawning.`
+  const warning = fellBack
+    ? presetId === undefined
+      ? '\n\nWARNING: no preset id could be observed, so roles fell back to the base "roles" table. If this session runs under a preset with its own team routes, those routes are NOT in effect: treat the table above as unconfirmed and say so before spawning.'
+      : `\n\nWARNING: preset "${presetId}" has no presetRoles entry in this deployment, so roles fell back to the base "roles" table. The routes above are therefore NOT that preset's routes: treat them as unconfirmed and say so before spawning.`
+    // The silent case, and the one that shipped a broken fleet: a preset was
+    // OBSERVED and we are routing by the base table, yet this deployment
+    // reports no per-preset routing at all. That is either a deployment that
+    // genuinely configures none, or one whose configured tables never reached
+    // this service (a duplicate-id bundle row can replace them wholesale, with
+    // no error anywhere). These are indistinguishable from here, so the
+    // catalog must not imply the table above is the preset's own.
+    : presetId !== undefined && !presetRoutingConfigured && roles.length > 0
+      ? `\n\nWARNING: preset "${presetId}" was observed, but this deployment reports NO presetRoles tables at all, so the roles above are the built-in defaults rather than that preset's routes. Either this deployment really configures none, or the configured ones never reached the Team service; a preset that should route its own fleet is NOT in effect here. Treat the routes above as unconfirmed and say so before spawning.`
+      : ''
   const head = `Team roles (preset: ${observed} -> ${table} table)`
   if (roles.length === 0) return `${head}: this deployment configures no roles, so spawn_teammate cannot create a teammate.${warning}`
   const rows = roles.map(role => `${role.id} (${role.provider}/${role.model}, ${role.description}, max ${role.maxConcurrent})`)

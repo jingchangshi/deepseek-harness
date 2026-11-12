@@ -68,6 +68,20 @@ export interface ResolvedRoleTable {
    * only configured authority rather than a substitute for a missing one.
    */
   readonly fellBack: boolean
+  /**
+   * Whether this deployment configured ANY `presetRoles` table at all.
+   *
+   * This exists because {@link ResolvedRoleTable.fellBack} cannot express the
+   * most dangerous case on its own. When `presetRoles` is completely empty
+   * while a preset WAS observed, `fellBack` is false — it reads as "per-preset
+   * routing is not configured", the ordinary default — yet the observed preset
+   * may in fact be one whose routes were silently lost before this service was
+   * constructed. A caller cannot distinguish "the deployment never had preset
+   * routes" from "the configured routes did not arrive", and the honest
+   * response is to say so instead of implying the base table is authoritative
+   * for that preset.
+   */
+  readonly presetRoutingConfigured: boolean
 }
 
 /**
@@ -118,8 +132,11 @@ export function presetIdOf(agent: Agent): string | undefined {
 export function resolveRoleTable(config: Required<Config>, lead: Agent): ResolvedRoleTable {
   const { presetId, source } = presetSelectionOf(lead)
   const entry = presetId === undefined ? undefined : config.presetRoles[presetId]
+  const presetRoutingConfigured = Object.keys(config.presetRoles).length > 0
   if (entry !== undefined) {
-    return { roles: entry, presetId, presetSource: source, table: 'presetRoles', fellBack: false }
+    return {
+      roles: entry, presetId, presetSource: source, table: 'presetRoles', fellBack: false, presetRoutingConfigured,
+    }
   }
   return {
     roles: config.roles,
@@ -128,7 +145,8 @@ export function resolveRoleTable(config: Required<Config>, lead: Agent): Resolve
     table: 'roles',
     // Per-preset routing that exists but did not answer this Team is a
     // substitution the caller must be able to report, not an ordinary default.
-    fellBack: Object.keys(config.presetRoles).length > 0,
+    fellBack: presetRoutingConfigured,
+    presetRoutingConfigured,
   }
 }
 

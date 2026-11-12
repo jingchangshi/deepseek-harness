@@ -199,6 +199,27 @@ describe('rendered role catalog provenance', () => {
     expect(prompt).not.toContain('WARNING:')
   })
 
+  it('warns when a preset is observed but the deployment reports no presetRoles at all', async () => {
+    // The exact shape that shipped a broken fleet: the Lead correctly
+    // observed ai-compiler-magpie, yet config.presetRoles arrived EMPTY (a
+    // duplicate-id bundle row had replaced our row wholesale), so every role
+    // silently ran on the built-in corp table. Since presetRoles is empty,
+    // the older 'has no presetRoles entry' warning cannot fire, so without
+    // this branch the model is told nothing at all and reasonably concludes
+    // the corp routes ARE that preset's routes.
+    const { ctx, lead } = await setup({
+      composedPreset: 'ai-compiler-magpie',
+      roleConfig: { roles: TABLE.corp, slotPlan: SLOT_PLAN },
+    })
+    const prompt = await catalogOf(ctx, lead)
+    expect(prompt).toContain('Team roles (preset: ai-compiler-magpie, read from the live composition -> roles table)')
+    expect(prompt).toContain('WARNING: preset "ai-compiler-magpie" was observed, but this deployment reports NO presetRoles tables at all')
+    expect(prompt).toContain('the roles above are the built-in defaults rather than that preset')
+    // It must still name the routes it actually rendered, so the model can
+    // quote them when it reports the uncertainty.
+    expect(prompt).toContain('Qwen3.8-Flash')
+  })
+
   it('renders the no-roles sentence with the same provenance and warning', async () => {
     // A deployment that configures an empty base table and no matching preset
     // entry still has to explain itself: the model sees WHY no role exists.
