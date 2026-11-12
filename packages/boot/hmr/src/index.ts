@@ -13,6 +13,7 @@ import {
 } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-cmdline'
 import { handleError } from './error.ts'
+import { shouldDeferProfileRefresh, TurnTracker } from './defer.ts'
 import { PackageManifests } from './package-manifest.ts'
 import { ModuleFiles } from './module-files.ts'
 import type {} from '@deepseek-ai/cordis-plugin-timer'
@@ -20,6 +21,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createRequire } from 'node:module'
 import picomatch from 'picomatch'
 import z from '@deepseek-ai/schemastery'
+// Type-only: merges the agent package's Context (`agents`) and Events
+// (`agent/status`) augmentations so HMR can gate profile recomposition on
+// running turns with typed access, without a runtime dependency or a cast.
+import type {} from '@deepseek-ai/dsh-agent'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -385,9 +390,24 @@ class Hmr extends Service {
       const patchFiles = [profile.patchPath, join(profile.home, PROFILE_PATCH_FILENAME)]
       let lastInputs: string | undefined
       let lastBundles = JSON.stringify(profile.startedBundles)
+      // A bundle-list change restarts the plugin entries that carry presetRoles
+      // and the Team tool plane. Applying it mid-turn aborts in-flight PTC
+      // programs ('code run failed (abort)') and transiently unregisters the
+      // agent-scoped Team tools ('unknown tool ...'). Defer it to an idle moment
+      // instead of tearing live work down, and retry when the roster goes idle.
+      let deferred = false
+      // Live running-turn tracker: seeded from the current roster below, then
+      // kept exact by 'running'/'idle' status edges, so a bundle change applies
+      // only when no agent is mid-turn.
+      const turns = new TurnTracker()
+      // Seed from the CURRENT roster, so a late-started (or restarted) HMR still
+      // sees turns already running; the event edges below only cover new ones.
+      turns.seed(this.ownerContext.get('agents')?.list() ?? [])
+      this.ownerContext.on('agent/status', ({ agent }) => turns.onStatus(agent))
       const refresh = async (manifestOnly: boolean): Promise<void> => {
         const bundles = JSON.stringify(readProfileManifest('dsh', profile.dir).dsh?.profile?.bundles ?? [])
-        if (manifestOnly && bundles === lastBundles) return
+        const bundlesChanged = bundles !== lastBundles
+        if (manifestOnly && !bundlesChanged) return
         const inputs = JSON.stringify([bundles, ...patchFiles.map((filename) => {
           try { return readFileSync(filename, 'utf8') }
           catch (error) {
@@ -396,13 +416,36 @@ class Hmr extends Service {
           }
         })])
         if (inputs === lastInputs) return
+        const runningTurns = turns.count
+        if (shouldDeferProfileRefresh({ bundlesChanged, runningTurns })) {
+          // Leave lastInputs/lastBundles untouched so the pending change is retried.
+          deferred = true
+          this.ctx.logger.warn(
+            'restart required: profile bundles changed while %d agent turn(s) are running; deferring live recomposition until they finish',
+            runningTurns,
+          )
+          return
+        }
         const { warnings, pending, restartReason } = await this.reconcileProfile()
+        // Clear the pending flag only once recomposition succeeded, so a failed
+        // reconcile is retried instead of silently dropped.
+        deferred = false
         if (restartReason !== undefined) this.ctx.logger.warn('restart required: %s', restartReason)
         if (pending.length > 0) this.ctx.logger.warn('changed modules keep running their previous code until a restart: %o', pending)
         lastInputs = inputs
         lastBundles = bundles
         for (const diagnostic of warnings) this.ctx.logger.warn(diagnostic)
       }
+      const retryDeferred = (): void => {
+        if (!deferred || turns.count > 0) return
+        // Contain the retry like the watcher path does: a failing reconcile must
+        // not escape an event listener as an unhandled rejection.
+        this.runReload(() => refresh(true)).catch((error: unknown) => {
+          this.ctx.logger.warn('deferred profile refresh retry failed: %o', error)
+        })
+      }
+      // Scoped to this service context: disposed with the HMR fiber.
+      this.ownerContext.on('agent/status', retryDeferred)
       for (const filename of patchFiles) await this.watchConfig(filename, () => refresh(false))
       await this.watchConfig(manifestPath, () => refresh(true))
     }
